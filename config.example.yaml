@@ -1,0 +1,39 @@
+# miau - Configuração de exemplo
+# Copie para config.yaml e preencha com seus dados
+
+accounts:
+  - name: "pessoal"
+    email: "seu@email.com"
+    imap:
+      host: "imap.gmail.com"
+      port: 993
+      tls: true
+    # Credenciais via variáveis de ambiente:
+    # MIAU_ACCOUNTS_0_PASSWORD=sua_senha_ou_app_password
+
+  # - name: "trabalho"
+  #   email: "seu@empresa.com"
+  #   imap:
+  #     host: "imap.empresa.com"
+  #     port: 993
+  #     tls: true
+
+storage:
+  # Diretório onde os emails serão armazenados
+  path: "./data"
+  # Banco de dados SQLite para índice/metadados
+  database: "./data/miau.db"
+
+sync:
+  # Intervalo de sincronização automática (0 = desabilitado)
+  interval: "5m"
+  # Quantos dias de emails baixar na primeira sincronização
+  initial_days: 30
+
+ui:
+  # Tema: "dark" ou "light"
+  theme: "dark"
+  # Mostrar preview do email na lista
+  show_preview: true
+  # Quantidade de emails por página
+  page_size: 50

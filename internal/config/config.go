@@ -75,9 +75,8 @@ func ConfigExists() bool {
 }
 
 func Load() (*Config, error) {
-	if cfg != nil {
-		return cfg, nil
-	}
+	// Reset para forçar recarregar
+	cfg = nil
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")

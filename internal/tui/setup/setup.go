@@ -648,8 +648,9 @@ func guessImapHost(domain string) string {
 		return host
 	}
 
-	// Para Google Workspace, o IMAP é sempre imap.gmail.com
-	return "imap." + domain
+	// Por padrão, assume Google Workspace (muito comum para domínios corporativos)
+	// O usuário pode mudar manualmente se não for Google
+	return "imap.gmail.com"
 }
 
 func isGoogleDomain(domain string) bool {

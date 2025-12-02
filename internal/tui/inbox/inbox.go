@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opik/miau/internal/config"
@@ -36,6 +37,9 @@ var (
 	successStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#73D216"))
 
+	infoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4ECDC4"))
+
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#FF6B6B")).
@@ -52,6 +56,9 @@ var (
 	folderSelectedStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#4ECDC4")).
 				Foreground(lipgloss.Color("#000000"))
+
+	inputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6B6B"))
 )
 
 type state int
@@ -62,21 +69,25 @@ const (
 	stateLoadingEmails
 	stateReady
 	stateError
+	stateNeedsAppPassword
 )
 
 type Model struct {
-	width         int
-	height        int
-	state         state
-	err           error
-	account       *config.Account
-	client        *imap.Client
-	mailboxes     []imap.Mailbox
-	emails        []imap.Email
-	selectedEmail int
-	selectedBox   int
-	currentBox    string
-	showFolders   bool
+	width           int
+	height          int
+	state           state
+	err             error
+	account         *config.Account
+	cfg             *config.Config
+	client          *imap.Client
+	mailboxes       []imap.Mailbox
+	emails          []imap.Email
+	selectedEmail   int
+	selectedBox     int
+	currentBox      string
+	showFolders     bool
+	passwordInput   textinput.Model
+	retrying        bool
 }
 
 // Messages
@@ -96,12 +107,22 @@ type errMsg struct {
 	err error
 }
 
+type configSavedMsg struct{}
+
 func New(account *config.Account) Model {
+	var input = textinput.New()
+	input.Placeholder = "xxxx xxxx xxxx xxxx"
+	input.CharLimit = 20
+	input.Width = 25
+	input.EchoMode = textinput.EchoPassword
+	input.EchoCharacter = '•'
+
 	return Model{
-		account:     account,
-		state:       stateConnecting,
-		currentBox:  "INBOX",
-		showFolders: false,
+		account:       account,
+		state:         stateConnecting,
+		currentBox:    "INBOX",
+		showFolders:   false,
+		passwordInput: input,
 	}
 }
 
@@ -144,9 +165,59 @@ func (m Model) loadEmails() tea.Cmd {
 	}
 }
 
+func (m Model) saveConfig() tea.Cmd {
+	return func() tea.Msg {
+		// Recarrega config completa
+		var cfg, err = config.Load()
+		if err != nil {
+			return errMsg{err: err}
+		}
+
+		// Atualiza a senha da conta
+		for i := range cfg.Accounts {
+			if cfg.Accounts[i].Email == m.account.Email {
+				cfg.Accounts[i].Password = m.account.Password
+				break
+			}
+		}
+
+		// Salva
+		if err := config.Save(cfg); err != nil {
+			return errMsg{err: err}
+		}
+
+		return configSavedMsg{}
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Estado de pedir App Password
+		if m.state == stateNeedsAppPassword {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				var password = strings.TrimSpace(m.passwordInput.Value())
+				if password == "" {
+					return m, nil
+				}
+				// Atualiza senha e tenta reconectar
+				m.account.Password = strings.ReplaceAll(password, " ", "")
+				m.state = stateConnecting
+				m.retrying = true
+				m.err = nil
+				return m, tea.Batch(m.saveConfig(), m.connect())
+			case "esc", "q":
+				return m, tea.Quit
+			}
+
+			var cmd tea.Cmd
+			m.passwordInput, cmd = m.passwordInput.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.client != nil {
@@ -201,6 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		m.client = msg.client
 		m.state = stateLoadingFolders
+		m.retrying = false
 		return m, m.loadFolders()
 
 	case foldersLoadedMsg:
@@ -219,22 +291,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.emails = msg.emails
 		m.state = stateReady
 
+	case configSavedMsg:
+		// Config salva, continue esperando a conexão
+		return m, nil
+
 	case errMsg:
 		m.err = msg.err
+		// Verifica se é erro de App Password
+		if isAppPasswordError(msg.err) {
+			m.state = stateNeedsAppPassword
+			m.passwordInput.Focus()
+			return m, textinput.Blink
+		}
 		m.state = stateError
 	}
 
 	return m, nil
 }
 
+func isAppPasswordError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var errStr = err.Error()
+	return strings.Contains(errStr, "Application-specific password required") ||
+		strings.Contains(errStr, "Invalid credentials") ||
+		strings.Contains(errStr, "AUTHENTICATIONFAILED") ||
+		strings.Contains(errStr, "Username and Password not accepted")
+}
+
 func (m Model) View() string {
 	switch m.state {
 	case stateConnecting:
-		return m.viewLoading("Conectando ao servidor IMAP...")
+		var msg = "Conectando ao servidor IMAP..."
+		if m.retrying {
+			msg = "Reconectando com nova senha..."
+		}
+		return m.viewLoading(msg)
 	case stateLoadingFolders:
 		return m.viewLoading("Carregando pastas...")
 	case stateLoadingEmails:
 		return m.viewLoading(fmt.Sprintf("Carregando emails de %s...", m.currentBox))
+	case stateNeedsAppPassword:
+		return m.viewAppPasswordPrompt()
 	case stateError:
 		return m.viewError()
 	case stateReady:
@@ -250,6 +349,33 @@ func (m Model) viewLoading(msg string) string {
 	)
 
 	var box = boxStyle.Render(content)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
+}
+
+func (m Model) viewAppPasswordPrompt() string {
+	var header = titleStyle.Render("miau 🐱 - App Password Necessária")
+
+	var explanation = infoStyle.Render(`
+O Google requer uma "App Password" para apps de email.
+
+Como criar:
+1. Acesse: myaccount.google.com/apppasswords
+2. Selecione "Mail" e "Outro (miau)"
+3. Clique em "Gerar"
+4. Copie a senha de 16 caracteres abaixo
+`)
+
+	var prompt = "\nApp Password:\n"
+	var input = inputStyle.Render(m.passwordInput.View())
+
+	var hint = "\n\n" + subtitleStyle.Render("Enter: conectar • Esc: sair")
+
+	var content = fmt.Sprintf("%s%s%s%s%s", header, explanation, prompt, input, hint)
+	var box = boxStyle.Padding(1, 2).Render(content)
 
 	if m.width > 0 && m.height > 0 {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)

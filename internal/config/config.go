@@ -8,6 +8,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type AuthType string
+
+const (
+	AuthTypePassword AuthType = "password"
+	AuthTypeOAuth2   AuthType = "oauth2"
+)
+
+type OAuth2Config struct {
+	ClientID     string `yaml:"client_id" mapstructure:"client_id"`
+	ClientSecret string `yaml:"client_secret" mapstructure:"client_secret"`
+}
+
 type ImapConfig struct {
 	Host string `yaml:"host" mapstructure:"host"`
 	Port int    `yaml:"port" mapstructure:"port"`
@@ -15,10 +27,12 @@ type ImapConfig struct {
 }
 
 type Account struct {
-	Name     string     `yaml:"name" mapstructure:"name"`
-	Email    string     `yaml:"email" mapstructure:"email"`
-	Password string     `yaml:"password,omitempty" mapstructure:"password"`
-	Imap     ImapConfig `yaml:"imap" mapstructure:"imap"`
+	Name     string        `yaml:"name" mapstructure:"name"`
+	Email    string        `yaml:"email" mapstructure:"email"`
+	AuthType AuthType      `yaml:"auth_type" mapstructure:"auth_type"`
+	Password string        `yaml:"password,omitempty" mapstructure:"password"`
+	OAuth2   *OAuth2Config `yaml:"oauth2,omitempty" mapstructure:"oauth2"`
+	Imap     ImapConfig    `yaml:"imap" mapstructure:"imap"`
 }
 
 type StorageConfig struct {

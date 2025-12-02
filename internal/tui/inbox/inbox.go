@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/imap"
+	"github.com/opik/miau/internal/storage"
 )
 
 var (
@@ -59,13 +61,19 @@ var (
 
 	inputStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF6B6B"))
+
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).
+			Italic(true)
 )
 
 type state int
 
 const (
-	stateConnecting state = iota
+	stateInitDB state = iota
+	stateConnecting
 	stateLoadingFolders
+	stateSyncing
 	stateLoadingEmails
 	stateReady
 	stateError
@@ -78,19 +86,25 @@ type Model struct {
 	state           state
 	err             error
 	account         *config.Account
-	cfg             *config.Config
+	dbAccount       *storage.Account
+	dbFolder        *storage.Folder
 	client          *imap.Client
 	mailboxes       []imap.Mailbox
-	emails          []imap.Email
+	emails          []storage.EmailSummary
 	selectedEmail   int
 	selectedBox     int
 	currentBox      string
 	showFolders     bool
 	passwordInput   textinput.Model
 	retrying        bool
+	syncStatus      string
+	totalEmails     int
+	syncedEmails    int
 }
 
 // Messages
+type dbInitMsg struct{}
+
 type connectedMsg struct {
 	client *imap.Client
 }
@@ -99,8 +113,16 @@ type foldersLoadedMsg struct {
 	mailboxes []imap.Mailbox
 }
 
+type syncProgressMsg struct {
+	status string
+	synced int
+	total  int
+}
+
+type syncDoneMsg struct{}
+
 type emailsLoadedMsg struct {
-	emails []imap.Email
+	emails []storage.EmailSummary
 }
 
 type errMsg struct {
@@ -119,7 +141,7 @@ func New(account *config.Account) Model {
 
 	return Model{
 		account:       account,
-		state:         stateConnecting,
+		state:         stateInitDB,
 		currentBox:    "INBOX",
 		showFolders:   false,
 		passwordInput: input,
@@ -127,7 +149,18 @@ func New(account *config.Account) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.connect()
+	return m.initDB()
+}
+
+func (m Model) initDB() tea.Cmd {
+	return func() tea.Msg {
+		var cfg, _ = config.Load()
+		var dbPath = cfg.Storage.Database
+		if err := storage.Init(dbPath); err != nil {
+			return errMsg{err: err}
+		}
+		return dbInitMsg{}
+	}
 }
 
 func (m Model) connect() tea.Cmd {
@@ -150,16 +183,56 @@ func (m Model) loadFolders() tea.Cmd {
 	}
 }
 
-func (m Model) loadEmails() tea.Cmd {
+func (m Model) syncEmails() tea.Cmd {
 	return func() tea.Msg {
-		var _, err = m.client.SelectMailbox(m.currentBox)
+		// Seleciona a mailbox
+		var selectData, err = m.client.SelectMailbox(m.currentBox)
 		if err != nil {
-			return errMsg{err: err}
+			return errMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
 
-		var emails, err2 = m.client.FetchEmails(50)
+		if selectData.NumMessages == 0 {
+			return syncDoneMsg{}
+		}
+
+		// Busca emails do servidor
+		var emails, err2 = m.client.FetchEmailsSeqNum(selectData, 100)
 		if err2 != nil {
 			return errMsg{err: err2}
+		}
+
+		// Salva no banco
+		for _, email := range emails {
+			var dbEmail = &storage.Email{
+				AccountID: m.dbAccount.ID,
+				FolderID:  m.dbFolder.ID,
+				UID:       email.UID,
+				MessageID: sql.NullString{String: email.MessageID, Valid: email.MessageID != ""},
+				Subject:   email.Subject,
+				FromName:  email.From,
+				FromEmail: email.FromEmail,
+				ToAddresses: email.To,
+				Date:      email.Date,
+				IsRead:    email.Seen,
+				IsStarred: email.Flagged,
+				Size:      email.Size,
+			}
+			storage.UpsertEmail(dbEmail)
+		}
+
+		// Atualiza stats da pasta
+		var total, unread, _ = storage.CountEmails(m.dbAccount.ID, m.dbFolder.ID)
+		storage.UpdateFolderStats(m.dbFolder.ID, total, unread)
+
+		return syncDoneMsg{}
+	}
+}
+
+func (m Model) loadEmailsFromDB() tea.Cmd {
+	return func() tea.Msg {
+		var emails, err = storage.GetEmails(m.dbAccount.ID, m.dbFolder.ID, 100, 0)
+		if err != nil {
+			return errMsg{err: err}
 		}
 		return emailsLoadedMsg{emails: emails}
 	}
@@ -167,13 +240,11 @@ func (m Model) loadEmails() tea.Cmd {
 
 func (m Model) saveConfig() tea.Cmd {
 	return func() tea.Msg {
-		// Recarrega config completa
 		var cfg, err = config.Load()
 		if err != nil {
 			return errMsg{err: err}
 		}
 
-		// Atualiza a senha da conta
 		for i := range cfg.Accounts {
 			if cfg.Accounts[i].Email == m.account.Email {
 				cfg.Accounts[i].Password = m.account.Password
@@ -181,7 +252,6 @@ func (m Model) saveConfig() tea.Cmd {
 			}
 		}
 
-		// Salva
 		if err := config.Save(cfg); err != nil {
 			return errMsg{err: err}
 		}
@@ -193,7 +263,6 @@ func (m Model) saveConfig() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Estado de pedir App Password
 		if m.state == stateNeedsAppPassword {
 			switch msg.String() {
 			case "ctrl+c":
@@ -203,7 +272,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if password == "" {
 					return m, nil
 				}
-				// Atualiza senha e tenta reconectar
 				m.account.Password = strings.ReplaceAll(password, " ", "")
 				m.state = stateConnecting
 				m.retrying = true
@@ -223,6 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.client != nil {
 				m.client.Close()
 			}
+			storage.Close()
 			return m, tea.Quit
 
 		case "up", "k":
@@ -254,20 +323,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.showFolders && len(m.mailboxes) > 0 {
 				m.currentBox = m.mailboxes[m.selectedBox].Name
 				m.showFolders = false
-				m.state = stateLoadingEmails
+				m.state = stateSyncing
 				m.selectedEmail = 0
-				return m, m.loadEmails()
+				// Cria/obtém a pasta no DB
+				var folder, _ = storage.GetOrCreateFolder(m.dbAccount.ID, m.currentBox)
+				m.dbFolder = folder
+				return m, m.syncEmails()
 			}
 
 		case "r":
-			// Refresh
-			m.state = stateLoadingEmails
-			return m, m.loadEmails()
+			m.state = stateSyncing
+			return m, m.syncEmails()
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case dbInitMsg:
+		// Cria/obtém a conta no DB
+		var account, err = storage.GetOrCreateAccount(m.account.Email, m.account.Name)
+		if err != nil {
+			m.err = err
+			m.state = stateError
+			return m, nil
+		}
+		m.dbAccount = account
+
+		// Cria/obtém a pasta INBOX
+		var folder, err2 = storage.GetOrCreateFolder(account.ID, "INBOX")
+		if err2 != nil {
+			m.err = err2
+			m.state = stateError
+			return m, nil
+		}
+		m.dbFolder = folder
+
+		m.state = stateConnecting
+		return m, m.connect()
 
 	case connectedMsg:
 		m.client = msg.client
@@ -277,7 +370,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case foldersLoadedMsg:
 		m.mailboxes = msg.mailboxes
-		m.state = stateLoadingEmails
+
+		// Salva pastas no DB
+		for _, mb := range m.mailboxes {
+			var folder, _ = storage.GetOrCreateFolder(m.dbAccount.ID, mb.Name)
+			storage.UpdateFolderStats(folder.ID, int(mb.Messages), int(mb.Unseen))
+		}
+
 		// Encontra índice do INBOX
 		for i, mb := range m.mailboxes {
 			if strings.EqualFold(mb.Name, "INBOX") {
@@ -285,19 +384,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		return m, m.loadEmails()
+
+		m.state = stateSyncing
+		return m, m.syncEmails()
+
+	case syncProgressMsg:
+		m.syncStatus = msg.status
+		m.syncedEmails = msg.synced
+		m.totalEmails = msg.total
+		return m, nil
+
+	case syncDoneMsg:
+		m.state = stateLoadingEmails
+		return m, m.loadEmailsFromDB()
 
 	case emailsLoadedMsg:
 		m.emails = msg.emails
 		m.state = stateReady
 
 	case configSavedMsg:
-		// Config salva, continue esperando a conexão
 		return m, nil
 
 	case errMsg:
 		m.err = msg.err
-		// Verifica se é erro de App Password
 		if isAppPasswordError(msg.err) {
 			m.state = stateNeedsAppPassword
 			m.passwordInput.Focus()
@@ -322,6 +431,8 @@ func isAppPasswordError(err error) bool {
 
 func (m Model) View() string {
 	switch m.state {
+	case stateInitDB:
+		return m.viewLoading("Inicializando banco de dados...")
 	case stateConnecting:
 		var msg = "Conectando ao servidor IMAP..."
 		if m.retrying {
@@ -330,8 +441,14 @@ func (m Model) View() string {
 		return m.viewLoading(msg)
 	case stateLoadingFolders:
 		return m.viewLoading("Carregando pastas...")
+	case stateSyncing:
+		var msg = fmt.Sprintf("Sincronizando %s...", m.currentBox)
+		if m.syncStatus != "" {
+			msg = m.syncStatus
+		}
+		return m.viewLoading(msg)
 	case stateLoadingEmails:
-		return m.viewLoading(fmt.Sprintf("Carregando emails de %s...", m.currentBox))
+		return m.viewLoading("Carregando emails do banco local...")
 	case stateNeedsAppPassword:
 		return m.viewAppPasswordPrompt()
 	case stateError:
@@ -359,7 +476,6 @@ func (m Model) viewLoading(msg string) string {
 func (m Model) viewAppPasswordPrompt() string {
 	var header = titleStyle.Render("miau 🐱 - App Password Necessária")
 
-	// Link clicável usando OSC 8 (suportado por terminais modernos)
 	var link = "\x1b]8;;https://myaccount.google.com/apppasswords\x1b\\myaccount.google.com/apppasswords\x1b]8;;\x1b\\"
 
 	var explanation = infoStyle.Render(fmt.Sprintf(`
@@ -402,10 +518,15 @@ func (m Model) viewError() string {
 }
 
 func (m Model) viewInbox() string {
-	// Header
-	var header = headerStyle.Render(fmt.Sprintf(" miau 🐱  %s  [%s] ",
+	// Header com stats
+	var stats = ""
+	if len(m.emails) > 0 {
+		stats = fmt.Sprintf(" (%d emails)", len(m.emails))
+	}
+	var header = headerStyle.Render(fmt.Sprintf(" miau 🐱  %s  [%s]%s ",
 		m.account.Email,
 		m.currentBox,
+		stats,
 	))
 
 	// Folders panel (se ativo)
@@ -418,7 +539,7 @@ func (m Model) viewInbox() string {
 	var emailList = m.renderEmailList()
 
 	// Footer
-	var footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:refresh  q:sair ")
+	var footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  q:sair ")
 
 	// Layout
 	var content string
@@ -465,16 +586,15 @@ func (m Model) renderFolders() string {
 
 func (m Model) renderEmailList() string {
 	if len(m.emails) == 0 {
-		return boxStyle.Render(subtitleStyle.Render("Nenhum email encontrado"))
+		return boxStyle.Render(subtitleStyle.Render("Nenhum email encontrado.\nPressione 'r' para sincronizar."))
 	}
 
 	var lines []string
-	var listHeight = m.height - 4 // header + footer
+	var listHeight = m.height - 4
 	if listHeight < 5 {
 		listHeight = 10
 	}
 
-	// Calcula janela de visualização
 	var start = 0
 	var end = len(m.emails)
 	if len(m.emails) > listHeight {
@@ -503,7 +623,7 @@ func (m Model) renderEmailList() string {
 
 		if i == m.selectedEmail {
 			lines = append(lines, selectedStyle.Render(line))
-		} else if email.Seen {
+		} else if email.IsRead {
 			lines = append(lines, readStyle.Render(line))
 		} else {
 			lines = append(lines, unreadStyle.Render(line))
@@ -513,13 +633,21 @@ func (m Model) renderEmailList() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) formatEmailLine(email imap.Email, width int) string {
+func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
 	var indicator = "●"
-	if email.Seen {
+	if email.IsRead {
 		indicator = " "
 	}
+	if email.IsStarred {
+		indicator = "★"
+	}
 
-	var from = truncate(email.From, 20)
+	var from = email.FromName
+	if from == "" {
+		from = email.FromEmail
+	}
+	from = truncate(from, 20)
+
 	var subject = truncate(email.Subject, width-35)
 	var date = email.Date.Format("02/01 15:04")
 

@@ -30,8 +30,6 @@ func (c *xoauth2Client) Start() (string, []byte, error) {
 }
 
 func (c *xoauth2Client) Next(challenge []byte) ([]byte, error) {
-	// Se recebemos um challenge, provavelmente é um erro
-	// Decodifica para ver a mensagem
 	if len(challenge) > 0 {
 		var decoded, _ = base64.StdEncoding.DecodeString(string(challenge))
 		return nil, fmt.Errorf("XOAUTH2 error: %s", string(decoded))
@@ -51,11 +49,17 @@ type Mailbox struct {
 }
 
 type Email struct {
-	UID     uint32
-	Subject string
-	From    string
-	Date    time.Time
-	Seen    bool
+	UID       uint32
+	MessageID string
+	Subject   string
+	From      string
+	FromEmail string
+	To        string
+	Date      time.Time
+	Seen      bool
+	Flagged   bool
+	Size      int64
+	BodyText  string
 }
 
 // Connect estabelece conexão IMAP com a conta
@@ -100,7 +104,6 @@ func authenticatePassword(client *imapclient.Client, account *config.Account) er
 }
 
 func authenticateOAuth2(client *imapclient.Client, account *config.Account) error {
-	// Carrega token
 	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Name)
 	var oauthCfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
 
@@ -109,7 +112,6 @@ func authenticateOAuth2(client *imapclient.Client, account *config.Account) erro
 		return fmt.Errorf("erro ao obter token: %w", err)
 	}
 
-	// XOAUTH2
 	var saslClient = newXOAuth2Client(account.Email, token.AccessToken)
 	return client.Authenticate(saslClient)
 }
@@ -129,7 +131,6 @@ func (c *Client) ListMailboxes() ([]Mailbox, error) {
 			Name: mbox.Mailbox,
 		}
 
-		// Tenta obter status da mailbox
 		var statusCmd = c.client.Status(mbox.Mailbox, &imap.StatusOptions{
 			NumMessages: true,
 			NumUnseen:   true,
@@ -150,17 +151,111 @@ func (c *Client) ListMailboxes() ([]Mailbox, error) {
 	return mailboxes, nil
 }
 
-// SelectMailbox seleciona uma mailbox
+// SelectMailbox seleciona uma mailbox e retorna info
 func (c *Client) SelectMailbox(name string) (*imap.SelectData, error) {
 	return c.client.Select(name, nil).Wait()
 }
 
-// FetchEmails busca emails da mailbox selecionada
-func (c *Client) FetchEmails(limit int) ([]Email, error) {
+// FetchEmailsSeqNum busca emails por sequence number (mais confiável)
+func (c *Client) FetchEmailsSeqNum(selectData *imap.SelectData, limit int) ([]Email, error) {
 	var emails []Email
 
-	// Busca os UIDs primeiro
-	var searchCmd = c.client.Search(&imap.SearchCriteria{}, nil)
+	if selectData.NumMessages == 0 {
+		return emails, nil
+	}
+
+	// Calcula range de sequence numbers (mais recentes primeiro)
+	var total = selectData.NumMessages
+	var start uint32 = 1
+	if total > uint32(limit) {
+		start = total - uint32(limit) + 1
+	}
+
+	// Cria SeqSet do start até o final
+	var seqSet = imap.SeqSet{}
+	seqSet.AddRange(start, total)
+
+	var fetchOptions = &imap.FetchOptions{
+		Flags:       true,
+		Envelope:    true,
+		UID:         true,
+		RFC822Size:  true,
+		BodySection: []*imap.FetchItemBodySection{},
+	}
+
+	var fetchCmd = c.client.Fetch(seqSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar emails: %w", err)
+	}
+
+	for _, msg := range messages {
+		var email = Email{
+			UID:  uint32(msg.UID),
+			Size: msg.RFC822Size,
+		}
+
+		if msg.Envelope != nil {
+			email.Subject = msg.Envelope.Subject
+			email.Date = msg.Envelope.Date
+			email.MessageID = msg.Envelope.MessageID
+
+			if len(msg.Envelope.From) > 0 {
+				var from = msg.Envelope.From[0]
+				if from.Name != "" {
+					email.From = from.Name
+				} else {
+					email.From = from.Mailbox
+				}
+				email.FromEmail = fmt.Sprintf("%s@%s", from.Mailbox, from.Host)
+			}
+
+			if len(msg.Envelope.To) > 0 {
+				var to = msg.Envelope.To[0]
+				email.To = fmt.Sprintf("%s@%s", to.Mailbox, to.Host)
+			}
+		}
+
+		for _, flag := range msg.Flags {
+			if flag == imap.FlagSeen {
+				email.Seen = true
+			}
+			if flag == imap.FlagFlagged {
+				email.Flagged = true
+			}
+		}
+
+		emails = append(emails, email)
+	}
+
+	// Inverte para mais recentes primeiro
+	for i, j := 0, len(emails)-1; i < j; i, j = i+1, j-1 {
+		emails[i], emails[j] = emails[j], emails[i]
+	}
+
+	return emails, nil
+}
+
+// FetchEmails busca emails (wrapper para compatibilidade)
+func (c *Client) FetchEmails(limit int) ([]Email, error) {
+	// Primeiro seleciona INBOX se não selecionou
+	var selectData, err = c.client.Select("INBOX", nil).Wait()
+	if err != nil {
+		return nil, err
+	}
+	return c.FetchEmailsSeqNum(selectData, limit)
+}
+
+// FetchNewEmails busca emails com UID maior que o especificado
+func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
+	var emails []Email
+
+	// Busca UIDs maiores que sinceUID
+	var criteria = &imap.SearchCriteria{
+		UID: []imap.UIDSet{{imap.UIDRange{Start: imap.UID(sinceUID + 1), Stop: 0}}},
+	}
+
+	var searchCmd = c.client.Search(criteria, nil)
 	var searchData, err = searchCmd.Wait()
 	if err != nil {
 		return nil, err
@@ -171,28 +266,21 @@ func (c *Client) FetchEmails(limit int) ([]Email, error) {
 		return emails, nil
 	}
 
-	// Limita quantidade
-	var start = 0
+	// Limita
 	if len(uids) > limit {
-		start = len(uids) - limit
-	}
-	var recentUIDs = uids[start:]
-
-	// Inverte para mostrar mais recentes primeiro
-	for i, j := 0, len(recentUIDs)-1; i < j; i, j = i+1, j-1 {
-		recentUIDs[i], recentUIDs[j] = recentUIDs[j], recentUIDs[i]
+		uids = uids[len(uids)-limit:]
 	}
 
-	// Busca dados dos emails
 	var uidSet = imap.UIDSet{}
-	for _, uid := range recentUIDs {
+	for _, uid := range uids {
 		uidSet.AddNum(uid)
 	}
 
 	var fetchOptions = &imap.FetchOptions{
-		Flags:    true,
-		Envelope: true,
-		UID:      true,
+		Flags:      true,
+		Envelope:   true,
+		UID:        true,
+		RFC822Size: true,
 	}
 
 	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
@@ -203,27 +291,32 @@ func (c *Client) FetchEmails(limit int) ([]Email, error) {
 
 	for _, msg := range messages {
 		var email = Email{
-			UID: uint32(msg.UID),
+			UID:  uint32(msg.UID),
+			Size: msg.RFC822Size,
 		}
 
 		if msg.Envelope != nil {
 			email.Subject = msg.Envelope.Subject
 			email.Date = msg.Envelope.Date
+			email.MessageID = msg.Envelope.MessageID
+
 			if len(msg.Envelope.From) > 0 {
 				var from = msg.Envelope.From[0]
 				if from.Name != "" {
 					email.From = from.Name
 				} else {
-					email.From = fmt.Sprintf("%s@%s", from.Mailbox, from.Host)
+					email.From = from.Mailbox
 				}
+				email.FromEmail = fmt.Sprintf("%s@%s", from.Mailbox, from.Host)
 			}
 		}
 
-		// Verifica flag Seen
 		for _, flag := range msg.Flags {
 			if flag == imap.FlagSeen {
 				email.Seen = true
-				break
+			}
+			if flag == imap.FlagFlagged {
+				email.Flagged = true
 			}
 		}
 
@@ -231,6 +324,38 @@ func (c *Client) FetchEmails(limit int) ([]Email, error) {
 	}
 
 	return emails, nil
+}
+
+// FetchEmailBody busca o corpo completo de um email
+func (c *Client) FetchEmailBody(uid uint32) (string, error) {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	var bodySection = &imap.FetchItemBodySection{
+		Specifier: imap.PartSpecifierText,
+	}
+
+	var fetchOptions = &imap.FetchOptions{
+		BodySection: []*imap.FetchItemBodySection{bodySection},
+	}
+
+	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return "", err
+	}
+
+	if len(messages) == 0 {
+		return "", fmt.Errorf("email não encontrado")
+	}
+
+	var msg = messages[0]
+	var body = msg.FindBodySection(bodySection)
+	if body != nil {
+		return string(body), nil
+	}
+
+	return "", nil
 }
 
 // Close fecha a conexão

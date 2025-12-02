@@ -359,15 +359,18 @@ func (m Model) viewLoading(msg string) string {
 func (m Model) viewAppPasswordPrompt() string {
 	var header = titleStyle.Render("miau 🐱 - App Password Necessária")
 
-	var explanation = infoStyle.Render(`
+	// Link clicável usando OSC 8 (suportado por terminais modernos)
+	var link = "\x1b]8;;https://myaccount.google.com/apppasswords\x1b\\myaccount.google.com/apppasswords\x1b]8;;\x1b\\"
+
+	var explanation = infoStyle.Render(fmt.Sprintf(`
 O Google requer uma "App Password" para apps de email.
 
 Como criar:
-1. Acesse: myaccount.google.com/apppasswords
+1. Acesse: %s
 2. Selecione "Mail" e "Outro (miau)"
 3. Clique em "Gerar"
 4. Copie a senha de 16 caracteres abaixo
-`)
+`, link))
 
 	var prompt = "\nApp Password:\n"
 	var input = inputStyle.Render(m.passwordInput.View())

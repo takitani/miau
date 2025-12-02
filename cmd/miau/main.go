@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opik/miau/internal/config"
+	"github.com/opik/miau/internal/tui/inbox"
 	"github.com/opik/miau/internal/tui/setup"
 )
 
@@ -31,7 +32,7 @@ type appState int
 
 const (
 	stateSetup appState = iota
-	stateMain
+	stateInbox
 )
 
 type model struct {
@@ -39,6 +40,7 @@ type model struct {
 	height     int
 	state      appState
 	setupModel setup.Model
+	inboxModel inbox.Model
 	cfg        *config.Config
 }
 
@@ -49,8 +51,9 @@ func initialModel() model {
 	if config.ConfigExists() {
 		var cfg, err = config.Load()
 		if err == nil && cfg != nil && len(cfg.Accounts) > 0 {
-			m.state = stateMain
+			m.state = stateInbox
 			m.cfg = cfg
+			m.inboxModel = inbox.New(&cfg.Accounts[0])
 			return m
 		}
 	}
@@ -65,18 +68,14 @@ func (m model) Init() tea.Cmd {
 	if m.state == stateSetup {
 		return m.setupModel.Init()
 	}
+	if m.state == stateInbox {
+		return m.inboxModel.Init()
+	}
 	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if m.state == stateMain {
-			switch msg.String() {
-			case "ctrl+c", "q":
-				return m, tea.Quit
-			}
-		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -89,12 +88,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Verifica se setup terminou
 		if m.setupModel.IsComplete() {
+			// Recarrega config e inicia inbox
+			config.Load() // força recarregar
 			var cfg, _ = config.Load()
 			m.cfg = cfg
-			m.state = stateMain
-			return m, nil
+			m.inboxModel = inbox.New(&cfg.Accounts[0])
+			m.state = stateInbox
+			return m, m.inboxModel.Init()
 		}
 
+		return m, cmd
+	}
+
+	if m.state == stateInbox {
+		var updatedInbox, cmd = m.inboxModel.Update(msg)
+		m.inboxModel = updatedInbox.(inbox.Model)
 		return m, cmd
 	}
 
@@ -106,34 +114,11 @@ func (m model) View() string {
 		return m.setupModel.View()
 	}
 
-	return m.viewMain()
-}
-
-func (m model) viewMain() string {
-	var title = titleStyle.Render("miau 🐱")
-	var subtitle = subtitleStyle.Render("Mail Intelligence Assistant Utility")
-
-	var accountInfo string
-	if m.cfg != nil && len(m.cfg.Accounts) > 0 {
-		accountInfo = fmt.Sprintf("\n\nConta: %s", m.cfg.Accounts[0].Email)
+	if m.state == stateInbox {
+		return m.inboxModel.View()
 	}
 
-	var hint = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("\n\nPressione 'q' para sair")
-
-	var content = fmt.Sprintf("%s\n%s%s%s",
-		title,
-		subtitle,
-		accountInfo,
-		hint,
-	)
-
-	var box = boxStyle.Render(content)
-
-	if m.width > 0 && m.height > 0 {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
-	}
-
-	return box
+	return ""
 }
 
 func main() {

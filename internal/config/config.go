@@ -26,13 +26,26 @@ type ImapConfig struct {
 	TLS  bool   `yaml:"tls" mapstructure:"tls"`
 }
 
+type SMTPConfig struct {
+	Host string `yaml:"host" mapstructure:"host"`
+	Port int    `yaml:"port" mapstructure:"port"`
+}
+
+type SignatureConfig struct {
+	Enabled bool   `yaml:"enabled" mapstructure:"enabled"`
+	HTML    string `yaml:"html" mapstructure:"html"`
+	Text    string `yaml:"text" mapstructure:"text"`
+}
+
 type Account struct {
-	Name     string        `yaml:"name" mapstructure:"name"`
-	Email    string        `yaml:"email" mapstructure:"email"`
-	AuthType AuthType      `yaml:"auth_type" mapstructure:"auth_type"`
-	Password string        `yaml:"password,omitempty" mapstructure:"password"`
-	OAuth2   *OAuth2Config `yaml:"oauth2,omitempty" mapstructure:"oauth2"`
-	Imap     ImapConfig    `yaml:"imap" mapstructure:"imap"`
+	Name      string           `yaml:"name" mapstructure:"name"`
+	Email     string           `yaml:"email" mapstructure:"email"`
+	AuthType  AuthType         `yaml:"auth_type" mapstructure:"auth_type"`
+	Password  string           `yaml:"password,omitempty" mapstructure:"password"`
+	OAuth2    *OAuth2Config    `yaml:"oauth2,omitempty" mapstructure:"oauth2"`
+	IMAP      ImapConfig       `yaml:"imap" mapstructure:"imap"`
+	SMTP      SMTPConfig       `yaml:"smtp,omitempty" mapstructure:"smtp"`
+	Signature *SignatureConfig `yaml:"signature,omitempty" mapstructure:"signature"`
 }
 
 type StorageConfig struct {
@@ -51,11 +64,16 @@ type UIConfig struct {
 	PageSize    int    `yaml:"page_size" mapstructure:"page_size"`
 }
 
+type ComposeConfig struct {
+	Format string `yaml:"format" mapstructure:"format"` // "html" ou "plain"
+}
+
 type Config struct {
 	Accounts []Account     `yaml:"accounts" mapstructure:"accounts"`
 	Storage  StorageConfig `yaml:"storage" mapstructure:"storage"`
 	Sync     SyncConfig    `yaml:"sync" mapstructure:"sync"`
 	UI       UIConfig      `yaml:"ui" mapstructure:"ui"`
+	Compose  ComposeConfig `yaml:"compose" mapstructure:"compose"`
 }
 
 var cfg *Config
@@ -91,6 +109,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("ui.theme", "dark")
 	viper.SetDefault("ui.show_preview", true)
 	viper.SetDefault("ui.page_size", 50)
+	viper.SetDefault("compose.format", "html")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -136,6 +155,9 @@ func DefaultConfig() *Config {
 			Theme:       "dark",
 			ShowPreview: true,
 			PageSize:    50,
+		},
+		Compose: ComposeConfig{
+			Format: "html",
 		},
 	}
 }

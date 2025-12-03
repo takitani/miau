@@ -3,6 +3,7 @@ package inbox
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -12,16 +13,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/imap"
+	"github.com/opik/miau/internal/smtp"
 	"github.com/opik/miau/internal/storage"
+	"golang.org/x/net/html"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/htmlindex"
 )
 
 var (
@@ -120,6 +128,25 @@ type Model struct {
 	aiScrollOffset  int
 	// Spinner
 	spinner         spinner.Model
+	// Email viewer
+	showViewer      bool
+	viewerViewport  viewport.Model
+	viewerEmail     *storage.EmailSummary
+	viewerLoading   bool
+	// Compose
+	showCompose           bool
+	composeTo             textinput.Model
+	composeSubject        textinput.Model
+	composeBody           viewport.Model
+	composeBodyText       string
+	composeFocus          int // 0=To, 1=Subject, 2=Body, 3=Classification
+	composeSending        bool
+	composeReplyTo        *storage.EmailSummary
+	composeClassification int // índice em smtp.Classifications
+	// Debug
+	debugMode       bool
+	debugLogs       []string
+	debugScroll     int
 }
 
 // Messages
@@ -163,7 +190,29 @@ type htmlOpenedMsg struct {
 	err error
 }
 
-func New(account *config.Account) Model {
+type emailContentMsg struct {
+	content string
+	err     error
+}
+
+type emailSentMsg struct {
+	err    error
+	host   string
+	port   int
+	to     string
+	msgID  string
+}
+
+type markReadMsg struct {
+	emailID int64
+	uid     uint32
+}
+
+type debugLogMsg struct {
+	msg string
+}
+
+func New(account *config.Account, debug bool) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
 	input.CharLimit = 20
@@ -176,18 +225,55 @@ func New(account *config.Account) Model {
 	aiInput.CharLimit = 500
 	aiInput.Width = 60
 
+	// Compose inputs
+	var composeTo = textinput.New()
+	composeTo.Placeholder = "destinatario@email.com"
+	composeTo.CharLimit = 200
+	composeTo.Width = 50
+
+	var composeSubject = textinput.New()
+	composeSubject.Placeholder = "Assunto"
+	composeSubject.CharLimit = 200
+	composeSubject.Width = 50
+
 	var s = spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
 
+	var debugLogs []string
+	if debug {
+		debugLogs = []string{
+			fmt.Sprintf("[%s] 🐛 Debug mode ativado", time.Now().Format("15:04:05")),
+			fmt.Sprintf("[%s] 📧 Conta: %s", time.Now().Format("15:04:05"), account.Email),
+		}
+	}
+
 	return Model{
-		account:       account,
-		state:         stateInitDB,
-		currentBox:    "INBOX",
-		showFolders:   false,
-		passwordInput: input,
-		aiInput:       aiInput,
-		spinner:       s,
+		account:        account,
+		state:          stateInitDB,
+		currentBox:     "INBOX",
+		showFolders:    false,
+		passwordInput:  input,
+		aiInput:        aiInput,
+		spinner:        s,
+		composeTo:      composeTo,
+		composeSubject: composeSubject,
+		debugMode:      debug,
+		debugLogs:      debugLogs,
+	}
+}
+
+// log adiciona uma mensagem ao painel de debug
+func (m *Model) log(format string, args ...interface{}) {
+	if !m.debugMode {
+		return
+	}
+	var timestamp = time.Now().Format("15:04:05")
+	var msg = fmt.Sprintf(format, args...)
+	m.debugLogs = append(m.debugLogs, fmt.Sprintf("[%s] %s", timestamp, msg))
+	// Mantém só as últimas 100 linhas
+	if len(m.debugLogs) > 100 {
+		m.debugLogs = m.debugLogs[len(m.debugLogs)-100:]
 	}
 }
 
@@ -240,19 +326,28 @@ func (m Model) syncEmails() tea.Cmd {
 			return errMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
 
-		// Carrega config para obter dias de sync
-		var cfg, _ = config.Load()
-		var syncDays = 30 // default
-		if cfg != nil && cfg.Sync.InitialDays > 0 {
-			syncDays = cfg.Sync.InitialDays
-		}
-		// 0 = todos os emails
-		if cfg != nil && cfg.Sync.InitialDays == 0 {
-			syncDays = 0
+		// Busca último UID que temos no banco
+		var latestUID, _ = storage.GetLatestUID(m.dbAccount.ID, m.dbFolder.ID)
+
+		var emails []imap.Email
+		var err2 error
+
+		if latestUID > 0 {
+			// Quick sync: só busca emails novos (UID > último)
+			emails, err2 = m.client.FetchNewEmails(latestUID, 100)
+		} else {
+			// Sync inicial: usa dias configurados
+			var cfg, _ = config.Load()
+			var syncDays = 30
+			if cfg != nil && cfg.Sync.InitialDays > 0 {
+				syncDays = cfg.Sync.InitialDays
+			}
+			if cfg != nil && cfg.Sync.InitialDays == 0 {
+				syncDays = 0
+			}
+			emails, err2 = m.client.FetchEmailsSince(syncDays)
 		}
 
-		// Busca emails do servidor (por data)
-		var emails, err2 = m.client.FetchEmailsSince(syncDays)
 		if err2 != nil {
 			return errMsg{err: err2}
 		}
@@ -351,6 +446,88 @@ func (m Model) saveConfig() tea.Cmd {
 	}
 }
 
+func (m Model) markAsRead(emailID int64, uid uint32) tea.Cmd {
+	return func() tea.Msg {
+		// Marca no banco local
+		storage.MarkAsRead(emailID, true)
+
+		// Marca no servidor IMAP
+		if m.client != nil {
+			m.client.MarkAsRead(uid)
+		}
+
+		return markReadMsg{emailID: emailID, uid: uid}
+	}
+}
+
+func (m Model) sendEmail() tea.Cmd {
+	return func() tea.Msg {
+		var to = strings.TrimSpace(m.composeTo.Value())
+		var subject = strings.TrimSpace(m.composeSubject.Value())
+		var body = m.composeBodyText
+
+		// Carrega config para verificar formato e assinatura
+		var cfg, _ = config.Load()
+		var useHTML = cfg == nil || cfg.Compose.Format != "plain"
+
+		// Monta o corpo do email
+		var emailBody string
+		if useHTML {
+			emailBody = "<html><body>"
+			emailBody += "<div style=\"font-family: Arial, sans-serif; font-size: 14px;\">"
+			emailBody += strings.ReplaceAll(body, "\n", "<br>")
+			emailBody += "</div>"
+
+			// Adiciona assinatura HTML se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.HTML != "" {
+				emailBody += "<br><br>"
+				emailBody += "<div style=\"border-top: 1px solid #ccc; padding-top: 10px; margin-top: 10px;\">"
+				emailBody += m.account.Signature.HTML
+				emailBody += "</div>"
+			}
+
+			emailBody += "</body></html>"
+		} else {
+			// Plain text
+			emailBody = body
+
+			// Adiciona assinatura de texto se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.Text != "" {
+				emailBody += "\n\n--\n"
+				emailBody += m.account.Signature.Text
+			}
+		}
+
+		var client = smtp.NewClient(m.account)
+		var email = &smtp.Email{
+			To:             []string{to},
+			Subject:        subject,
+			Body:           emailBody,
+			Classification: smtp.Classifications[m.composeClassification],
+			IsHTML:         useHTML,
+		}
+
+		// Se for reply, adiciona headers de threading
+		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
+			var originalMsgID = m.composeReplyTo.MessageID.String
+			email.InReplyTo = originalMsgID
+			email.References = originalMsgID
+		}
+
+		var result, err = client.Send(email)
+		if err != nil {
+			return emailSentMsg{err: err, to: to}
+		}
+
+		return emailSentMsg{
+			host:  result.Host,
+			port:  result.Port,
+			to:    to,
+			msgID: result.MessageID,
+		}
+	}
+}
+
 func (m Model) openEmailHTML() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
@@ -408,8 +585,47 @@ func (m Model) openEmailHTML() tea.Cmd {
 	}
 }
 
-// extractHTML extrai conteúdo HTML de um email MIME
-func extractHTML(rawData []byte) string {
+func (m Model) loadEmailContent() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
+			return emailContentMsg{err: fmt.Errorf("nenhum email selecionado")}
+		}
+
+		var email = m.emails[m.selectedEmail]
+
+		if m.client == nil {
+			return emailContentMsg{err: fmt.Errorf("não conectado ao servidor")}
+		}
+
+		// Seleciona a mailbox antes de buscar
+		if _, err := m.client.SelectMailbox(m.currentBox); err != nil {
+			return emailContentMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
+		}
+
+		var rawData, err = m.client.FetchEmailRaw(email.UID)
+		if err != nil {
+			return emailContentMsg{err: err}
+		}
+
+		// Tenta extrair texto plain primeiro, depois HTML convertido
+		var textContent = extractText(rawData)
+		if textContent == "" {
+			var htmlContent = extractHTML(rawData)
+			if htmlContent != "" {
+				textContent = htmlToText(htmlContent)
+			}
+		}
+
+		if textContent == "" {
+			return emailContentMsg{err: fmt.Errorf("email sem conteúdo de texto")}
+		}
+
+		return emailContentMsg{content: textContent}
+	}
+}
+
+// extractText extrai conteúdo text/plain de um email MIME
+func extractText(rawData []byte) string {
 	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
 	if err != nil {
 		return ""
@@ -418,21 +634,201 @@ func extractHTML(rawData []byte) string {
 	var contentType = msg.Header.Get("Content-Type")
 	var mediaType, params, _ = mime.ParseMediaType(contentType)
 
-	// Se for HTML direto
-	if strings.HasPrefix(mediaType, "text/html") {
+	// Se for texto direto
+	if strings.HasPrefix(mediaType, "text/plain") {
 		var body, _ = io.ReadAll(msg.Body)
 		return decodeBody(body, msg.Header.Get("Content-Transfer-Encoding"))
 	}
 
-	// Se for multipart, procura a parte HTML
+	// Se for multipart, procura a parte text/plain
 	if strings.HasPrefix(mediaType, "multipart/") {
 		var boundary = params["boundary"]
 		if boundary != "" {
-			return findHTMLPart(msg.Body, boundary)
+			return findTextPart(msg.Body, boundary)
 		}
 	}
 
 	return ""
+}
+
+func findTextPart(r io.Reader, boundary string) string {
+	var mr = multipart.NewReader(r, boundary)
+	for {
+		var part, err = mr.NextPart()
+		if err != nil {
+			break
+		}
+
+		var contentType = part.Header.Get("Content-Type")
+		var mediaType, params, _ = mime.ParseMediaType(contentType)
+
+		if strings.HasPrefix(mediaType, "text/plain") {
+			var body, _ = io.ReadAll(part)
+			return decodeBody(body, part.Header.Get("Content-Transfer-Encoding"))
+		}
+
+		// Multipart aninhado
+		if strings.HasPrefix(mediaType, "multipart/") {
+			var boundary = params["boundary"]
+			if boundary != "" {
+				if text := findTextPart(part, boundary); text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractHTML extrai conteúdo HTML de um email MIME
+func extractHTML(rawData []byte) string {
+	var htmlContent, cidMap = extractHTMLWithCID(rawData)
+
+	// Substitui referências cid: por data URIs
+	if len(cidMap) > 0 {
+		htmlContent = replaceCIDReferences(htmlContent, cidMap)
+	}
+
+	return htmlContent
+}
+
+// extractHTMLWithCID extrai HTML e mapa de imagens CID
+func extractHTMLWithCID(rawData []byte) (string, map[string]string) {
+	var cidMap = make(map[string]string)
+
+	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
+	if err != nil {
+		return "", cidMap
+	}
+
+	var contentType = msg.Header.Get("Content-Type")
+	var mediaType, params, _ = mime.ParseMediaType(contentType)
+
+	// Se for HTML direto
+	if strings.HasPrefix(mediaType, "text/html") {
+		var body, _ = io.ReadAll(msg.Body)
+		var charset = params["charset"]
+		return decodeBodyWithCharset(body, msg.Header.Get("Content-Transfer-Encoding"), charset), cidMap
+	}
+
+	// Se for multipart, procura a parte HTML e imagens
+	if strings.HasPrefix(mediaType, "multipart/") {
+		var boundary = params["boundary"]
+		if boundary != "" {
+			return findHTMLAndImages(msg.Body, boundary, cidMap)
+		}
+	}
+
+	return "", cidMap
+}
+
+// findHTMLAndImages procura HTML e extrai imagens embutidas
+func findHTMLAndImages(r io.Reader, boundary string, cidMap map[string]string) (string, map[string]string) {
+	var htmlContent string
+	var mr = multipart.NewReader(r, boundary)
+
+	// Primeira passagem: coleta todas as partes
+	type mimePart struct {
+		contentType string
+		contentID   string
+		encoding    string
+		body        []byte
+	}
+	var parts []mimePart
+
+	for {
+		var part, err = mr.NextPart()
+		if err != nil {
+			break
+		}
+
+		var body, _ = io.ReadAll(part)
+		parts = append(parts, mimePart{
+			contentType: part.Header.Get("Content-Type"),
+			contentID:   part.Header.Get("Content-Id"),
+			encoding:    part.Header.Get("Content-Transfer-Encoding"),
+			body:        body,
+		})
+	}
+
+	// Processa as partes
+	for _, part := range parts {
+		var mediaType, params, _ = mime.ParseMediaType(part.contentType)
+
+		// HTML
+		if strings.HasPrefix(mediaType, "text/html") && htmlContent == "" {
+			var charset = params["charset"]
+			htmlContent = decodeBodyWithCharset(part.body, part.encoding, charset)
+		}
+
+		// Imagens com Content-ID
+		var contentID = part.contentID
+		if contentID != "" && strings.HasPrefix(mediaType, "image/") {
+			// Remove < > do Content-ID
+			contentID = strings.Trim(contentID, "<>")
+
+			// Decodifica o body da imagem
+			var imageData = decodeImageBody(part.body, part.encoding)
+
+			// Cria data URI
+			var dataURI = fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(imageData))
+			cidMap[contentID] = dataURI
+		}
+
+		// Multipart aninhado
+		if strings.HasPrefix(mediaType, "multipart/") {
+			var nestedBoundary = params["boundary"]
+			if nestedBoundary != "" {
+				var nestedHTML, nestedCID = findHTMLAndImages(bytes.NewReader(part.body), nestedBoundary, cidMap)
+				if nestedHTML != "" && htmlContent == "" {
+					htmlContent = nestedHTML
+				}
+				for k, v := range nestedCID {
+					cidMap[k] = v
+				}
+			}
+		}
+	}
+
+	return htmlContent, cidMap
+}
+
+// decodeImageBody decodifica o corpo de uma imagem
+func decodeImageBody(body []byte, encoding string) []byte {
+	switch strings.ToLower(encoding) {
+	case "base64":
+		var decoded, err = base64.StdEncoding.DecodeString(string(body))
+		if err != nil {
+			// Tenta remover espaços/newlines
+			var cleaned = strings.ReplaceAll(string(body), "\n", "")
+			cleaned = strings.ReplaceAll(cleaned, "\r", "")
+			cleaned = strings.ReplaceAll(cleaned, " ", "")
+			decoded, _ = base64.StdEncoding.DecodeString(cleaned)
+		}
+		return decoded
+	case "quoted-printable":
+		var decoded, _ = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
+		return decoded
+	default:
+		return body
+	}
+}
+
+// replaceCIDReferences substitui cid:xxx por data URIs
+func replaceCIDReferences(html string, cidMap map[string]string) string {
+	// Padrão: src="cid:xxx" ou src='cid:xxx'
+	var cidRegex = regexp.MustCompile(`(src=["'])cid:([^"']+)(["'])`)
+
+	return cidRegex.ReplaceAllStringFunc(html, func(match string) string {
+		var submatches = cidRegex.FindStringSubmatch(match)
+		if len(submatches) >= 4 {
+			var cid = submatches[2]
+			if dataURI, ok := cidMap[cid]; ok {
+				return submatches[1] + dataURI + submatches[3]
+			}
+		}
+		return match
+	})
 }
 
 func findHTMLPart(r io.Reader, boundary string) string {
@@ -465,19 +861,130 @@ func findHTMLPart(r io.Reader, boundary string) string {
 }
 
 func decodeBody(body []byte, encoding string) string {
+	return decodeBodyWithCharset(body, encoding, "")
+}
+
+func decodeBodyWithCharset(body []byte, encoding string, charset string) string {
+	var decoded []byte
+
 	switch strings.ToLower(encoding) {
 	case "quoted-printable":
-		var decoded, err = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
+		var d, err = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
 		if err != nil {
-			return string(body)
+			decoded = body
+		} else {
+			decoded = d
 		}
-		return string(decoded)
 	case "base64":
-		// Já decodificado pelo parser MIME na maioria dos casos
-		return string(body)
+		var d, err = base64.StdEncoding.DecodeString(string(body))
+		if err != nil {
+			// Tenta limpar
+			var cleaned = strings.ReplaceAll(string(body), "\n", "")
+			cleaned = strings.ReplaceAll(cleaned, "\r", "")
+			d, _ = base64.StdEncoding.DecodeString(cleaned)
+		}
+		decoded = d
 	default:
-		return string(body)
+		decoded = body
 	}
+
+	// Converte charset se necessário
+	if charset != "" && !strings.EqualFold(charset, "utf-8") && !strings.EqualFold(charset, "us-ascii") {
+		var converted = convertCharset(decoded, charset)
+		if converted != "" {
+			return converted
+		}
+	}
+
+	return string(decoded)
+}
+
+// convertCharset converte de um charset para UTF-8
+func convertCharset(data []byte, charset string) string {
+	// Tenta usar htmlindex primeiro
+	var enc, err = htmlindex.Get(charset)
+	if err == nil {
+		var decoder = enc.NewDecoder()
+		var result, err2 = decoder.Bytes(data)
+		if err2 == nil {
+			return string(result)
+		}
+	}
+
+	// Fallback para charsets comuns
+	charset = strings.ToLower(charset)
+	switch {
+	case strings.Contains(charset, "iso-8859-1"), strings.Contains(charset, "latin1"):
+		var decoder = charmap.ISO8859_1.NewDecoder()
+		var result, _ = decoder.Bytes(data)
+		return string(result)
+	case strings.Contains(charset, "iso-8859-15"), strings.Contains(charset, "latin9"):
+		var decoder = charmap.ISO8859_15.NewDecoder()
+		var result, _ = decoder.Bytes(data)
+		return string(result)
+	case strings.Contains(charset, "windows-1252"):
+		var decoder = charmap.Windows1252.NewDecoder()
+		var result, _ = decoder.Bytes(data)
+		return string(result)
+	}
+
+	return ""
+}
+
+// htmlToText converte HTML para texto legível
+func htmlToText(htmlContent string) string {
+	var doc, err = html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return htmlContent
+	}
+
+	var buf bytes.Buffer
+	var extractTextFromNode func(*html.Node)
+	extractTextFromNode = func(n *html.Node) {
+		// Ignora scripts, styles e comments
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "head", "noscript":
+				return
+			case "br":
+				buf.WriteString("\n")
+				return
+			case "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6":
+				buf.WriteString("\n")
+			case "td", "th":
+				buf.WriteString("\t")
+			}
+		}
+
+		if n.Type == html.TextNode {
+			var text = strings.TrimSpace(n.Data)
+			if text != "" {
+				buf.WriteString(text)
+				buf.WriteString(" ")
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extractTextFromNode(c)
+		}
+
+		// Adiciona quebra de linha após elementos de bloco
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote":
+				buf.WriteString("\n")
+			}
+		}
+	}
+
+	extractTextFromNode(doc)
+
+	// Limpa múltiplas linhas em branco
+	var result = buf.String()
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(result)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -539,6 +1046,100 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Email viewer mode
+		if m.showViewer {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "q":
+				m.showViewer = false
+				return m, nil
+			case "h":
+				// Abre no navegador e marca como lido
+				m.showViewer = false
+				var cmds []tea.Cmd
+				cmds = append(cmds, m.openEmailHTML())
+				if m.viewerEmail != nil && !m.viewerEmail.IsRead {
+					cmds = append(cmds, m.markAsRead(m.viewerEmail.ID, m.viewerEmail.UID))
+				}
+				return m, tea.Batch(cmds...)
+			}
+			// Passa eventos de scroll para o viewport
+			var cmd tea.Cmd
+			m.viewerViewport, cmd = m.viewerViewport.Update(msg)
+			return m, cmd
+		}
+
+		// Compose mode
+		if m.showCompose {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.showCompose = false
+				m.composeTo.Blur()
+				m.composeSubject.Blur()
+				return m, nil
+			case "tab":
+				// Cicla entre campos: To(0), Subject(1), Body(2), Classification(3)
+				m.composeFocus = (m.composeFocus + 1) % 4
+				m.composeTo.Blur()
+				m.composeSubject.Blur()
+				switch m.composeFocus {
+				case 0:
+					m.composeTo.Focus()
+				case 1:
+					m.composeSubject.Focus()
+				}
+				return m, nil
+			case "left", "h":
+				// Muda classificação para anterior
+				if m.composeFocus == 3 {
+					m.composeClassification--
+					if m.composeClassification < 0 {
+						m.composeClassification = len(smtp.Classifications) - 1
+					}
+					return m, nil
+				}
+			case "right", "l":
+				// Muda classificação para próxima
+				if m.composeFocus == 3 {
+					m.composeClassification = (m.composeClassification + 1) % len(smtp.Classifications)
+					return m, nil
+				}
+			case "ctrl+s":
+				// Envia email
+				if m.composeSending {
+					return m, nil
+				}
+				var to = strings.TrimSpace(m.composeTo.Value())
+				var subject = strings.TrimSpace(m.composeSubject.Value())
+				if to == "" || subject == "" {
+					return m, nil
+				}
+				m.composeSending = true
+				return m, m.sendEmail()
+			}
+			// Atualiza input focado
+			var cmd tea.Cmd
+			switch m.composeFocus {
+			case 0:
+				m.composeTo, cmd = m.composeTo.Update(msg)
+			case 1:
+				m.composeSubject, cmd = m.composeSubject.Update(msg)
+			case 2:
+				// Body - por enquanto usa texto simples
+				if msg.String() == "enter" {
+					m.composeBodyText += "\n"
+				} else if msg.String() == "backspace" && len(m.composeBodyText) > 0 {
+					m.composeBodyText = m.composeBodyText[:len(m.composeBodyText)-1]
+				} else if len(msg.String()) == 1 {
+					m.composeBodyText += msg.String()
+				}
+			}
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.client != nil {
@@ -572,7 +1173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.showFolders = !m.showFolders
 
-		case "enter":
+		case "enter", "v":
 			if m.showFolders && len(m.mailboxes) > 0 {
 				m.currentBox = m.mailboxes[m.selectedBox].Name
 				m.showFolders = false
@@ -582,6 +1183,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var folder, _ = storage.GetOrCreateFolder(m.dbAccount.ID, m.currentBox)
 				m.dbFolder = folder
 				return m, m.syncEmails()
+			}
+			// Abre viewer do email
+			if !m.showFolders && len(m.emails) > 0 {
+				m.viewerEmail = &m.emails[m.selectedEmail]
+				m.viewerLoading = true
+				m.showViewer = true
+				return m, m.loadEmailContent()
 			}
 
 		case "r":
@@ -594,10 +1202,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.aiScrollOffset = 0
 			return m, textinput.Blink
 
-		case "h":
-			// Abre email em HTML no navegador
+		case "c":
+			// Novo email
+			m.showCompose = true
+			m.composeTo.SetValue("")
+			m.composeSubject.SetValue("")
+			m.composeBodyText = ""
+			m.composeFocus = 0
+			m.composeTo.Focus()
+			m.composeReplyTo = nil
+			return m, textinput.Blink
+
+		case "R":
+			// Reply
 			if !m.showFolders && len(m.emails) > 0 {
-				return m, m.openEmailHTML()
+				var email = m.emails[m.selectedEmail]
+				m.showCompose = true
+				m.composeTo.SetValue(email.FromEmail)
+				m.composeSubject.SetValue("Re: " + email.Subject)
+				m.composeBodyText = ""
+				m.composeFocus = 2 // Foca no body
+				m.composeReplyTo = &email
+				return m, nil
+			}
+
+		case "h":
+			// Abre email em HTML no navegador e marca como lido
+			if !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				var cmds []tea.Cmd
+				cmds = append(cmds, m.openEmailHTML())
+				if !email.IsRead {
+					cmds = append(cmds, m.markAsRead(email.ID, email.UID))
+				}
+				return m, tea.Batch(cmds...)
 			}
 		}
 
@@ -606,6 +1244,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case dbInitMsg:
+		m.log("📦 DB inicializado")
 		// Cria/obtém a conta no DB
 		var account, err = storage.GetOrCreateAccount(m.account.Email, m.account.Name)
 		if err != nil {
@@ -614,6 +1253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.dbAccount = account
+		m.log("👤 Conta: %s (ID: %d)", account.Email, account.ID)
 
 		// Cria/obtém a pasta INBOX
 		var folder, err2 = storage.GetOrCreateFolder(account.ID, "INBOX")
@@ -623,12 +1263,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.dbFolder = folder
+		m.log("📁 Pasta INBOX (ID: %d)", folder.ID)
 
 		// Carrega emails do cache primeiro, conecta em paralelo
+		m.log("🔄 Carregando cache + conectando...")
 		m.state = stateLoadingEmails
 		return m, tea.Batch(m.loadEmailsFromDB(), m.connect())
 
 	case connectedMsg:
+		m.log("✅ IMAP conectado")
 		m.client = msg.client
 		m.retrying = false
 		// Se já temos emails do cache, faz sync em background sem bloquear UI
@@ -639,11 +1282,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadFolders()
 
 	case foldersLoadedMsg:
+		m.log("📂 %d pastas carregadas", len(msg.mailboxes))
 		m.mailboxes = msg.mailboxes
 
 		// Salva pastas no DB e encontra INBOX
+		if m.dbAccount == nil {
+			m.err = fmt.Errorf("conta não inicializada")
+			m.state = stateError
+			return m, nil
+		}
 		for i, mb := range m.mailboxes {
-			var folder, _ = storage.GetOrCreateFolder(m.dbAccount.ID, mb.Name)
+			var folder, err = storage.GetOrCreateFolder(m.dbAccount.ID, mb.Name)
+			if err != nil || folder == nil {
+				continue
+			}
 			storage.UpdateFolderStats(folder.ID, int(mb.Messages), int(mb.Unseen))
 
 			if strings.EqualFold(mb.Name, "INBOX") {
@@ -654,6 +1306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Sync em background - não muda state se já estamos ready
+		m.log("🔄 Iniciando sync...")
 		if m.state != stateReady {
 			m.state = stateSyncing
 		}
@@ -666,6 +1319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case syncDoneMsg:
+		m.log("✅ Sync completo: %d emails (total servidor: %d)", msg.synced, msg.total)
 		// Recarrega emails do DB após sync
 		if m.state != stateReady {
 			m.state = stateLoadingEmails
@@ -673,6 +1327,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadEmailsFromDB()
 
 	case emailsLoadedMsg:
+		m.log("📧 %d emails carregados do cache", len(msg.emails))
 		m.emails = msg.emails
 		// Sempre vai para ready quando temos emails do cache
 		m.state = stateReady
@@ -699,7 +1354,73 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case emailSentMsg:
+		m.composeSending = false
+		if msg.err != nil {
+			m.showAI = true
+			m.aiResponse = errorStyle.Render(fmt.Sprintf("❌ Erro ao enviar para %s:\n%s", msg.to, msg.err.Error()))
+		} else {
+			// Marca como respondido se era um reply
+			if m.composeReplyTo != nil {
+				storage.MarkAsReplied(m.composeReplyTo.ID)
+				// Atualiza na lista local
+				for i := range m.emails {
+					if m.emails[i].ID == m.composeReplyTo.ID {
+						m.emails[i].IsReplied = true
+						break
+					}
+				}
+			}
+			m.showCompose = false
+			m.showAI = true
+			// Mensagem detalhada para o usuário saber exatamente o que aconteceu
+			var details = fmt.Sprintf(`✅ Email aceito pelo servidor SMTP
+
+📤 Para: %s
+🖥️  Servidor: %s:%d
+
+⚠️  IMPORTANTE: O servidor aceitou a mensagem.
+Se não chegar ao destinatário, verifique:
+- Pasta de spam do destinatário
+- Se o email está correto
+- Logs do servidor (Google Workspace Admin)`, msg.to, msg.host, msg.port)
+			m.aiResponse = infoStyle.Render(details)
+		}
+		return m, nil
+
+	case emailContentMsg:
+		m.viewerLoading = false
+		if msg.err != nil {
+			m.showViewer = false
+			m.showAI = true
+			m.aiResponse = errorStyle.Render("Erro ao carregar email: " + msg.err.Error())
+			return m, nil
+		}
+		// Configura viewport com o conteúdo
+		m.viewerViewport = viewport.New(m.width-4, m.height-8)
+		m.viewerViewport.SetContent(msg.content)
+
+		// Marca como lido
+		if m.viewerEmail != nil && !m.viewerEmail.IsRead {
+			return m, m.markAsRead(m.viewerEmail.ID, m.viewerEmail.UID)
+		}
+		return m, nil
+
+	case markReadMsg:
+		// Atualiza na lista local
+		for i := range m.emails {
+			if m.emails[i].ID == msg.emailID {
+				m.emails[i].IsRead = true
+				break
+			}
+		}
+		if m.viewerEmail != nil && m.viewerEmail.ID == msg.emailID {
+			m.viewerEmail.IsRead = true
+		}
+		return m, nil
+
 	case errMsg:
+		m.log("❌ Erro: %v", msg.err)
 		m.err = msg.err
 		if isAppPasswordError(msg.err) {
 			m.state = stateNeedsAppPassword
@@ -707,6 +1428,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		m.state = stateError
+
+	case debugLogMsg:
+		m.log("%s", msg.msg)
+		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -757,6 +1482,12 @@ func (m Model) View() string {
 	case stateError:
 		return m.viewError()
 	case stateReady:
+		if m.showCompose {
+			return m.viewCompose()
+		}
+		if m.showViewer {
+			return m.viewEmailViewer()
+		}
 		return m.viewInbox()
 	}
 	return ""
@@ -777,6 +1508,13 @@ func (m Model) viewLoading(msg string) string {
 	}
 
 	var box = boxStyle.Render(content)
+
+	// Debug panel no loading
+	if m.debugMode && m.width > 0 {
+		var debugPanel = m.viewDebugPanel()
+		var centered = lipgloss.Place(m.width-45, m.height, lipgloss.Center, lipgloss.Center, box)
+		return lipgloss.JoinHorizontal(lipgloss.Top, centered, debugPanel)
+	}
 
 	if m.width > 0 && m.height > 0 {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -854,7 +1592,7 @@ func (m Model) viewInbox() string {
 	if m.showAI {
 		footer = subtitleStyle.Render(" Enter:enviar  ↑↓:scroll  Esc:fechar ")
 	} else {
-		footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  a:AI  h:HTML  q:sair ")
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  Tab:pastas  a:AI  q:sair ")
 	}
 
 	// Layout
@@ -869,6 +1607,12 @@ func (m Model) viewInbox() string {
 	if m.showAI {
 		var aiPanel = m.renderAIPanel()
 		content = lipgloss.JoinVertical(lipgloss.Left, content, aiPanel)
+	}
+
+	// Debug panel (lado direito)
+	if m.debugMode {
+		var debugPanel = m.viewDebugPanel()
+		content = lipgloss.JoinHorizontal(lipgloss.Top, content, debugPanel)
 	}
 
 	var view = lipgloss.JoinVertical(lipgloss.Left,
@@ -935,6 +1679,9 @@ func (m Model) renderEmailList() string {
 	if m.showFolders {
 		emailWidth -= 27
 	}
+	if m.debugMode {
+		emailWidth -= 44 // largura do debug panel
+	}
 	if emailWidth < 40 {
 		emailWidth = 60
 	}
@@ -952,7 +1699,13 @@ func (m Model) renderEmailList() string {
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	var content = strings.Join(lines, "\n")
+
+	// Limita largura quando debug ativo
+	if m.debugMode {
+		return lipgloss.NewStyle().MaxWidth(emailWidth + 4).Render(content)
+	}
+	return content
 }
 
 func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
@@ -963,23 +1716,32 @@ func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
 	if email.IsStarred {
 		indicator = "★"
 	}
+	if email.IsReplied {
+		indicator = "↩"
+	}
 
 	var from = email.FromName
 	if from == "" {
 		from = email.FromEmail
 	}
-	from = truncate(from, 20)
+	from = truncate(from, 18)
 
-	var subject = truncate(email.Subject, width-35)
+	// Calcula espaço disponível para subject
+	// formato: " X from(18) │ subject │ dd/mm hh:mm "
+	// fixo: 1 + 1 + 18 + 3 + 3 + 11 + 1 = 38
+	var subjectWidth = width - 38
+	if subjectWidth < 10 {
+		subjectWidth = 10
+	}
+	var subject = truncate(email.Subject, subjectWidth)
 	var date = email.Date.Format("02/01 15:04")
 
-	return fmt.Sprintf(" %s %-20s │ %-*s │ %s ",
-		indicator,
-		from,
-		width-35,
-		subject,
-		date,
-	)
+	// Pad subject para alinhar
+	for len(subject) < subjectWidth {
+		subject += " "
+	}
+
+	return fmt.Sprintf(" %s %-18s │ %s │ %s ", indicator, from, subject, date)
 }
 
 func truncate(s string, max int) string {
@@ -1047,4 +1809,212 @@ func (m Model) renderAIPanel() string {
 	}
 
 	return aiBoxStyle.Width(width).Render(content)
+}
+
+func (m Model) viewEmailViewer() string {
+	var viewerBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF6B6B")).
+		Padding(0, 1)
+
+	// Header com info do email
+	var header string
+	if m.viewerEmail != nil {
+		header = titleStyle.Render("miau 🐱") + " - " + subtitleStyle.Render(m.viewerEmail.Subject) + "\n"
+		header += infoStyle.Render(fmt.Sprintf("De: %s <%s>", m.viewerEmail.FromName, m.viewerEmail.FromEmail)) + "\n"
+		header += subtitleStyle.Render(m.viewerEmail.Date.Time.Format("02/01/2006 15:04"))
+	}
+
+	// Conteúdo
+	var content string
+	if m.viewerLoading {
+		content = statusStyle.Render("Carregando email...")
+	} else {
+		content = m.viewerViewport.View()
+	}
+
+	// Footer
+	var footer = subtitleStyle.Render(" ↑↓/PgUp/PgDn:scroll  h:abrir no navegador  q/Esc:voltar ")
+
+	// Scroll info
+	var scrollInfo = subtitleStyle.Render(fmt.Sprintf(" %d%% ", int(m.viewerViewport.ScrollPercent()*100)))
+
+	var body = viewerBoxStyle.Width(m.width - 4).Height(m.height - 8).Render(content)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		body,
+		lipgloss.JoinHorizontal(lipgloss.Left, footer, scrollInfo),
+	)
+}
+
+func (m Model) viewDebugPanel() string {
+	var debugBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF6B6B")).
+		Padding(0, 1)
+
+	var width = 40
+	var height = m.height - 4
+	if height < 10 {
+		height = 10
+	}
+
+	// Header
+	var header = errorStyle.Render("🐛 Debug")
+
+	// Log lines
+	var maxLines = height - 3
+	var logs = m.debugLogs
+	var start = len(logs) - maxLines - m.debugScroll
+	if start < 0 {
+		start = 0
+	}
+	var end = start + maxLines
+	if end > len(logs) {
+		end = len(logs)
+	}
+
+	var logContent string
+	if len(logs) == 0 {
+		logContent = subtitleStyle.Render("Aguardando eventos...")
+	} else {
+		var visibleLogs = logs[start:end]
+		logContent = strings.Join(visibleLogs, "\n")
+	}
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		logContent,
+	)
+
+	return debugBoxStyle.Width(width).Height(height).Render(content)
+}
+
+func (m Model) viewCompose() string {
+	var composeBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Padding(1, 2)
+
+	// Header
+	var title = "Novo Email"
+	if m.composeReplyTo != nil {
+		title = "Responder"
+	}
+	var header = titleStyle.Render("miau 🐱") + " - " + infoStyle.Render(title)
+
+	// Indicadores de formato e assinatura
+	var indicators string
+	var cfg, _ = config.Load()
+	var useHTML = cfg == nil || cfg.Compose.Format != "plain"
+	if useHTML {
+		indicators += infoStyle.Render(" [HTML] ")
+	} else {
+		indicators += subtitleStyle.Render(" [Plain] ")
+	}
+	if m.account.Signature != nil && m.account.Signature.Enabled {
+		indicators += successStyle.Render(" [Assinatura ✓] ")
+	} else {
+		indicators += subtitleStyle.Render(" [Sem assinatura] ")
+	}
+	header += "  " + indicators
+
+	// Campos
+	var toLabel = "Para: "
+	var subjectLabel = "Assunto: "
+	var bodyLabel = "Mensagem:"
+	var classLabel = "Classificação: "
+
+	// Destaca campo focado
+	if m.composeFocus == 0 {
+		toLabel = folderSelectedStyle.Render("→ Para: ")
+	}
+	if m.composeFocus == 1 {
+		subjectLabel = folderSelectedStyle.Render("→ Assunto: ")
+	}
+	if m.composeFocus == 2 {
+		bodyLabel = folderSelectedStyle.Render("→ Mensagem:")
+	}
+	if m.composeFocus == 3 {
+		classLabel = folderSelectedStyle.Render("→ Classificação: ")
+	}
+
+	// Renderiza classificações
+	var classOptions string
+	for i, c := range smtp.Classifications {
+		if i == m.composeClassification {
+			classOptions += selectedStyle.Render(" " + c + " ")
+		} else {
+			classOptions += subtitleStyle.Render(" " + c + " ")
+		}
+		if i < len(smtp.Classifications)-1 {
+			classOptions += "│"
+		}
+	}
+
+	var fields = lipgloss.JoinVertical(lipgloss.Left,
+		toLabel+m.composeTo.View(),
+		"",
+		subjectLabel+m.composeSubject.View(),
+		"",
+		classLabel+classOptions,
+		"",
+		bodyLabel,
+	)
+
+	// Área do corpo
+	var bodyLines = strings.Split(m.composeBodyText, "\n")
+	var bodyDisplay string
+	if len(bodyLines) > 10 {
+		bodyDisplay = strings.Join(bodyLines[len(bodyLines)-10:], "\n")
+	} else {
+		bodyDisplay = m.composeBodyText
+	}
+	if m.composeFocus == 2 {
+		bodyDisplay += "█" // cursor
+	}
+
+	// Mostra preview da assinatura se habilitada
+	var sigPreview string
+	if m.account.Signature != nil && m.account.Signature.Enabled {
+		if useHTML && m.account.Signature.HTML != "" {
+			// Preview simplificado da assinatura HTML
+			sigPreview = subtitleStyle.Render("\n--\n[Assinatura será adicionada automaticamente]")
+		} else if !useHTML && m.account.Signature.Text != "" {
+			sigPreview = subtitleStyle.Render("\n--\n" + truncate(m.account.Signature.Text, 50))
+		}
+	}
+
+	var bodyBox = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#666")).
+		Padding(0, 1).
+		Width(m.width - 12).
+		Height(10).
+		Render(bodyDisplay + sigPreview)
+
+	// Footer
+	var footer string
+	if m.composeSending {
+		footer = statusStyle.Render(" Enviando... ")
+	} else {
+		footer = subtitleStyle.Render(" Tab:próximo campo  ←→:classificação  Ctrl+S:enviar  Esc:cancelar ")
+	}
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		fields,
+		bodyBox,
+	)
+
+	var box = composeBoxStyle.Width(m.width - 6).Render(content)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		box,
+		"",
+		footer,
+	)
 }

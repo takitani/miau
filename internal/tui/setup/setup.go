@@ -326,7 +326,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		m.account.Imap.Host = host
+		m.account.IMAP.Host = host
 		m.step = stepImapPort
 		m.inputs[1].Blur()
 		m.inputs[2].Focus()
@@ -343,8 +343,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		m.account.Imap.Port = port
-		m.account.Imap.TLS = (port == 993)
+		m.account.IMAP.Port = port
+		m.account.IMAP.TLS = (port == 993)
 		m.inputs[2].Blur()
 
 		if m.account.AuthType == config.AuthTypeOAuth2 {
@@ -597,9 +597,9 @@ TLS:    %v
 %s
 `,
 		m.account.Email,
-		m.account.Imap.Host,
-		m.account.Imap.Port,
-		m.account.Imap.TLS,
+		m.account.IMAP.Host,
+		m.account.IMAP.Port,
+		m.account.IMAP.TLS,
 		authInfo,
 	)
 

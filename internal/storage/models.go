@@ -86,6 +86,7 @@ type Email struct {
 	IsRead         bool           `db:"is_read"`
 	IsStarred      bool           `db:"is_starred"`
 	IsDeleted      bool           `db:"is_deleted"`
+	IsReplied      bool           `db:"is_replied"`
 	HasAttachments bool           `db:"has_attachments"`
 	Snippet        string         `db:"snippet"`
 	BodyText       string         `db:"body_text"`
@@ -98,13 +99,15 @@ type Email struct {
 
 // EmailSummary é uma versão resumida para listagem
 type EmailSummary struct {
-	ID        int64      `db:"id"`
-	UID       uint32     `db:"uid"`
-	Subject   string     `db:"subject"`
-	FromName  string     `db:"from_name"`
-	FromEmail string     `db:"from_email"`
-	Date      SQLiteTime `db:"date"`
-	IsRead    bool       `db:"is_read"`
-	IsStarred bool       `db:"is_starred"`
-	Snippet   string     `db:"snippet"`
+	ID        int64          `db:"id"`
+	UID       uint32         `db:"uid"`
+	MessageID sql.NullString `db:"message_id"`
+	Subject   string         `db:"subject"`
+	FromName  string         `db:"from_name"`
+	FromEmail string         `db:"from_email"`
+	Date      SQLiteTime     `db:"date"`
+	IsRead    bool           `db:"is_read"`
+	IsStarred bool           `db:"is_starred"`
+	IsReplied bool           `db:"is_replied"`
+	Snippet   string         `db:"snippet"`
 }

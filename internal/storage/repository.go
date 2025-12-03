@@ -111,7 +111,7 @@ func UpsertEmail(e *Email) error {
 func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
 	var emails []EmailSummary
 	err := db.Select(&emails, `
-		SELECT id, uid, subject, from_name, from_email, date, is_read, is_starred, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
 		FROM emails
 		WHERE account_id = ? AND folder_id = ? AND is_deleted = 0
 		ORDER BY date DESC
@@ -154,6 +154,11 @@ func MarkAsStarred(id int64, starred bool) error {
 	return err
 }
 
+func MarkAsReplied(id int64) error {
+	_, err := db.Exec("UPDATE emails SET is_replied = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	return err
+}
+
 func DeleteEmail(id int64) error {
 	_, err := db.Exec("UPDATE emails SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
 	return err
@@ -173,7 +178,7 @@ func CountEmails(accountID, folderID int64) (total int, unread int, err error) {
 func SearchEmails(accountID int64, query string, limit int) ([]EmailSummary, error) {
 	var emails []EmailSummary
 	err := db.Select(&emails, `
-		SELECT e.id, e.uid, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.snippet
+		SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.snippet
 		FROM emails e
 		JOIN emails_fts fts ON e.id = fts.rowid
 		WHERE e.account_id = ? AND e.is_deleted = 0 AND emails_fts MATCH ?

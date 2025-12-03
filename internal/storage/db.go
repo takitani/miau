@@ -116,6 +116,20 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração FTS: %w", err)
 	}
 
+	// Migração: adiciona coluna is_replied
+	if err := migrateAddIsReplied(); err != nil {
+		return fmt.Errorf("erro na migração is_replied: %w", err)
+	}
+
+	return nil
+}
+
+// migrateAddIsReplied adiciona coluna is_replied se não existir
+func migrateAddIsReplied() error {
+	var _, err = db.Exec("ALTER TABLE emails ADD COLUMN is_replied BOOLEAN DEFAULT 0")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
 	return nil
 }
 

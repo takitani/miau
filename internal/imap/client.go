@@ -64,14 +64,14 @@ type Email struct {
 
 // Connect estabelece conexão IMAP com a conta
 func Connect(account *config.Account) (*Client, error) {
-	var addr = fmt.Sprintf("%s:%d", account.Imap.Host, account.Imap.Port)
+	var addr = fmt.Sprintf("%s:%d", account.IMAP.Host, account.IMAP.Port)
 
 	var options = &imapclient.Options{}
 
 	var client *imapclient.Client
 	var err error
 
-	if account.Imap.TLS {
+	if account.IMAP.TLS {
 		client, err = imapclient.DialTLS(addr, options)
 	} else {
 		client, err = imapclient.DialInsecure(addr, options)
@@ -476,6 +476,21 @@ func (c *Client) FetchEmailRaw(uid uint32) ([]byte, error) {
 	}
 
 	return nil, nil
+}
+
+// MarkAsRead marca um email como lido no servidor
+func (c *Client) MarkAsRead(uid uint32) error {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	var storeFlags = imap.StoreFlags{
+		Op:     imap.StoreFlagsAdd,
+		Silent: true,
+		Flags:  []imap.Flag{imap.FlagSeen},
+	}
+
+	var _, err = c.client.Store(uidSet, &storeFlags, nil).Collect()
+	return err
 }
 
 // Close fecha a conexão

@@ -147,6 +147,29 @@ type Model struct {
 	debugMode       bool
 	debugLogs       []string
 	debugScroll     int
+	// Bounce monitoring
+	sentEmails      []SentEmailTracker
+	alerts          []Alert
+	showAlert       bool
+}
+
+// SentEmailTracker rastreia emails enviados para detectar bounces
+type SentEmailTracker struct {
+	MessageID    string
+	To           string
+	Subject      string
+	SentAt       time.Time
+	MonitorUntil time.Time
+}
+
+// Alert representa um alerta para o usuário
+type Alert struct {
+	Type      string // "bounce", "error", "warning"
+	Title     string
+	Message   string
+	Timestamp time.Time
+	EmailTo   string
+	Dismissed bool
 }
 
 // Messages
@@ -210,6 +233,16 @@ type markReadMsg struct {
 
 type debugLogMsg struct {
 	msg string
+}
+
+type bounceCheckTickMsg struct{}
+
+type bounceFoundMsg struct {
+	originalTo      string
+	originalSubject string
+	bounceReason    string
+	bounceFrom      string
+	bounceSubject   string
 }
 
 func New(account *config.Account, debug bool) Model {
@@ -526,6 +559,226 @@ func (m Model) sendEmail() tea.Cmd {
 			msgID: result.MessageID,
 		}
 	}
+}
+
+// checkForBounces verifica se há mensagens de bounce para emails enviados recentemente
+func (m Model) checkForBounces() tea.Cmd {
+	// Copia dados necessários para a goroutine
+	var trackers = m.sentEmails
+	var accountID int64
+	if m.dbAccount != nil {
+		accountID = m.dbAccount.ID
+	}
+	var client = m.client
+	var debugMode = m.debugMode
+
+	return func() tea.Msg {
+		// Remove trackers expirados
+		var now = time.Now()
+		var activeTrackers []SentEmailTracker
+		for _, tracker := range trackers {
+			if now.Before(tracker.MonitorUntil) {
+				activeTrackers = append(activeTrackers, tracker)
+			}
+		}
+
+		if len(activeTrackers) == 0 || accountID == 0 {
+			return nil
+		}
+
+		// Sincroniza pastas que podem ter bounces
+		if client != nil {
+			var bounceFolders = []string{"INBOX", "CATEGORY_UPDATES", "[Gmail]/All Mail"}
+			for _, folderName := range bounceFolders {
+				var folder, _ = storage.GetOrCreateFolder(accountID, folderName)
+				if folder == nil {
+					continue
+				}
+				var selectData, err = client.SelectMailbox(folderName)
+				if err != nil {
+					continue
+				}
+				if selectData.NumMessages > 0 {
+					var emails, _ = client.FetchEmailsSeqNum(selectData, 15)
+					for _, email := range emails {
+						var dbEmail = &storage.Email{
+							AccountID: accountID,
+							FolderID:  folder.ID,
+							UID:       email.UID,
+							MessageID: sql.NullString{String: email.MessageID, Valid: email.MessageID != ""},
+							Subject:   email.Subject,
+							FromName:  email.From,
+							FromEmail: email.FromEmail,
+							Date:      storage.SQLiteTime{Time: email.Date},
+							IsRead:    email.Seen,
+							Size:      email.Size,
+						}
+						storage.UpsertEmail(dbEmail)
+					}
+				}
+			}
+		}
+
+		// Busca TODOS os emails recentes de TODAS as pastas do banco
+		var allEmails []storage.EmailSummary
+		var folders, _ = storage.GetFolders(accountID)
+		for _, folder := range folders {
+			var emails, _ = storage.GetEmails(accountID, folder.ID, 30, 0)
+			allEmails = append(allEmails, emails...)
+		}
+
+		// Log para debug
+		if debugMode {
+			// Escreve log em arquivo para não perder
+			logBounceCheck(fmt.Sprintf("Verificando %d emails para bounce", len(allEmails)))
+		}
+
+		// Procura por bounces em TODOS os emails (sem filtro de tempo)
+		for _, email := range allEmails {
+			// Log cada email verificado para debug
+			if debugMode {
+				var isBounce = isBounceEmail(email.FromEmail, email.FromName, email.Subject)
+				logBounceCheck(fmt.Sprintf("  Email: from='%s' name='%s' subj='%s' => bounce=%v",
+					email.FromEmail, email.FromName, email.Subject, isBounce))
+			}
+
+			// Detecta se é bounce pelo remetente/subject
+			if !isBounceEmail(email.FromEmail, email.FromName, email.Subject) {
+				continue
+			}
+
+			// Encontrou um bounce! Vincula com qualquer tracker ativo
+			if len(activeTrackers) > 0 {
+				var tracker = activeTrackers[0] // Pega o mais recente
+
+				// Extrai razão do bounce
+				var reason = extractBounceReason(email.Snippet, email.Subject)
+
+				logBounceCheck(fmt.Sprintf("🚨 BOUNCE ENCONTRADO! to=%s reason=%s", tracker.To, reason))
+
+				return bounceFoundMsg{
+					originalTo:      tracker.To,
+					originalSubject: tracker.Subject,
+					bounceReason:    reason,
+					bounceFrom:      email.FromEmail,
+					bounceSubject:   email.Subject,
+				}
+			}
+		}
+
+		return nil
+	}
+}
+
+// logBounceCheck escreve log de bounce em arquivo para debug
+func logBounceCheck(msg string) {
+	var f, _ = os.OpenFile("/tmp/miau-bounce.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if f != nil {
+		f.WriteString(fmt.Sprintf("[%s] %s\n", time.Now().Format("15:04:05"), msg))
+		f.Close()
+	}
+}
+
+// isBounceEmail detecta se um email é uma mensagem de bounce/NDR
+func isBounceEmail(fromEmail, fromName, subject string) bool {
+	var from = strings.ToLower(fromEmail + " " + fromName)
+	var subj = strings.ToLower(subject)
+
+	// Remetentes típicos de bounce
+	var bounceSenders = []string{
+		"mailer-daemon",
+		"postmaster",
+		"mail delivery subsystem",
+		"mail delivery",
+		"mailerdaemon",
+		"noreply",
+		"no-reply",
+		"mail-daemon",
+		"delivery",
+		"daemon",
+		"bounce",
+		"mailmaster",
+	}
+
+	for _, sender := range bounceSenders {
+		if strings.Contains(from, sender) {
+			return true
+		}
+	}
+
+	// Subjects típicos de bounce
+	var bounceSubjects = []string{
+		"delivery status notification",
+		"delivery status",
+		"delivery failed",
+		"delivery failure",
+		"undeliverable",
+		"undelivered",
+		"returned mail",
+		"mail delivery failed",
+		"failure notice",
+		"não foi possível entregar",
+		"falha na entrega",
+		"mensagem devolvida",
+		"não entregue",
+		"rejected",
+		"mail returned",
+		"returned to sender",
+		"could not be delivered",
+		"notification (failure)",
+		"(failure)",
+	}
+
+	for _, bs := range bounceSubjects {
+		if strings.Contains(subj, bs) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractBounceReason extrai a razão do bounce do conteúdo
+func extractBounceReason(snippet, subject string) string {
+	var content = strings.ToLower(snippet + " " + subject)
+
+	// Razões comuns
+	var reasons = map[string]string{
+		"classificação":             "Requer classificação de email",
+		"classification":            "Requires email classification",
+		"spam":                      "Marcado como spam",
+		"rejected":                  "Rejeitado pelo servidor",
+		"user unknown":              "Usuário desconhecido",
+		"mailbox full":              "Caixa de correio cheia",
+		"quota exceeded":            "Cota excedida",
+		"does not exist":            "Endereço não existe",
+		"address rejected":          "Endereço rejeitado",
+		"policy":                    "Violação de política",
+		"blocked":                   "Bloqueado",
+		"blacklist":                 "Na lista negra",
+		"administrador":             "Bloqueado pelo administrador",
+		"administrator":             "Blocked by administrator",
+		"enterprise administrator":  "Bloqueado pela política corporativa",
+	}
+
+	for key, reason := range reasons {
+		if strings.Contains(content, key) {
+			return reason
+		}
+	}
+
+	// Se não encontrar razão específica, retorna genérico
+	if len(snippet) > 100 {
+		return snippet[:100] + "..."
+	}
+	return snippet
+}
+
+// scheduleBounceCheck agenda verificação de bounce
+func scheduleBounceCheck() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return bounceCheckTickMsg{}
+	})
 }
 
 func (m Model) openEmailHTML() tea.Cmd {
@@ -990,6 +1243,20 @@ func htmlToText(htmlContent string) string {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Primeiro verifica se há alerta overlay aberto
+		if m.showAlert && len(m.alerts) > 0 {
+			switch msg.String() {
+			case "enter", "esc", "x", " ":
+				m.showAlert = false
+				m.alerts = []Alert{} // Limpa todos os alertas
+				m.log("🧹 Alerta fechado")
+				return m, nil
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			}
+			return m, nil // Bloqueia outras teclas enquanto alerta está aberto
+		}
+
 		if m.state == stateNeedsAppPassword {
 			switch msg.String() {
 			case "ctrl+c":
@@ -1237,6 +1504,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+
+		case "x":
+			// Limpa alertas
+			if len(m.alerts) > 0 {
+				m.alerts = []Alert{}
+				m.showAlert = false
+				m.log("🧹 Alertas limpos")
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -1371,6 +1646,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+
+			// Adiciona tracker para monitorar bounce
+			var tracker = SentEmailTracker{
+				MessageID:    msg.msgID,
+				To:           msg.to,
+				Subject:      m.composeSubject.Value(),
+				SentAt:       time.Now(),
+				MonitorUntil: time.Now().Add(5 * time.Minute), // Monitora por 5 minutos
+			}
+			m.sentEmails = append(m.sentEmails, tracker)
+			m.log("📧 Monitorando bounce para %s por 5 min", msg.to)
+
 			m.showCompose = false
 			m.showAI = true
 			// Mensagem detalhada para o usuário saber exatamente o que aconteceu
@@ -1379,12 +1666,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 📤 Para: %s
 🖥️  Servidor: %s:%d
 
-⚠️  IMPORTANTE: O servidor aceitou a mensagem.
-Se não chegar ao destinatário, verifique:
-- Pasta de spam do destinatário
-- Se o email está correto
-- Logs do servidor (Google Workspace Admin)`, msg.to, msg.host, msg.port)
+⏱️  Monitorando bounces por 5 minutos...
+Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 			m.aiResponse = infoStyle.Render(details)
+
+			// Inicia monitoramento de bounce
+			return m, tea.Batch(scheduleBounceCheck(), m.syncEmails())
 		}
 		return m, nil
 
@@ -1417,6 +1704,67 @@ Se não chegar ao destinatário, verifique:
 		if m.viewerEmail != nil && m.viewerEmail.ID == msg.emailID {
 			m.viewerEmail.IsRead = true
 		}
+		return m, nil
+
+	case bounceCheckTickMsg:
+		// Verifica se ainda há emails para monitorar
+		var now = time.Now()
+		var hasActive = false
+		var activeCount = 0
+		for _, tracker := range m.sentEmails {
+			if now.Before(tracker.MonitorUntil) {
+				hasActive = true
+				activeCount++
+			}
+		}
+
+		m.log("⏱️ Bounce tick: %d trackers ativos", activeCount)
+
+		if hasActive {
+			// Sincroniza inbox e verifica bounces
+			return m, tea.Batch(m.syncEmails(), m.checkForBounces(), scheduleBounceCheck())
+		}
+		m.log("⏱️ Monitoramento encerrado")
+		return m, nil
+
+	case bounceFoundMsg:
+		m.log("🚨 BOUNCE detectado para %s!", msg.originalTo)
+
+		// Cria alerta
+		var alert = Alert{
+			Type:      "bounce",
+			Title:     "📬 Email Rejeitado!",
+			Message:   fmt.Sprintf("Para: %s\nAssunto: %s\nRazão: %s", msg.originalTo, msg.originalSubject, msg.bounceReason),
+			Timestamp: time.Now(),
+			EmailTo:   msg.originalTo,
+		}
+		m.alerts = append(m.alerts, alert)
+		m.showAlert = true
+
+		// Remove o tracker desse email
+		var newTrackers []SentEmailTracker
+		for _, tracker := range m.sentEmails {
+			if tracker.To != msg.originalTo {
+				newTrackers = append(newTrackers, tracker)
+			}
+		}
+		m.sentEmails = newTrackers
+
+		// Mostra no AI panel também
+		m.showAI = true
+		m.aiResponse = errorStyle.Render(fmt.Sprintf(`🚨 EMAIL REJEITADO!
+
+📤 Para: %s
+📋 Assunto: %s
+
+❌ Razão: %s
+
+📧 Bounce de: %s
+📋 Subject: %s
+
+Verifique as configurações ou contate o administrador.`,
+			msg.originalTo, msg.originalSubject, msg.bounceReason, msg.bounceFrom, msg.bounceSubject))
+
 		return m, nil
 
 	case errMsg:
@@ -1454,17 +1802,19 @@ func isAppPasswordError(err error) bool {
 }
 
 func (m Model) View() string {
+	var baseView string
+
 	switch m.state {
 	case stateInitDB:
-		return m.viewLoading("Inicializando banco de dados...")
+		baseView = m.viewLoading("Inicializando banco de dados...")
 	case stateConnecting:
 		var msg = "Conectando ao servidor IMAP..."
 		if m.retrying {
 			msg = "Reconectando com nova senha..."
 		}
-		return m.viewLoading(msg)
+		baseView = m.viewLoading(msg)
 	case stateLoadingFolders:
-		return m.viewLoading("Carregando pastas...")
+		baseView = m.viewLoading("Carregando pastas...")
 	case stateSyncing:
 		var msg = fmt.Sprintf("Sincronizando %s...", m.currentBox)
 		if m.syncStatus != "" {
@@ -1474,23 +1824,29 @@ func (m Model) View() string {
 		if len(m.emails) > 0 {
 			msg = fmt.Sprintf("Sincronizando %s (%d emails em cache)...", m.currentBox, len(m.emails))
 		}
-		return m.viewLoading(msg)
+		baseView = m.viewLoading(msg)
 	case stateLoadingEmails:
-		return m.viewLoading("Carregando emails do banco local...")
+		baseView = m.viewLoading("Carregando emails do banco local...")
 	case stateNeedsAppPassword:
-		return m.viewAppPasswordPrompt()
+		baseView = m.viewAppPasswordPrompt()
 	case stateError:
-		return m.viewError()
+		baseView = m.viewError()
 	case stateReady:
 		if m.showCompose {
-			return m.viewCompose()
+			baseView = m.viewCompose()
+		} else if m.showViewer {
+			baseView = m.viewEmailViewer()
+		} else {
+			baseView = m.viewInbox()
 		}
-		if m.showViewer {
-			return m.viewEmailViewer()
-		}
-		return m.viewInbox()
 	}
-	return ""
+
+	// Overlay de alerta se tiver bounce
+	if m.showAlert && len(m.alerts) > 0 {
+		return m.viewAlertOverlay(baseView)
+	}
+
+	return baseView
 }
 
 func (m Model) viewLoading(msg string) string {
@@ -1572,11 +1928,30 @@ func (m Model) viewInbox() string {
 	if len(m.emails) > 0 {
 		stats = fmt.Sprintf(" (%d emails)", len(m.emails))
 	}
+
+	// Indicador de monitoramento de bounce
+	var monitorIndicator = ""
+	if len(m.sentEmails) > 0 {
+		monitorIndicator = infoStyle.Render(" ⏱️ ")
+	}
+
+	// Indicador de alertas
+	var alertIndicator = ""
+	var activeAlerts = 0
+	for _, alert := range m.alerts {
+		if !alert.Dismissed {
+			activeAlerts++
+		}
+	}
+	if activeAlerts > 0 {
+		alertIndicator = errorStyle.Render(fmt.Sprintf(" 🚨%d ", activeAlerts))
+	}
+
 	var header = headerStyle.Render(fmt.Sprintf(" miau 🐱  %s  [%s]%s ",
 		m.account.Email,
 		m.currentBox,
 		stats,
-	))
+	)) + monitorIndicator + alertIndicator
 
 	// Folders panel (se ativo)
 	var foldersPanel string
@@ -1591,6 +1966,8 @@ func (m Model) viewInbox() string {
 	var footer string
 	if m.showAI {
 		footer = subtitleStyle.Render(" Enter:enviar  ↑↓:scroll  Esc:fechar ")
+	} else if activeAlerts > 0 {
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  Tab:pastas  a:AI  q:sair ")
 	}
@@ -2017,4 +2394,68 @@ func (m Model) viewCompose() string {
 		"",
 		footer,
 	)
+}
+
+// viewAlertOverlay renderiza um overlay de alerta sobre a tela base
+func (m Model) viewAlertOverlay(baseView string) string {
+	if len(m.alerts) == 0 {
+		return baseView
+	}
+
+	var alert = m.alerts[len(m.alerts)-1] // Pega o último alerta
+
+	// Estilo do overlay (modal centralizado)
+	var overlayStyle = lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color("#FF0000")).
+		Background(lipgloss.Color("#1a0000")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2).
+		Width(60)
+
+	// Título do alerta
+	var title = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FF6B6B")).
+		Render(alert.Title)
+
+	// Mensagem
+	var message = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Render(alert.Message)
+
+	// Timestamp
+	var timestamp = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888")).
+		Italic(true).
+		Render(alert.Timestamp.Format("15:04:05"))
+
+	// Footer do modal
+	var footer = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4ECDC4")).
+		Render("\n\n[Enter/Esc/x para fechar]")
+
+	var modalContent = lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		message,
+		"",
+		timestamp,
+		footer,
+	)
+
+	var modal = overlayStyle.Render(modalContent)
+
+	// Centraliza o modal na tela
+	var centeredModal = lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modal,
+	)
+
+	// Sobrepõe o modal sobre o conteúdo base (escurecido)
+	// Como não podemos fazer transparência real, apenas mostramos o modal centralizado
+	return centeredModal
 }

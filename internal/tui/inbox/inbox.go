@@ -105,6 +105,7 @@ type Model struct {
 	showAI          bool
 	aiInput         textinput.Model
 	aiResponse      string
+	aiLastQuestion  string
 	aiLoading       bool
 	aiScrollOffset  int
 }
@@ -354,6 +355,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if prompt == "" || m.aiLoading {
 					return m, nil
 				}
+				m.aiLastQuestion = prompt
+				m.aiInput.SetValue("")
 				m.aiLoading = true
 				m.aiResponse = ""
 				return m, m.runAI(prompt)
@@ -808,6 +811,12 @@ func (m Model) renderAIPanel() string {
 	var inputLabel = infoStyle.Render("🤖 AI: ")
 	var input = m.aiInput.View()
 
+	// Last question (se houver resposta)
+	var lastQ string
+	if m.aiLastQuestion != "" && (m.aiResponse != "" || m.aiLoading) {
+		lastQ = subtitleStyle.Render("> " + m.aiLastQuestion)
+	}
+
 	// Response area
 	var response string
 	if m.aiLoading {
@@ -834,6 +843,9 @@ func (m Model) renderAIPanel() string {
 	}
 
 	var content = inputLabel + input
+	if lastQ != "" {
+		content += "\n" + lastQ
+	}
 	if response != "" {
 		content += "\n\n" + response
 	}

@@ -60,6 +60,12 @@ sudo apt install sqlite3
 
 # macOS
 brew install sqlite3
+
+# Windows (via winget)
+winget install SQLite.SQLite
+
+# Windows (via choco)
+choco install sqlite
 ```
 
 ## Instalação

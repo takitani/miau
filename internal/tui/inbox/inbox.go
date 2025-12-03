@@ -204,17 +204,24 @@ func (m Model) loadFolders() tea.Cmd {
 func (m Model) syncEmails() tea.Cmd {
 	return func() tea.Msg {
 		// Seleciona a mailbox
-		var selectData, err = m.client.SelectMailbox(m.currentBox)
+		var _, err = m.client.SelectMailbox(m.currentBox)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
 
-		if selectData.NumMessages == 0 {
-			return syncDoneMsg{}
+		// Carrega config para obter dias de sync
+		var cfg, _ = config.Load()
+		var syncDays = 30 // default
+		if cfg != nil && cfg.Sync.InitialDays > 0 {
+			syncDays = cfg.Sync.InitialDays
+		}
+		// 0 = todos os emails
+		if cfg != nil && cfg.Sync.InitialDays == 0 {
+			syncDays = 0
 		}
 
-		// Busca emails do servidor
-		var emails, err2 = m.client.FetchEmailsSeqNum(selectData, 100)
+		// Busca emails do servidor (por data)
+		var emails, err2 = m.client.FetchEmailsSince(syncDays)
 		if err2 != nil {
 			return errMsg{err: err2}
 		}

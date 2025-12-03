@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -70,7 +71,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
 	from_email,
 	body_text,
 	content='emails',
-	content_rowid='id'
+	content_rowid='id',
+	tokenize='trigram'
 );
 
 -- Triggers para manter FTS sincronizado
@@ -109,7 +111,44 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro ao criar schema: %w", err)
 	}
 
+	// Migração: atualiza FTS para trigram se necessário
+	if err := migrateFTS(); err != nil {
+		return fmt.Errorf("erro na migração FTS: %w", err)
+	}
+
 	return nil
+}
+
+// migrateFTS verifica e recria FTS com trigram tokenizer
+func migrateFTS() error {
+	// Verifica se FTS usa trigram
+	var sql string
+	err := db.Get(&sql, "SELECT sql FROM sqlite_master WHERE type='table' AND name='emails_fts'")
+	if err != nil {
+		return nil // tabela não existe ainda
+	}
+
+	// Se já tem trigram, não precisa migrar
+	if strings.Contains(sql, "trigram") {
+		return nil
+	}
+
+	// Recria FTS com trigram
+	var _, err2 = db.Exec(`
+		DROP TABLE IF EXISTS emails_fts;
+		CREATE VIRTUAL TABLE emails_fts USING fts5(
+			subject,
+			from_name,
+			from_email,
+			body_text,
+			content='emails',
+			content_rowid='id',
+			tokenize='trigram'
+		);
+		INSERT INTO emails_fts(rowid, subject, from_name, from_email, body_text)
+		SELECT id, subject, from_name, from_email, body_text FROM emails;
+	`)
+	return err2
 }
 
 func GetDB() *sqlx.DB {

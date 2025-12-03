@@ -236,6 +236,96 @@ func (c *Client) FetchEmailsSeqNum(selectData *imap.SelectData, limit int) ([]Em
 	return emails, nil
 }
 
+// FetchEmailsSince busca emails desde uma data específica (0 = todos)
+func (c *Client) FetchEmailsSince(sinceDays int) ([]Email, error) {
+	var emails []Email
+
+	var criteria = &imap.SearchCriteria{}
+
+	// Se sinceDays > 0, filtra por data
+	if sinceDays > 0 {
+		var sinceDate = time.Now().AddDate(0, 0, -sinceDays)
+		criteria.Since = sinceDate
+	}
+
+	var searchCmd = c.client.Search(criteria, nil)
+	var searchData, err = searchCmd.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar UIDs: %w", err)
+	}
+
+	var seqNums = searchData.AllSeqNums()
+	if len(seqNums) == 0 {
+		return emails, nil
+	}
+
+	// Cria SeqSet com todos os resultados
+	var seqSet = imap.SeqSet{}
+	for _, seq := range seqNums {
+		seqSet.AddNum(seq)
+	}
+
+	var fetchOptions = &imap.FetchOptions{
+		Flags:       true,
+		Envelope:    true,
+		UID:         true,
+		RFC822Size:  true,
+		BodySection: []*imap.FetchItemBodySection{},
+	}
+
+	var fetchCmd = c.client.Fetch(seqSet, fetchOptions)
+	var messages, err2 = fetchCmd.Collect()
+	if err2 != nil {
+		return nil, fmt.Errorf("erro ao buscar emails: %w", err2)
+	}
+
+	for _, msg := range messages {
+		var email = Email{
+			UID:  uint32(msg.UID),
+			Size: msg.RFC822Size,
+		}
+
+		if msg.Envelope != nil {
+			email.Subject = msg.Envelope.Subject
+			email.Date = msg.Envelope.Date
+			email.MessageID = msg.Envelope.MessageID
+
+			if len(msg.Envelope.From) > 0 {
+				var from = msg.Envelope.From[0]
+				if from.Name != "" {
+					email.From = from.Name
+				} else {
+					email.From = from.Mailbox
+				}
+				email.FromEmail = fmt.Sprintf("%s@%s", from.Mailbox, from.Host)
+			}
+
+			if len(msg.Envelope.To) > 0 {
+				var to = msg.Envelope.To[0]
+				email.To = fmt.Sprintf("%s@%s", to.Mailbox, to.Host)
+			}
+		}
+
+		for _, flag := range msg.Flags {
+			if flag == imap.FlagSeen {
+				email.Seen = true
+			}
+			if flag == imap.FlagFlagged {
+				email.Flagged = true
+			}
+		}
+
+		emails = append(emails, email)
+	}
+
+	// Inverte para mais recentes primeiro
+	for i, j := 0, len(emails)-1; i < j; i, j = i+1, j-1 {
+		emails[i], emails[j] = emails[j], emails[i]
+	}
+
+	return emails, nil
+}
+
 // FetchEmails busca emails (wrapper para compatibilidade)
 func (c *Client) FetchEmails(limit int) ([]Email, error) {
 	// Primeiro seleciona INBOX se não selecionou

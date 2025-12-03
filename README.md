@@ -45,10 +45,30 @@
 - **IMAP**: [go-imap](https://github.com/emersion/go-imap)
 - **Config**: [Viper](https://github.com/spf13/viper) para configuração
 
+## Dependências
+
+- **Go** 1.21+
+- **Claude Code** - CLI do Claude para integração com IA ([instalar](https://claude.ai/code))
+- **sqlite3** - Driver do SQLite para queries via CLI
+
+```bash
+# Fedora/RHEL
+sudo dnf install sqlite
+
+# Ubuntu/Debian
+sudo apt install sqlite3
+
+# macOS
+brew install sqlite3
+```
+
 ## Instalação
 
 ```bash
-# Em breve
+git clone https://github.com/takitani/miau.git
+cd miau
+go build ./cmd/miau/
+./miau
 ```
 
 ## Uso

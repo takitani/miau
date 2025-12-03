@@ -30,7 +30,7 @@ func GetOrCreateAccount(email, name string) (*Account, error) {
 		ID:        id,
 		Email:     email,
 		Name:      name,
-		CreatedAt: time.Now(),
+		CreatedAt: SQLiteTime{time.Now()},
 	}
 
 	return &account, nil

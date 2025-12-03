@@ -3,6 +3,7 @@ package inbox
 import (
 	"database/sql"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -100,6 +101,12 @@ type Model struct {
 	syncStatus      string
 	totalEmails     int
 	syncedEmails    int
+	// AI panel
+	showAI          bool
+	aiInput         textinput.Model
+	aiResponse      string
+	aiLoading       bool
+	aiScrollOffset  int
 }
 
 // Messages
@@ -131,6 +138,11 @@ type errMsg struct {
 
 type configSavedMsg struct{}
 
+type aiResponseMsg struct {
+	response string
+	err      error
+}
+
 func New(account *config.Account) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
@@ -139,12 +151,18 @@ func New(account *config.Account) Model {
 	input.EchoMode = textinput.EchoPassword
 	input.EchoCharacter = '•'
 
+	var aiInput = textinput.New()
+	aiInput.Placeholder = "Pergunte algo sobre seus emails..."
+	aiInput.CharLimit = 500
+	aiInput.Width = 60
+
 	return Model{
 		account:       account,
 		state:         stateInitDB,
 		currentBox:    "INBOX",
 		showFolders:   false,
 		passwordInput: input,
+		aiInput:       aiInput,
 	}
 }
 
@@ -204,18 +222,18 @@ func (m Model) syncEmails() tea.Cmd {
 		// Salva no banco
 		for _, email := range emails {
 			var dbEmail = &storage.Email{
-				AccountID: m.dbAccount.ID,
-				FolderID:  m.dbFolder.ID,
-				UID:       email.UID,
-				MessageID: sql.NullString{String: email.MessageID, Valid: email.MessageID != ""},
-				Subject:   email.Subject,
-				FromName:  email.From,
-				FromEmail: email.FromEmail,
+				AccountID:   m.dbAccount.ID,
+				FolderID:    m.dbFolder.ID,
+				UID:         email.UID,
+				MessageID:   sql.NullString{String: email.MessageID, Valid: email.MessageID != ""},
+				Subject:     email.Subject,
+				FromName:    email.From,
+				FromEmail:   email.FromEmail,
 				ToAddresses: email.To,
-				Date:      email.Date,
-				IsRead:    email.Seen,
-				IsStarred: email.Flagged,
-				Size:      email.Size,
+				Date:        storage.SQLiteTime{Time: email.Date},
+				IsRead:      email.Seen,
+				IsStarred:   email.Flagged,
+				Size:        email.Size,
 			}
 			storage.UpsertEmail(dbEmail)
 		}
@@ -235,6 +253,35 @@ func (m Model) loadEmailsFromDB() tea.Cmd {
 			return errMsg{err: err}
 		}
 		return emailsLoadedMsg{emails: emails}
+	}
+}
+
+func (m Model) runAI(prompt string) tea.Cmd {
+	return func() tea.Msg {
+		var fullPrompt = fmt.Sprintf(`[Context: Email database at ~/.config/miau/data/miau.db | Account: %s | Folder: %s]
+[Schema: emails(id, subject, from_name, from_email, date, is_read, is_starred, is_deleted, body_text)]
+[Use sqlite3 to query. Be concise.]
+
+%s`, m.account.Email, m.currentBox, prompt)
+
+		// Debug: salva o comando em arquivo de log
+		var logFile, _ = exec.Command("sh", "-c", "echo '['+$(date)+'] Running claude -p ...' >> /tmp/miau-ai.log").Output()
+		_ = logFile
+
+		var cmd = exec.Command("claude", "-p", "--permission-mode", "bypassPermissions", fullPrompt)
+
+		// Log do prompt
+		exec.Command("sh", "-c", fmt.Sprintf("echo 'Prompt: %s' >> /tmp/miau-ai.log", prompt)).Run()
+
+		var output, err = cmd.CombinedOutput()
+
+		// Log do resultado
+		exec.Command("sh", "-c", fmt.Sprintf("echo 'Output (%d bytes): %s' >> /tmp/miau-ai.log", len(output), string(output[:min(100, len(output))]))).Run()
+
+		if err != nil {
+			return aiResponseMsg{err: fmt.Errorf("%s: %w", string(output), err)}
+		}
+		return aiResponseMsg{response: string(output)}
 	}
 }
 
@@ -286,6 +333,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// AI panel mode
+		if m.showAI {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.showAI = false
+				m.aiInput.Blur()
+				return m, nil
+			case "enter":
+				var prompt = strings.TrimSpace(m.aiInput.Value())
+				if prompt == "" || m.aiLoading {
+					return m, nil
+				}
+				m.aiLoading = true
+				m.aiResponse = ""
+				return m, m.runAI(prompt)
+			case "up":
+				if m.aiScrollOffset > 0 {
+					m.aiScrollOffset--
+				}
+				return m, nil
+			case "down":
+				m.aiScrollOffset++
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.aiInput, cmd = m.aiInput.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.client != nil {
@@ -334,6 +412,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.state = stateSyncing
 			return m, m.syncEmails()
+
+		case "a":
+			m.showAI = true
+			m.aiInput.Focus()
+			m.aiScrollOffset = 0
+			return m, textinput.Blink
 		}
 
 	case tea.WindowSizeMsg:
@@ -359,33 +443,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.dbFolder = folder
 
-		m.state = stateConnecting
-		return m, m.connect()
+		// Carrega emails do cache primeiro, conecta em paralelo
+		m.state = stateLoadingEmails
+		return m, tea.Batch(m.loadEmailsFromDB(), m.connect())
 
 	case connectedMsg:
 		m.client = msg.client
-		m.state = stateLoadingFolders
 		m.retrying = false
+		// Se já temos emails do cache, faz sync em background sem bloquear UI
+		if m.state == stateReady {
+			return m, m.loadFolders()
+		}
+		m.state = stateLoadingFolders
 		return m, m.loadFolders()
 
 	case foldersLoadedMsg:
 		m.mailboxes = msg.mailboxes
 
-		// Salva pastas no DB
-		for _, mb := range m.mailboxes {
+		// Salva pastas no DB e encontra INBOX
+		for i, mb := range m.mailboxes {
 			var folder, _ = storage.GetOrCreateFolder(m.dbAccount.ID, mb.Name)
 			storage.UpdateFolderStats(folder.ID, int(mb.Messages), int(mb.Unseen))
-		}
 
-		// Encontra índice do INBOX
-		for i, mb := range m.mailboxes {
 			if strings.EqualFold(mb.Name, "INBOX") {
 				m.selectedBox = i
-				break
+				m.currentBox = mb.Name
+				m.dbFolder = folder
 			}
 		}
 
-		m.state = stateSyncing
+		// Sync em background - não muda state se já estamos ready
+		if m.state != stateReady {
+			m.state = stateSyncing
+		}
 		return m, m.syncEmails()
 
 	case syncProgressMsg:
@@ -395,15 +485,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case syncDoneMsg:
-		m.state = stateLoadingEmails
+		// Recarrega emails do DB após sync
+		if m.state != stateReady {
+			m.state = stateLoadingEmails
+		}
 		return m, m.loadEmailsFromDB()
 
 	case emailsLoadedMsg:
 		m.emails = msg.emails
+		// Sempre vai para ready quando temos emails do cache
 		m.state = stateReady
 
 	case configSavedMsg:
 		return m, nil
+
+	case aiResponseMsg:
+		m.aiLoading = false
+		if msg.err != nil {
+			m.aiResponse = errorStyle.Render("Erro: " + msg.err.Error())
+		} else {
+			m.aiResponse = msg.response
+		}
+		m.aiScrollOffset = 0
+		// Recarrega emails (AI pode ter feito alterações)
+		return m, m.loadEmailsFromDB()
 
 	case errMsg:
 		m.err = msg.err
@@ -539,7 +644,12 @@ func (m Model) viewInbox() string {
 	var emailList = m.renderEmailList()
 
 	// Footer
-	var footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  q:sair ")
+	var footer string
+	if m.showAI {
+		footer = subtitleStyle.Render(" Enter:enviar  ↑↓:scroll  Esc:fechar ")
+	} else {
+		footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  a:AI  q:sair ")
+	}
 
 	// Layout
 	var content string
@@ -547,6 +657,12 @@ func (m Model) viewInbox() string {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, foldersPanel, emailList)
 	} else {
 		content = emailList
+	}
+
+	// AI Panel
+	if m.showAI {
+		var aiPanel = m.renderAIPanel()
+		content = lipgloss.JoinVertical(lipgloss.Left, content, aiPanel)
 	}
 
 	var view = lipgloss.JoinVertical(lipgloss.Left,
@@ -668,4 +784,52 @@ func truncate(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+func (m Model) renderAIPanel() string {
+	var aiBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Padding(0, 1)
+
+	var width = m.width - 4
+	if width < 40 {
+		width = 60
+	}
+
+	// Input
+	var inputLabel = infoStyle.Render("🤖 AI: ")
+	var input = m.aiInput.View()
+
+	// Response area
+	var response string
+	if m.aiLoading {
+		response = statusStyle.Render("Pensando...")
+	} else if m.aiResponse != "" {
+		var lines = strings.Split(m.aiResponse, "\n")
+		var maxLines = 10
+		var start = m.aiScrollOffset
+		if start >= len(lines) {
+			start = len(lines) - 1
+		}
+		if start < 0 {
+			start = 0
+		}
+		var end = start + maxLines
+		if end > len(lines) {
+			end = len(lines)
+		}
+		var visibleLines = lines[start:end]
+		response = strings.Join(visibleLines, "\n")
+		if len(lines) > maxLines {
+			response += subtitleStyle.Render(fmt.Sprintf("\n[%d-%d de %d linhas]", start+1, end, len(lines)))
+		}
+	}
+
+	var content = inputLabel + input
+	if response != "" {
+		content += "\n\n" + response
+	}
+
+	return aiBoxStyle.Width(width).Render(content)
 }

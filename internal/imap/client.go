@@ -416,7 +416,7 @@ func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
 	return emails, nil
 }
 
-// FetchEmailBody busca o corpo completo de um email
+// FetchEmailBody busca o corpo completo de um email (TEXT part)
 func (c *Client) FetchEmailBody(uid uint32) (string, error) {
 	var uidSet = imap.UIDSet{}
 	uidSet.AddNum(imap.UID(uid))
@@ -446,6 +446,36 @@ func (c *Client) FetchEmailBody(uid uint32) (string, error) {
 	}
 
 	return "", nil
+}
+
+// FetchEmailRaw busca o email completo (RFC822) para parsing
+func (c *Client) FetchEmailRaw(uid uint32) ([]byte, error) {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	var bodySection = &imap.FetchItemBodySection{}
+
+	var fetchOptions = &imap.FetchOptions{
+		BodySection: []*imap.FetchItemBodySection{bodySection},
+	}
+
+	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("email não encontrado")
+	}
+
+	var msg = messages[0]
+	var body = msg.FindBodySection(bodySection)
+	if body != nil {
+		return body, nil
+	}
+
+	return nil, nil
 }
 
 // Close fecha a conexão

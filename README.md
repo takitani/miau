@@ -15,26 +15,48 @@
 - É brasileiro e divertido
 - Soa como um gato pedindo atenção... assim como seus emails não lidos
 
-## Funcionalidades Planejadas
+## Screenshots
+
+```
+┌─ miau 🐱  demo@exemplo.com  [INBOX] (15 emails) ─────────────────────────────┐
+│ ★ miau Team          │ Bem-vindo ao miau! 🐱                    │ 03/12 14:30 │
+│ ● Maria Silva        │ Re: Proposta comercial Q4 2025           │ 03/12 13:30 │
+│ ● João Santos        │ Reunião amanhã às 14h confirmada         │ 03/12 12:30 │
+│   Financeiro         │ Fatura #12345 - Dezembro/2025            │ 03/12 11:30 │
+│   Tech Weekly        │ Newsletter: Novidades em IA              │ 03/12 10:30 │
+│ ★ Segurança          │ Alerta: Login detectado em novo dispo... │ 03/12 09:30 │
+│   Loja Online        │ Seu pedido foi enviado!                  │ 02/12 14:30 │
+│ ● DevConf            │ Convite: Webinar sobre Go e TUI          │ 02/12 14:30 │
+├─ AI ─────────────────────────────────────────────────────────────────────────┤
+│ 🤖 AI: quantos emails não lidos?                                             │
+│ > quantos emails não lidos?                                                  │
+│                                                                              │
+│ Você tem 5 emails não lidos na sua caixa de entrada.                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+ ↑↓:navegar  Tab:pastas  r:sync  a:AI  q:sair
+```
+
+## Funcionalidades
 
 ### Core
-- [ ] Conexão IMAP com múltiplas contas
-- [ ] Download e armazenamento local de emails (SQLite/arquivos)
-- [ ] Sincronização incremental
-- [ ] Busca full-text local
+- [x] Conexão IMAP com múltiplas contas
+- [x] Download e armazenamento local de emails (SQLite)
+- [x] Sincronização configurável (últimos X dias ou todos)
+- [x] Busca full-text com FTS5 trigram (busca parcial)
 
 ### TUI (Terminal User Interface)
-- [ ] Navegação por pastas/labels
-- [ ] Visualização de emails
+- [x] Navegação por pastas/labels
+- [x] Lista de emails com indicadores (lido/não lido/favorito)
+- [x] Atalhos de teclado estilo vim (j/k)
+- [ ] Visualização de corpo do email
 - [ ] Composição de respostas
-- [ ] Atalhos de teclado estilo vim
 
 ### Integração com IA (via Claude Code)
+- [x] Chat integrado na TUI (tecla `a`)
+- [x] Queries no banco de emails via linguagem natural
 - [ ] Resumo de emails longos
 - [ ] Sugestão de respostas
 - [ ] Categorização automática
-- [ ] Extração de tarefas/ações
-- [ ] Análise de threads de discussão
 
 ## Stack Tecnológico
 

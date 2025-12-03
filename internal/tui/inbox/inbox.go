@@ -1,11 +1,21 @@
 package inbox
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
+	"net/mail"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -108,6 +118,8 @@ type Model struct {
 	aiLastQuestion  string
 	aiLoading       bool
 	aiScrollOffset  int
+	// Spinner
+	spinner         spinner.Model
 }
 
 // Messages
@@ -127,7 +139,10 @@ type syncProgressMsg struct {
 	total  int
 }
 
-type syncDoneMsg struct{}
+type syncDoneMsg struct {
+	synced int
+	total  int
+}
 
 type emailsLoadedMsg struct {
 	emails []storage.EmailSummary
@@ -144,6 +159,10 @@ type aiResponseMsg struct {
 	err      error
 }
 
+type htmlOpenedMsg struct {
+	err error
+}
+
 func New(account *config.Account) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
@@ -157,6 +176,10 @@ func New(account *config.Account) Model {
 	aiInput.CharLimit = 500
 	aiInput.Width = 60
 
+	var s = spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
+
 	return Model{
 		account:       account,
 		state:         stateInitDB,
@@ -164,11 +187,12 @@ func New(account *config.Account) Model {
 		showFolders:   false,
 		passwordInput: input,
 		aiInput:       aiInput,
+		spinner:       s,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.initDB()
+	return tea.Batch(m.initDB(), m.spinner.Tick)
 }
 
 func (m Model) initDB() tea.Cmd {
@@ -194,6 +218,9 @@ func (m Model) connect() tea.Cmd {
 
 func (m Model) loadFolders() tea.Cmd {
 	return func() tea.Msg {
+		if m.client == nil {
+			return errMsg{err: fmt.Errorf("cliente IMAP não conectado")}
+		}
 		var mailboxes, err = m.client.ListMailboxes()
 		if err != nil {
 			return errMsg{err: err}
@@ -204,8 +231,11 @@ func (m Model) loadFolders() tea.Cmd {
 
 func (m Model) syncEmails() tea.Cmd {
 	return func() tea.Msg {
+		if m.client == nil {
+			return errMsg{err: fmt.Errorf("cliente IMAP não conectado")}
+		}
 		// Seleciona a mailbox
-		var _, err = m.client.SelectMailbox(m.currentBox)
+		var selectData, err = m.client.SelectMailbox(m.currentBox)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
@@ -250,7 +280,13 @@ func (m Model) syncEmails() tea.Cmd {
 		var total, unread, _ = storage.CountEmails(m.dbAccount.ID, m.dbFolder.ID)
 		storage.UpdateFolderStats(m.dbFolder.ID, total, unread)
 
-		return syncDoneMsg{}
+		// Retorna total da caixa para mostrar na UI
+		var totalInBox uint32
+		if selectData != nil {
+			totalInBox = selectData.NumMessages
+		}
+
+		return syncDoneMsg{synced: len(emails), total: int(totalInBox)}
 	}
 }
 
@@ -312,6 +348,135 @@ func (m Model) saveConfig() tea.Cmd {
 		}
 
 		return configSavedMsg{}
+	}
+}
+
+func (m Model) openEmailHTML() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
+			return htmlOpenedMsg{err: fmt.Errorf("nenhum email selecionado")}
+		}
+
+		var email = m.emails[m.selectedEmail]
+
+		// Tenta buscar do servidor IMAP
+		if m.client == nil {
+			return htmlOpenedMsg{err: fmt.Errorf("não conectado ao servidor")}
+		}
+
+		// Seleciona a mailbox antes de buscar
+		if _, err := m.client.SelectMailbox(m.currentBox); err != nil {
+			return htmlOpenedMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
+		}
+
+		var rawData, err = m.client.FetchEmailRaw(email.UID)
+		if err != nil {
+			return htmlOpenedMsg{err: err}
+		}
+
+		// Parseia o email para extrair HTML
+		var htmlContent = extractHTML(rawData)
+		if htmlContent == "" {
+			return htmlOpenedMsg{err: fmt.Errorf("email não contém HTML")}
+		}
+
+		// Salva em arquivo temporário
+		var tmpDir = os.TempDir()
+		var tmpFile = filepath.Join(tmpDir, fmt.Sprintf("miau-email-%d.html", email.ID))
+		if err := os.WriteFile(tmpFile, []byte(htmlContent), 0600); err != nil {
+			return htmlOpenedMsg{err: err}
+		}
+
+		// Abre no navegador padrão
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "linux":
+			cmd = exec.Command("xdg-open", tmpFile)
+		case "darwin":
+			cmd = exec.Command("open", tmpFile)
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", tmpFile)
+		default:
+			return htmlOpenedMsg{err: fmt.Errorf("sistema operacional não suportado")}
+		}
+
+		if err := cmd.Start(); err != nil {
+			return htmlOpenedMsg{err: err}
+		}
+
+		return htmlOpenedMsg{}
+	}
+}
+
+// extractHTML extrai conteúdo HTML de um email MIME
+func extractHTML(rawData []byte) string {
+	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
+	if err != nil {
+		return ""
+	}
+
+	var contentType = msg.Header.Get("Content-Type")
+	var mediaType, params, _ = mime.ParseMediaType(contentType)
+
+	// Se for HTML direto
+	if strings.HasPrefix(mediaType, "text/html") {
+		var body, _ = io.ReadAll(msg.Body)
+		return decodeBody(body, msg.Header.Get("Content-Transfer-Encoding"))
+	}
+
+	// Se for multipart, procura a parte HTML
+	if strings.HasPrefix(mediaType, "multipart/") {
+		var boundary = params["boundary"]
+		if boundary != "" {
+			return findHTMLPart(msg.Body, boundary)
+		}
+	}
+
+	return ""
+}
+
+func findHTMLPart(r io.Reader, boundary string) string {
+	var mr = multipart.NewReader(r, boundary)
+	for {
+		var part, err = mr.NextPart()
+		if err != nil {
+			break
+		}
+
+		var contentType = part.Header.Get("Content-Type")
+		var mediaType, params, _ = mime.ParseMediaType(contentType)
+
+		if strings.HasPrefix(mediaType, "text/html") {
+			var body, _ = io.ReadAll(part)
+			return decodeBody(body, part.Header.Get("Content-Transfer-Encoding"))
+		}
+
+		// Multipart aninhado
+		if strings.HasPrefix(mediaType, "multipart/") {
+			var boundary = params["boundary"]
+			if boundary != "" {
+				if html := findHTMLPart(part, boundary); html != "" {
+					return html
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func decodeBody(body []byte, encoding string) string {
+	switch strings.ToLower(encoding) {
+	case "quoted-printable":
+		var decoded, err = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
+		if err != nil {
+			return string(body)
+		}
+		return string(decoded)
+	case "base64":
+		// Já decodificado pelo parser MIME na maioria dos casos
+		return string(body)
+	default:
+		return string(body)
 	}
 }
 
@@ -428,6 +593,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.aiInput.Focus()
 			m.aiScrollOffset = 0
 			return m, textinput.Blink
+
+		case "h":
+			// Abre email em HTML no navegador
+			if !m.showFolders && len(m.emails) > 0 {
+				return m, m.openEmailHTML()
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -520,6 +691,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Recarrega emails (AI pode ter feito alterações)
 		return m, m.loadEmailsFromDB()
 
+	case htmlOpenedMsg:
+		if msg.err != nil {
+			// Mostra erro temporário no AI panel
+			m.showAI = true
+			m.aiResponse = errorStyle.Render("Erro ao abrir HTML: " + msg.err.Error())
+		}
+		return m, nil
+
 	case errMsg:
 		m.err = msg.err
 		if isAppPasswordError(msg.err) {
@@ -528,6 +707,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		m.state = stateError
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -561,6 +745,10 @@ func (m Model) View() string {
 		if m.syncStatus != "" {
 			msg = m.syncStatus
 		}
+		// Se já temos emails no cache, mostra a quantidade
+		if len(m.emails) > 0 {
+			msg = fmt.Sprintf("Sincronizando %s (%d emails em cache)...", m.currentBox, len(m.emails))
+		}
 		return m.viewLoading(msg)
 	case stateLoadingEmails:
 		return m.viewLoading("Carregando emails do banco local...")
@@ -575,10 +763,18 @@ func (m Model) View() string {
 }
 
 func (m Model) viewLoading(msg string) string {
-	var content = fmt.Sprintf("%s\n\n%s",
+	var spinnerView = m.spinner.View()
+	var content = fmt.Sprintf("%s\n\n%s %s",
 		titleStyle.Render("miau 🐱"),
+		spinnerView,
 		subtitleStyle.Render(msg),
 	)
+
+	// Mostra progresso se disponível
+	if m.syncedEmails > 0 || m.totalEmails > 0 {
+		content += fmt.Sprintf("\n\n%s",
+			infoStyle.Render(fmt.Sprintf("📧 %d emails sincronizados", m.syncedEmails)))
+	}
 
 	var box = boxStyle.Render(content)
 
@@ -658,7 +854,7 @@ func (m Model) viewInbox() string {
 	if m.showAI {
 		footer = subtitleStyle.Render(" Enter:enviar  ↑↓:scroll  Esc:fechar ")
 	} else {
-		footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  a:AI  q:sair ")
+		footer = subtitleStyle.Render(" ↑↓:navegar  Tab:pastas  r:sync  a:AI  h:HTML  q:sair ")
 	}
 
 	// Layout

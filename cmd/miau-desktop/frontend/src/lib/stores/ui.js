@@ -57,6 +57,7 @@ function handleKeydown(e) {
 
     case '?':
       e.preventDefault();
+      info('Help requested');
       showHelp.set(true);
       return;
 

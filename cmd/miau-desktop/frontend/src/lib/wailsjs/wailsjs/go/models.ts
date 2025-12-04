@@ -14,6 +14,185 @@ export namespace desktop {
 	        this.name = source["name"];
 	    }
 	}
+	export class AnalyticsOverviewDTO {
+	    totalEmails: number;
+	    unreadEmails: number;
+	    starredEmails: number;
+	    archivedEmails: number;
+	    sentEmails: number;
+	    draftCount: number;
+	    storageUsedMb: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalyticsOverviewDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalEmails = source["totalEmails"];
+	        this.unreadEmails = source["unreadEmails"];
+	        this.starredEmails = source["starredEmails"];
+	        this.archivedEmails = source["archivedEmails"];
+	        this.sentEmails = source["sentEmails"];
+	        this.draftCount = source["draftCount"];
+	        this.storageUsedMb = source["storageUsedMb"];
+	    }
+	}
+	export class ResponseTimeStatsDTO {
+	    avgResponseMinutes: number;
+	    medianMinutes: number;
+	    responseRate: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseTimeStatsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.avgResponseMinutes = source["avgResponseMinutes"];
+	        this.medianMinutes = source["medianMinutes"];
+	        this.responseRate = source["responseRate"];
+	    }
+	}
+	export class WeekdayStatsDTO {
+	    weekday: number;
+	    name: string;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WeekdayStatsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.weekday = source["weekday"];
+	        this.name = source["name"];
+	        this.count = source["count"];
+	    }
+	}
+	export class HourlyStatsDTO {
+	    hour: number;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HourlyStatsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hour = source["hour"];
+	        this.count = source["count"];
+	    }
+	}
+	export class DailyStatsDTO {
+	    date: string;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DailyStatsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.date = source["date"];
+	        this.count = source["count"];
+	    }
+	}
+	export class EmailTrendsDTO {
+	    daily: DailyStatsDTO[];
+	    hourly: HourlyStatsDTO[];
+	    weekday: WeekdayStatsDTO[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EmailTrendsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.daily = this.convertValues(source["daily"], DailyStatsDTO);
+	        this.hourly = this.convertValues(source["hourly"], HourlyStatsDTO);
+	        this.weekday = this.convertValues(source["weekday"], WeekdayStatsDTO);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SenderStatsDTO {
+	    email: string;
+	    name: string;
+	    count: number;
+	    unreadCount: number;
+	    percentage: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SenderStatsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
+	        this.name = source["name"];
+	        this.count = source["count"];
+	        this.unreadCount = source["unreadCount"];
+	        this.percentage = source["percentage"];
+	    }
+	}
+	export class AnalyticsResultDTO {
+	    overview: AnalyticsOverviewDTO;
+	    topSenders: SenderStatsDTO[];
+	    trends: EmailTrendsDTO;
+	    responseTime: ResponseTimeStatsDTO;
+	    period: string;
+	    // Go type: time
+	    generatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalyticsResultDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.overview = this.convertValues(source["overview"], AnalyticsOverviewDTO);
+	        this.topSenders = this.convertValues(source["topSenders"], SenderStatsDTO);
+	        this.trends = this.convertValues(source["trends"], EmailTrendsDTO);
+	        this.responseTime = this.convertValues(source["responseTime"], ResponseTimeStatsDTO);
+	        this.period = source["period"];
+	        this.generatedAt = this.convertValues(source["generatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AttachmentDTO {
 	    id: number;
 	    filename: string;
@@ -73,6 +252,7 @@ export namespace desktop {
 		    return a;
 		}
 	}
+	
 	export class DraftDTO {
 	    id?: number;
 	    to: string[];
@@ -207,6 +387,7 @@ export namespace desktop {
 		    return a;
 		}
 	}
+	
 	export class FolderDTO {
 	    id: number;
 	    name: string;
@@ -225,6 +406,8 @@ export namespace desktop {
 	        this.unreadMessages = source["unreadMessages"];
 	    }
 	}
+	
+	
 	export class SearchResultDTO {
 	    emails: EmailDTO[];
 	    totalCount: number;
@@ -299,6 +482,7 @@ export namespace desktop {
 	        this.error = source["error"];
 	    }
 	}
+	
 
 }
 

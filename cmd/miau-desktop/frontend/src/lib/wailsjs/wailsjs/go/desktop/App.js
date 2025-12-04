@@ -38,6 +38,14 @@ export function GetAccounts() {
   return window['go']['desktop']['App']['GetAccounts']();
 }
 
+export function GetAnalytics(arg1) {
+  return window['go']['desktop']['App']['GetAnalytics'](arg1);
+}
+
+export function GetAnalyticsOverview() {
+  return window['go']['desktop']['App']['GetAnalyticsOverview']();
+}
+
 export function GetAppInfo() {
   return window['go']['desktop']['App']['GetAppInfo']();
 }
@@ -76,6 +84,10 @@ export function GetFolders() {
 
 export function GetSignature() {
   return window['go']['desktop']['App']['GetSignature']();
+}
+
+export function GetTopSenders(arg1, arg2) {
+  return window['go']['desktop']['App']['GetTopSenders'](arg1, arg2);
 }
 
 export function IsConnected() {

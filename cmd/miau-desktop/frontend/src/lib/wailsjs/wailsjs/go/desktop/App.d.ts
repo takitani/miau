@@ -20,6 +20,10 @@ export function GetAIProviders():Promise<Array<Record<string, any>>>;
 
 export function GetAccounts():Promise<Array<desktop.AccountDTO>>;
 
+export function GetAnalytics(arg1:string):Promise<desktop.AnalyticsResultDTO>;
+
+export function GetAnalyticsOverview():Promise<desktop.AnalyticsOverviewDTO>;
+
 export function GetAppInfo():Promise<Record<string, string>>;
 
 export function GetConnectionStatus():Promise<desktop.ConnectionStatus>;
@@ -39,6 +43,8 @@ export function GetEmails(arg1:string,arg2:number):Promise<Array<desktop.EmailDT
 export function GetFolders():Promise<Array<desktop.FolderDTO>>;
 
 export function GetSignature():Promise<string>;
+
+export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.SenderStatsDTO>>;
 
 export function IsConnected():Promise<boolean>;
 

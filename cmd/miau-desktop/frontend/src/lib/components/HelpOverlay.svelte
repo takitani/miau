@@ -41,7 +41,7 @@
   }
 
   function handleKeydown(e) {
-    if (e.key === 'Escape' || e.key === '?') {
+    if (e.key === 'Escape') {
       close();
     }
   }
@@ -86,7 +86,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 2000;
   }
 
   .help-modal {

@@ -2,7 +2,7 @@
   import { folders, selectFolder, foldersLoading } from '../stores/folders.js';
   import { currentFolder } from '../stores/emails.js';
 
-  // Folder icon mapping
+  // Folder icon mapping (use simple emojis without variation selectors)
   const folderIcons = {
     'INBOX': '📥',
     '[Gmail]/Sent Mail': '📤',
@@ -11,9 +11,9 @@
     '[Gmail]/Rascunhos': '📝',
     '[Gmail]/Starred': '⭐',
     '[Gmail]/Com estrela': '⭐',
-    '[Gmail]/Trash': '🗑️',
-    '[Gmail]/Lixeira': '🗑️',
-    '[Gmail]/Spam': '⚠️',
+    '[Gmail]/Trash': '🗑',
+    '[Gmail]/Lixeira': '🗑',
+    '[Gmail]/Spam': '⚠',
     '[Gmail]/All Mail': '📁',
     '[Gmail]/Todos os e-mails': '📁',
     '[Gmail]/Important': '❗',

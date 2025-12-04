@@ -108,19 +108,17 @@
   }
 
   .layout {
-    display: flex;
+    display: grid;
+    grid-template-columns: 200px 400px 1fr;
     flex: 1;
     overflow: hidden;
   }
 
   .folders-panel {
-    width: 200px;
-    min-width: 200px;
-    max-width: 200px;
+    grid-column: 1;
     border-right: 1px solid var(--border-color);
     overflow-y: auto;
-    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
-    flex-shrink: 0;
+    overflow-x: hidden;
   }
 
   .folders-panel.active {
@@ -128,11 +126,10 @@
   }
 
   .emails-panel {
-    flex: 1;
-    min-width: 300px;
+    grid-column: 2;
     border-right: 1px solid var(--border-color);
     overflow-y: auto;
-    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
+    overflow-x: hidden;
   }
 
   .emails-panel.active {
@@ -140,9 +137,9 @@
   }
 
   .viewer-panel {
-    flex: 1.5;
+    grid-column: 3;
     overflow-y: auto;
-    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
+    overflow-x: hidden;
   }
 
   .viewer-panel.active {

@@ -1,9 +1,69 @@
 <script>
   import { onMount } from 'svelte';
+  import DOMPurify from 'dompurify';
   import { archiveEmail, deleteEmail, toggleStar, markAsRead } from '../stores/emails.js';
   import { showCompose } from '../stores/ui.js';
 
   export let email;
+
+  // Configure DOMPurify for email-safe HTML
+  // This is the industry-standard approach used by professional email clients
+  var DOMPURIFY_CONFIG = {
+    // Allowed tags - basic HTML structure + formatting
+    ALLOWED_TAGS: [
+      'a', 'abbr', 'acronym', 'address', 'area', 'article', 'aside',
+      'b', 'bdi', 'bdo', 'big', 'blockquote', 'br',
+      'caption', 'center', 'cite', 'code', 'col', 'colgroup',
+      'data', 'dd', 'del', 'details', 'dfn', 'dir', 'div', 'dl', 'dt',
+      'em',
+      'figcaption', 'figure', 'font', 'footer',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hgroup', 'hr',
+      'i', 'img', 'ins',
+      'kbd',
+      'li',
+      'main', 'map', 'mark', 'menu', 'meter',
+      'nav',
+      'ol',
+      'p', 'pre', 'progress',
+      'q',
+      'rp', 'rt', 'ruby',
+      's', 'samp', 'section', 'small', 'span', 'strike', 'strong', 'sub', 'summary', 'sup',
+      'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'time', 'tr', 'tt',
+      'u', 'ul',
+      'var', 'wbr'
+    ],
+    // Allowed attributes
+    ALLOWED_ATTR: [
+      'align', 'alt', 'bgcolor', 'border', 'cellpadding', 'cellspacing',
+      'class', 'color', 'cols', 'colspan', 'coords', 'dir', 'disabled',
+      'height', 'href', 'hspace', 'id', 'lang', 'name', 'noshade', 'nowrap',
+      'rel', 'rows', 'rowspan', 'rules', 'scope', 'shape', 'size',
+      'span', 'src', 'start', 'style', 'summary', 'tabindex', 'target',
+      'title', 'type', 'usemap', 'valign', 'value', 'vspace', 'width',
+      // Data attributes for our image blocking
+      'data-blocked-src'
+    ],
+    // Block dangerous elements completely (strip content too)
+    FORBID_TAGS: ['script', 'style', 'meta', 'link', 'base', 'object', 'embed', 'applet', 'frame', 'frameset', 'iframe'],
+    // Block dangerous attributes
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+    // Strip data: URIs for src (except images we explicitly allow)
+    ALLOW_DATA_ATTR: true,
+    // Force all links to open in new tab for security
+    ADD_ATTR: ['target'],
+  };
+
+  // Hook to force external links to open in new tab
+  DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+    if (node.tagName === 'A' && node.hasAttribute('href')) {
+      var href = node.getAttribute('href');
+      // External links open in new tab
+      if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+  });
 
   // Full email content (loaded on demand)
   let fullEmail = null;
@@ -55,44 +115,35 @@
       return;
     }
 
-    // Debug: log image sources found in HTML
-    var imgMatches = html.match(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi) || [];
-    console.log('[EmailViewer] Found images:', imgMatches.length);
-    imgMatches.forEach((img, i) => {
-      var srcMatch = img.match(/src=["']([^"']+)["']/i);
-      if (srcMatch) {
-        var src = srcMatch[1];
-        var type = src.startsWith('data:') ? 'data:' : src.startsWith('cid:') ? 'cid:' : src.startsWith('http') ? 'http' : 'other';
-        console.log(`[EmailViewer] Image ${i}: type=${type}, src=${src.substring(0, 100)}...`);
-      }
-    });
-
     // Check if there are external images (http/https URLs, not data: or cid:)
     hasExternalImages = /src=["']https?:\/\//i.test(html);
 
-    // Strip scripts for security
-    var safe = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-
-    // Convert cid: URLs to data: URLs using inline attachments
+    // Step 1: Convert cid: URLs to data: URLs BEFORE sanitization
+    var processed = html;
     if (fullEmail?.attachments) {
       fullEmail.attachments.forEach(att => {
         if (att.isInline && att.contentId && att.data) {
           var cidPattern = new RegExp(`src=["']cid:${att.contentId.replace(/[<>]/g, '')}["']`, 'gi');
           var dataUrl = `src="data:${att.contentType};base64,${att.data}"`;
-          safe = safe.replace(cidPattern, dataUrl);
+          processed = processed.replace(cidPattern, dataUrl);
           console.log(`[EmailViewer] Replaced cid:${att.contentId} with data URL`);
         }
       });
     }
 
-    // Block external images unless user opts in
+    // Step 2: Block external images BEFORE sanitization (to preserve data-blocked-src)
     if (!showImages && hasExternalImages) {
-      safe = safe.replace(
+      processed = processed.replace(
         /<img([^>]*)src=["'](https?:\/\/[^"']+)["']([^>]*)>/gi,
         '<img$1src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'80\'%3E%3Crect fill=\'%232a2a3e\' width=\'120\' height=\'80\' rx=\'4\'/%3E%3Ctext x=\'60\' y=\'45\' fill=\'%23888\' text-anchor=\'middle\' font-size=\'11\'%3EImagem bloqueada%3C/text%3E%3C/svg%3E" data-blocked-src="$2"$3 style="cursor:pointer;border:1px dashed #444;" title="Imagem externa bloqueada">'
       );
     }
 
+    // Step 3: Sanitize with DOMPurify - industry standard for email HTML
+    // This removes ALL dangerous content: scripts, meta tags, event handlers, etc.
+    var safe = DOMPurify.sanitize(processed, DOMPURIFY_CONFIG);
+
+    console.log('[EmailViewer] Sanitized HTML with DOMPurify');
     processedHtml = safe;
   }
 

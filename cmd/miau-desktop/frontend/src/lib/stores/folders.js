@@ -28,12 +28,20 @@ export async function loadFolders() {
 
 // Select a folder
 export async function selectFolder(name) {
+  console.log(`[selectFolder] START: "${name}"`);
+  console.log(`[selectFolder] Window size: ${window.innerWidth}x${window.innerHeight}`);
+  console.log(`[selectFolder] Document font-size: ${getComputedStyle(document.documentElement).fontSize}`);
+
   try {
     if (window.go?.desktop?.App) {
+      console.log(`[selectFolder] Calling backend SelectFolder...`);
       await window.go.desktop.App.SelectFolder(name);
+      console.log(`[selectFolder] Backend returned`);
     }
     currentFolder.set(name);
+    console.log(`[selectFolder] Loading emails...`);
     await loadEmails(name);
+    console.log(`[selectFolder] DONE. Document font-size: ${getComputedStyle(document.documentElement).fontSize}`);
   } catch (err) {
     console.error('Failed to select folder:', err);
   }

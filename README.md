@@ -88,6 +88,8 @@
 
 ## Documentation
 
+- [Roadmap](docs/ROADMAP.md) - Development progress and feature queue
+- [Ideas & Features](docs/IDEAS.md) - Future features and proposals
 - [System Architecture](docs/architecture.md) - Component diagrams and data flow
 - [Database Schema](docs/database.md) - ERD and table descriptions
 

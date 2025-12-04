@@ -4,6 +4,14 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
 
 ## [Unreleased]
 
+### Adicionado
+- **ROADMAP.md**: Roadmap visual com barras de progresso e fila de prioridades
+- **IDEAS.md**: Novas ideias adicionadas:
+  - Multi-select (Space/Shift para selecionar múltiplos emails)
+  - Suporte a mouse (click, scroll, context menu)
+  - Help overlay (tecla ? com todos os atalhos)
+  - About screen (info do autor, LinkedIn, Exato)
+
 ### Em desenvolvimento
 - Resumo automático de emails longos via IA
 - Categorização automática de emails

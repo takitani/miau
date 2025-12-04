@@ -370,22 +370,211 @@ type Plugin interface {
 ## Priority Matrix
 
 ### High Priority (Next Release)
-1. **Quick Commands** (`/dr`, `/resume`, `/action`)
-2. **Attachments** - List, download, save
-3. **Image Preview** - Basic terminal rendering
-4. **Threading** - Group conversations
+1. **Multi-Select** - Space/Shift for selecting multiple emails
+2. **Mouse Support** - Click, scroll, context menu
+3. **Help Overlay** - Comprehensive keyboard shortcuts + tips
+4. **About Screen** - Author info, links, credits
+5. **Quick Commands** (`/dr`, `/resume`, `/action`)
+6. **Attachments** - List, download, save
+7. **Threading** - Group conversations
 
 ### Medium Priority
-1. **Web Interface** - Basic HTMX version
-2. **Offline Queue** - Queue actions for later sync
-3. **Rules Engine** - Basic filtering rules
-4. **Analytics** - Email statistics
+1. **Image Preview** - Sixel/iTerm2/Kitty terminal rendering
+2. **Web Interface** - Basic HTMX version
+3. **Offline Queue** - Queue actions for later sync
+4. **Rules Engine** - Basic filtering rules
+5. **Analytics** - Email statistics
 
 ### Low Priority (Future)
 1. **Desktop App** - Wails or Fyne
 2. **Calendar Integration**
 3. **Plugin System**
 4. **Encryption** - PGP/S/MIME
+
+---
+
+## Multi-Select & Mouse Support
+
+### Current State
+- Single email selection only
+- No mouse interaction
+- Batch operations only via AI commands
+
+### Proposed Features
+
+#### Multi-Select (Shift + Arrow ou Space)
+```
+┌─ INBOX (3 selected) ────────────────────────────────────────────┐
+│ [✓] Newsletter Weekly  │ This week's digest...    │ Dec 03      │
+│ [✓] Newsletter Monthly │ Monthly roundup...       │ Dec 02      │
+│ [ ] John Smith         │ Meeting tomorrow         │ Dec 02      │
+│ [✓] Promo Email        │ 50% off everything!      │ Dec 01      │
+│ [ ] Maria Silva        │ Re: Project update       │ Dec 01      │
+└─────────────────────────────────────────────────────────────────┘
+ Space:select  Shift+↑↓:range  a:select all  e:archive  x:trash
+```
+
+#### Selection Methods
+| Method | Action |
+|--------|--------|
+| `Space` | Toggle selection on current email |
+| `Shift+j/k` or `Shift+↑/↓` | Extend selection up/down |
+| `v` | Enter visual/select mode |
+| `a` (in select mode) | Select all visible |
+| `Esc` | Clear selection |
+
+#### Batch Actions on Selection
+- `e` → Archive all selected
+- `x` → Trash all selected
+- `m` → Mark all as read/unread
+- `s` → Star/unstar all
+
+### Mouse Support
+
+Bubble Tea suporta mouse! Podemos habilitar:
+
+```go
+// Em tea.NewProgram()
+tea.WithMouseCellMotion()
+tea.WithMouseAllMotion()
+```
+
+#### Mouse Actions
+| Action | Effect |
+|--------|--------|
+| **Click** | Select email |
+| **Double-click** | Open email |
+| **Ctrl+Click** | Add to selection |
+| **Shift+Click** | Range selection |
+| **Scroll** | Navigate list |
+| **Right-click** | Context menu (future) |
+
+#### Implementation Notes
+```go
+// Mouse events in Bubble Tea
+case tea.MouseMsg:
+    switch msg.Type {
+    case tea.MouseLeft:
+        // Click on email
+        m.selectedIndex = m.getIndexFromY(msg.Y)
+    case tea.MouseWheelUp:
+        m.scrollUp()
+    case tea.MouseWheelDown:
+        m.scrollDown()
+    }
+```
+
+#### Context Menu (Right-click)
+```
+┌─────────────────┐
+│ 📖 Open         │
+│ ✉️  Reply        │
+│ ➡️  Forward      │
+│ ───────────────│
+│ 📁 Archive      │
+│ 🗑️  Delete       │
+│ ⭐ Star         │
+│ ───────────────│
+│ 🏷️  Add label    │
+│ 📤 Move to...   │
+└─────────────────┘
+```
+
+---
+
+## Help Overlay
+
+### Current State
+- Basic footer showing some keyboard shortcuts
+- No comprehensive help documentation in-app
+
+### Proposed Features
+
+#### Help Panel (tecla `?` ou `h`)
+```
+┌─ miau Help ─────────────────────────────────────────────────────┐
+│                                                                 │
+│  NAVIGATION                      EMAIL ACTIONS                  │
+│  ───────────                     ─────────────                  │
+│  j/k or ↑/↓   Navigate list      Enter   Open email            │
+│  Tab          Toggle folders     e       Archive               │
+│  /            Fuzzy search       x/#     Move to trash         │
+│  g            Go to folder       s       Star/unstar           │
+│  Home/End     First/last         m       Mark read/unread      │
+│                                                                 │
+│  COMPOSE                         AI ASSISTANT                   │
+│  ───────                         ────────────                   │
+│  c            New email          a       Open AI panel         │
+│  r            Reply              Enter   Send query            │
+│  R            Reply all          Esc     Close panel           │
+│  f            Forward                                          │
+│                                                                 │
+│  GENERAL                         TIPS & TRICKS                  │
+│  ───────                         ─────────────                  │
+│  S            Settings           • Use AI for batch operations  │
+│  d            View drafts        • "archive all from X"         │
+│  ?            This help          • "draft reply to Y"           │
+│  q            Quit               • Fuzzy search with partial    │
+│                                    words                        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              [Press any key to close]
+```
+
+#### Implementation
+- Overlay component using Bubble Tea
+- Categories: Navigation, Email Actions, Compose, AI, General
+- Tips & Tricks section with quick examples
+- Keyboard shortcut: `?` or `h`
+- Dismiss with any key or `Esc`
+
+---
+
+## About Screen
+
+### Proposed Features
+
+#### About Dialog (via Settings ou tecla dedicada)
+```
+┌─ About miau ────────────────────────────────────────────────────┐
+│                                                                 │
+│                          ╭──────────╮                           │
+│                          │  ┌────┐  │                           │
+│                          │  │ 🐱 │  │                           │
+│                          │  └────┘  │                           │
+│                          ╰──────────╯                           │
+│                                                                 │
+│                     miau v1.0.0                                 │
+│           Mail Intelligence Assistant Utility                   │
+│                                                                 │
+│  ───────────────────────────────────────────────────────────── │
+│                                                                 │
+│  Created by: André Takitani                                     │
+│                                                                 │
+│  🔗 LinkedIn: linkedin.com/in/takitani                          │
+│  🌐 Website:  exato.digital                                     │
+│  📧 GitHub:   github.com/takitani/miau                          │
+│                                                                 │
+│  ───────────────────────────────────────────────────────────── │
+│                                                                 │
+│  Built with:                                                    │
+│  • Go + Bubble Tea                                              │
+│  • SQLite + FTS5                                                │
+│  • Claude AI                                                    │
+│                                                                 │
+│  License: MIT                                                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              [Press any key to close]
+```
+
+#### Features
+- [ ] Version number display
+- [ ] Author info with avatar (ASCII art or Sixel if supported)
+- [ ] Clickable links (for terminals that support OSC 8)
+- [ ] Technology stack credits
+- [ ] License info
+- [ ] Access via Settings menu or dedicated key
 
 ---
 

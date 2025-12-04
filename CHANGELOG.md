@@ -5,6 +5,16 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
 ## [Unreleased]
 
 ### Adicionado
+- **Desktop GUI (Wails + Svelte)**: Interface gráfica nativa para Windows/Linux/macOS
+  - Layout 3 painéis: folders, lista de emails, visualizador
+  - Carregamento de body sob demanda via IMAP (corrigido bug de mailbox selection)
+  - Suporte a imagens inline (conversão cid: para data: URL)
+  - Bloqueio de imagens externas por segurança (opt-in para mostrar)
+  - Compose modal com reply/reply-all/forward
+  - Atalhos de teclado: j/k navegar, r responder, c compor, e arquivar, x deletar
+  - DevTools habilitado (F12) para debug
+  - Workaround para Go 1.24+/WebKit signal conflict (GODEBUG=asyncpreemptoff=1)
+  - Build: `make desktop-build-debug`, Run: `make desktop-run`
 - **Arquitetura Modular (Ports/Adapters)**: Preparação para múltiplas interfaces
   - `internal/ports/`: Interfaces de domínio (EmailService, StoragePort, etc)
   - `internal/adapters/`: Implementações (IMAP, Storage)

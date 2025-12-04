@@ -164,6 +164,48 @@ func DeleteEmail(id int64) error {
 	return err
 }
 
+// PurgeDeletedFromServer remove emails do banco que não existem mais no servidor
+func PurgeDeletedFromServer(accountID, folderID int64, serverUIDs []uint32) (int, error) {
+	if len(serverUIDs) == 0 {
+		// Se servidor retornou vazio, NÃO deleta nada (pode ser erro de conexão)
+		return 0, nil
+	}
+
+	// Busca UIDs locais
+	var localUIDs []uint32
+	var err = db.Select(&localUIDs, `
+		SELECT uid FROM emails WHERE account_id = ? AND folder_id = ? AND is_deleted = 0`, accountID, folderID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Cria set de UIDs do servidor para lookup rápido
+	var serverSet = make(map[uint32]bool)
+	for _, uid := range serverUIDs {
+		serverSet[uid] = true
+	}
+
+	// Encontra UIDs que existem local mas não no servidor
+	var toDelete []uint32
+	for _, uid := range localUIDs {
+		if !serverSet[uid] {
+			toDelete = append(toDelete, uid)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return 0, nil
+	}
+
+	// Marca como deletados
+	for _, uid := range toDelete {
+		db.Exec(`UPDATE emails SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
+			WHERE account_id = ? AND folder_id = ? AND uid = ?`, accountID, folderID, uid)
+	}
+
+	return len(toDelete), nil
+}
+
 func CountEmails(accountID, folderID int64) (total int, unread int, err error) {
 	err = db.Get(&total, "SELECT COUNT(*) FROM emails WHERE account_id = ? AND folder_id = ? AND is_deleted = 0", accountID, folderID)
 	if err != nil {

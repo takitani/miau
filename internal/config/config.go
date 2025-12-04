@@ -15,6 +15,13 @@ const (
 	AuthTypeOAuth2   AuthType = "oauth2"
 )
 
+type SendMethod string
+
+const (
+	SendMethodSMTP     SendMethod = "smtp"
+	SendMethodGmailAPI SendMethod = "gmail_api"
+)
+
 type OAuth2Config struct {
 	ClientID     string `yaml:"client_id" mapstructure:"client_id"`
 	ClientSecret string `yaml:"client_secret" mapstructure:"client_secret"`
@@ -38,14 +45,15 @@ type SignatureConfig struct {
 }
 
 type Account struct {
-	Name      string           `yaml:"name" mapstructure:"name"`
-	Email     string           `yaml:"email" mapstructure:"email"`
-	AuthType  AuthType         `yaml:"auth_type" mapstructure:"auth_type"`
-	Password  string           `yaml:"password,omitempty" mapstructure:"password"`
-	OAuth2    *OAuth2Config    `yaml:"oauth2,omitempty" mapstructure:"oauth2"`
-	IMAP      ImapConfig       `yaml:"imap" mapstructure:"imap"`
-	SMTP      SMTPConfig       `yaml:"smtp,omitempty" mapstructure:"smtp"`
-	Signature *SignatureConfig `yaml:"signature,omitempty" mapstructure:"signature"`
+	Name       string           `yaml:"name" mapstructure:"name"`
+	Email      string           `yaml:"email" mapstructure:"email"`
+	AuthType   AuthType         `yaml:"auth_type" mapstructure:"auth_type"`
+	Password   string           `yaml:"password,omitempty" mapstructure:"password"`
+	OAuth2     *OAuth2Config    `yaml:"oauth2,omitempty" mapstructure:"oauth2"`
+	IMAP       ImapConfig       `yaml:"imap" mapstructure:"imap"`
+	SMTP       SMTPConfig       `yaml:"smtp,omitempty" mapstructure:"smtp"`
+	SendMethod SendMethod       `yaml:"send_method,omitempty" mapstructure:"send_method"`
+	Signature  *SignatureConfig `yaml:"signature,omitempty" mapstructure:"signature"`
 }
 
 type StorageConfig struct {

@@ -3,6 +3,7 @@ package imap
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -109,14 +110,25 @@ func authenticateOAuth2(client *imapclient.Client, account *config.Account) erro
 
 	var token, err = auth.GetValidToken(oauthCfg, tokenPath)
 	if err != nil {
-		return fmt.Errorf("erro ao obter token: %w", err)
+		// Token não existe ou inválido - inicia fluxo de autenticação
+		fmt.Println("\n🔐 Token OAuth2 não encontrado. Iniciando autenticação...")
+		token, err = auth.AuthenticateWithBrowser(oauthCfg)
+		if err != nil {
+			return fmt.Errorf("erro na autenticação OAuth2: %w", err)
+		}
+
+		// Salva o token para uso futuro
+		if err := auth.SaveToken(tokenPath, token); err != nil {
+			return fmt.Errorf("erro ao salvar token: %w", err)
+		}
+		fmt.Println("✓ Token OAuth2 salvo com sucesso!")
 	}
 
 	var saslClient = newXOAuth2Client(account.Email, token.AccessToken)
 	return client.Authenticate(saslClient)
 }
 
-// ListMailboxes lista todas as pastas
+// ListMailboxes lista todas as pastas (rápido, sem status)
 func (c *Client) ListMailboxes() ([]Mailbox, error) {
 	var mailboxes []Mailbox
 
@@ -131,17 +143,20 @@ func (c *Client) ListMailboxes() ([]Mailbox, error) {
 			Name: mbox.Mailbox,
 		}
 
-		var statusCmd = c.client.Status(mbox.Mailbox, &imap.StatusOptions{
-			NumMessages: true,
-			NumUnseen:   true,
-		})
-		var status, err = statusCmd.Wait()
-		if err == nil {
-			if status.NumMessages != nil {
-				mb.Messages = *status.NumMessages
-			}
-			if status.NumUnseen != nil {
-				mb.Unseen = *status.NumUnseen
+		// Só pega status do INBOX pra acelerar boot
+		if strings.EqualFold(mbox.Mailbox, "INBOX") {
+			var statusCmd = c.client.Status(mbox.Mailbox, &imap.StatusOptions{
+				NumMessages: true,
+				NumUnseen:   true,
+			})
+			var status, err = statusCmd.Wait()
+			if err == nil {
+				if status.NumMessages != nil {
+					mb.Messages = *status.NumMessages
+				}
+				if status.NumUnseen != nil {
+					mb.Unseen = *status.NumUnseen
+				}
 			}
 		}
 
@@ -345,7 +360,7 @@ func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
 		UID: []imap.UIDSet{{imap.UIDRange{Start: imap.UID(sinceUID + 1), Stop: 0}}},
 	}
 
-	var searchCmd = c.client.Search(criteria, nil)
+	var searchCmd = c.client.UIDSearch(criteria, nil)
 	var searchData, err = searchCmd.Wait()
 	if err != nil {
 		return nil, err
@@ -491,6 +506,23 @@ func (c *Client) MarkAsRead(uid uint32) error {
 
 	var _, err = c.client.Store(uidSet, &storeFlags, nil).Collect()
 	return err
+}
+
+// GetAllUIDs retorna todos os UIDs da mailbox selecionada
+func (c *Client) GetAllUIDs() ([]uint32, error) {
+	var criteria = &imap.SearchCriteria{}
+	var searchCmd = c.client.UIDSearch(criteria, nil)
+	var searchData, err = searchCmd.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	var uids = searchData.AllUIDs()
+	var result = make([]uint32, len(uids))
+	for i, uid := range uids {
+		result[i] = uint32(uid)
+	}
+	return result, nil
 }
 
 // Close fecha a conexão

@@ -23,7 +23,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
+	"github.com/opik/miau/internal/gmail"
 	"github.com/opik/miau/internal/imap"
 	"github.com/opik/miau/internal/smtp"
 	"github.com/opik/miau/internal/storage"
@@ -192,6 +194,7 @@ type syncProgressMsg struct {
 type syncDoneMsg struct {
 	synced int
 	total  int
+	purged int
 }
 
 type emailsLoadedMsg struct {
@@ -219,11 +222,12 @@ type emailContentMsg struct {
 }
 
 type emailSentMsg struct {
-	err    error
-	host   string
-	port   int
-	to     string
-	msgID  string
+	err     error
+	host    string
+	port    int
+	to      string
+	msgID   string
+	backend string // "smtp" ou "gmail_api"
 }
 
 type markReadMsg struct {
@@ -365,6 +369,11 @@ func (m Model) syncEmails() tea.Cmd {
 		var emails []imap.Email
 		var err2 error
 
+		// Log para debug
+		if m.debugMode {
+			logBounceCheck(fmt.Sprintf("Sync: latestUID=%d, folder=%s", latestUID, m.currentBox))
+		}
+
 		if latestUID > 0 {
 			// Quick sync: só busca emails novos (UID > último)
 			emails, err2 = m.client.FetchNewEmails(latestUID, 100)
@@ -404,6 +413,14 @@ func (m Model) syncEmails() tea.Cmd {
 			storage.UpsertEmail(dbEmail)
 		}
 
+		// Detecta emails deletados no servidor
+		var serverUIDs, errUIDs = m.client.GetAllUIDs()
+		if errUIDs != nil {
+			// Log error but continue
+			serverUIDs = nil
+		}
+		var purged, _ = storage.PurgeDeletedFromServer(m.dbAccount.ID, m.dbFolder.ID, serverUIDs)
+
 		// Atualiza stats da pasta
 		var total, unread, _ = storage.CountEmails(m.dbAccount.ID, m.dbFolder.ID)
 		storage.UpdateFolderStats(m.dbFolder.ID, total, unread)
@@ -414,7 +431,7 @@ func (m Model) syncEmails() tea.Cmd {
 			totalInBox = selectData.NumMessages
 		}
 
-		return syncDoneMsg{synced: len(emails), total: int(totalInBox)}
+		return syncDoneMsg{synced: len(emails), total: int(totalInBox), purged: purged}
 	}
 }
 
@@ -531,6 +548,19 @@ func (m Model) sendEmail() tea.Cmd {
 			}
 		}
 
+		// Headers de threading
+		var inReplyTo, references string
+		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
+			inReplyTo = m.composeReplyTo.MessageID.String
+			references = inReplyTo
+		}
+
+		// Verifica se deve usar Gmail API
+		if m.account.SendMethod == config.SendMethodGmailAPI && m.account.OAuth2 != nil {
+			return m.sendViaGmailAPI(to, subject, emailBody, useHTML, inReplyTo, references)
+		}
+
+		// Fallback para SMTP
 		var client = smtp.NewClient(m.account)
 		var email = &smtp.Email{
 			To:             []string{to},
@@ -538,26 +568,62 @@ func (m Model) sendEmail() tea.Cmd {
 			Body:           emailBody,
 			Classification: smtp.Classifications[m.composeClassification],
 			IsHTML:         useHTML,
-		}
-
-		// Se for reply, adiciona headers de threading
-		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
-			var originalMsgID = m.composeReplyTo.MessageID.String
-			email.InReplyTo = originalMsgID
-			email.References = originalMsgID
+			InReplyTo:      inReplyTo,
+			References:     references,
 		}
 
 		var result, err = client.Send(email)
 		if err != nil {
-			return emailSentMsg{err: err, to: to}
+			return emailSentMsg{err: err, to: to, backend: "smtp"}
 		}
 
 		return emailSentMsg{
-			host:  result.Host,
-			port:  result.Port,
-			to:    to,
-			msgID: result.MessageID,
+			host:    result.Host,
+			port:    result.Port,
+			to:      to,
+			msgID:   result.MessageID,
+			backend: "smtp",
 		}
+	}
+}
+
+func (m Model) sendViaGmailAPI(to, subject, body string, isHTML bool, inReplyTo, references string) tea.Msg {
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+	var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
+
+	var token, err = auth.GetValidToken(oauthCfg, tokenPath)
+	if err != nil {
+		return emailSentMsg{err: fmt.Errorf("erro ao obter token OAuth2: %w", err), to: to, backend: "gmail_api"}
+	}
+
+	var client = gmail.NewClient(token, oauthCfg, m.account.Email)
+
+	// Monta request
+	var req = &gmail.SendRequest{
+		To:         []string{to},
+		Subject:    subject,
+		Body:       body,
+		IsHTML:     isHTML,
+		InReplyTo:  inReplyTo,
+		References: references,
+	}
+
+	// Adiciona classification se houver (índice 0 = sem classificação)
+	if m.composeClassification > 0 {
+		// Por enquanto usa o nome da classificação como label ID
+		// TODO: mapear para label IDs reais do Gmail
+		req.ClassificationID = smtp.Classifications[m.composeClassification]
+	}
+
+	var resp, err2 = client.SendMessage(req)
+	if err2 != nil {
+		return emailSentMsg{err: err2, to: to, backend: "gmail_api"}
+	}
+
+	return emailSentMsg{
+		to:      to,
+		msgID:   resp.ID,
+		backend: "gmail_api",
 	}
 }
 
@@ -633,13 +699,13 @@ func (m Model) checkForBounces() tea.Cmd {
 			logBounceCheck(fmt.Sprintf("Verificando %d emails para bounce", len(allEmails)))
 		}
 
-		// Procura por bounces em TODOS os emails (sem filtro de tempo)
+		// Procura por bounces em TODOS os emails
 		for _, email := range allEmails {
 			// Log cada email verificado para debug
 			if debugMode {
 				var isBounce = isBounceEmail(email.FromEmail, email.FromName, email.Subject)
-				logBounceCheck(fmt.Sprintf("  Email: from='%s' name='%s' subj='%s' => bounce=%v",
-					email.FromEmail, email.FromName, email.Subject, isBounce))
+				logBounceCheck(fmt.Sprintf("  Email: from='%s' name='%s' subj='%s' date='%s' => bounce=%v",
+					email.FromEmail, email.FromName, email.Subject, email.Date.Time.Format("15:04:05"), isBounce))
 			}
 
 			// Detecta se é bounce pelo remetente/subject
@@ -647,13 +713,29 @@ func (m Model) checkForBounces() tea.Cmd {
 				continue
 			}
 
-			// Encontrou um bounce! Vincula com qualquer tracker ativo
-			if len(activeTrackers) > 0 {
-				var tracker = activeTrackers[0] // Pega o mais recente
+			// Encontrou um bounce! Verifica se corresponde a algum tracker
+			for _, tracker := range activeTrackers {
+				// Bounce deve ser DEPOIS do envio
+				if email.Date.Time.Before(tracker.SentAt) {
+					if debugMode {
+						logBounceCheck(fmt.Sprintf("    Bounce muito antigo: bounce=%s sent=%s",
+							email.Date.Time.Format("15:04:05"), tracker.SentAt.Format("15:04:05")))
+					}
+					continue
+				}
 
-				// Extrai razão do bounce
+				// Verifica se o bounce menciona o destinatário do email enviado
+				var bounceContent = strings.ToLower(email.Subject + " " + email.Snippet)
+				var recipientLower = strings.ToLower(tracker.To)
+				if !strings.Contains(bounceContent, recipientLower) {
+					if debugMode {
+						logBounceCheck(fmt.Sprintf("    Bounce não menciona destinatário '%s'", tracker.To))
+					}
+					continue
+				}
+
+				// Match! Bounce corresponde ao email enviado
 				var reason = extractBounceReason(email.Snippet, email.Subject)
-
 				logBounceCheck(fmt.Sprintf("🚨 BOUNCE ENCONTRADO! to=%s reason=%s", tracker.To, reason))
 
 				return bounceFoundMsg{
@@ -1581,7 +1663,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Sync em background - não muda state se já estamos ready
-		m.log("🔄 Iniciando sync...")
+		var latestUID2, _ = storage.GetLatestUID(m.dbAccount.ID, m.dbFolder.ID)
+		m.log("🔄 Iniciando sync... (lastUID=%d)", latestUID2)
 		if m.state != stateReady {
 			m.state = stateSyncing
 		}
@@ -1594,7 +1677,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case syncDoneMsg:
-		m.log("✅ Sync completo: %d emails (total servidor: %d)", msg.synced, msg.total)
+		m.log("✅ Sync completo: %d novos, %d removidos (total servidor: %d)", msg.synced, msg.purged, msg.total)
 		// Recarrega emails do DB após sync
 		if m.state != stateReady {
 			m.state = stateLoadingEmails
@@ -1661,13 +1744,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showCompose = false
 			m.showAI = true
 			// Mensagem detalhada para o usuário saber exatamente o que aconteceu
-			var details = fmt.Sprintf(`✅ Email aceito pelo servidor SMTP
+			var details string
+			if msg.backend == "gmail_api" {
+				details = fmt.Sprintf(`✅ Email enviado via Gmail API
+
+📤 Para: %s
+🆔 Message ID: %s
+
+⏱️  Monitorando bounces por 5 minutos...
+Se houver rejeição, você será alertado.`, msg.to, msg.msgID)
+			} else {
+				details = fmt.Sprintf(`✅ Email aceito pelo servidor SMTP
 
 📤 Para: %s
 🖥️  Servidor: %s:%d
 
 ⏱️  Monitorando bounces por 5 minutos...
 Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
+			}
 			m.aiResponse = infoStyle.Render(details)
 
 			// Inicia monitoramento de bounce

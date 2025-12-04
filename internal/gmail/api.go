@@ -1,11 +1,15 @@
 package gmail
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -106,4 +110,173 @@ func (c *Client) listSendAs() (*SendAsListResponse, error) {
 	}
 
 	return &result, nil
+}
+
+// === EMAIL SENDING ===
+
+// SendRequest representa a requisição de envio de email
+type SendRequest struct {
+	To              []string
+	Cc              []string
+	Bcc             []string
+	Subject         string
+	Body            string
+	InReplyTo       string
+	References      string
+	IsHTML          bool
+	ClassificationID string // ID do label de classificação (ex: "Label_123")
+}
+
+// SendResponse representa a resposta do envio
+type SendResponse struct {
+	ID       string `json:"id"`
+	ThreadID string `json:"threadId"`
+}
+
+// ClassificationLabelValue representa um valor de classificação
+type ClassificationLabelValue struct {
+	LabelID string                        `json:"labelId"`
+	Fields  []ClassificationLabelField    `json:"fields,omitempty"`
+}
+
+// ClassificationLabelField representa um campo de classificação
+type ClassificationLabelField struct {
+	FieldID   string `json:"fieldId"`
+	Selection string `json:"selection,omitempty"`
+}
+
+// GmailMessage representa uma mensagem para a API
+type GmailMessage struct {
+	Raw                       string                     `json:"raw"`
+	ThreadID                  string                     `json:"threadId,omitempty"`
+	LabelIDs                  []string                   `json:"labelIds,omitempty"`
+	ClassificationLabelValues []ClassificationLabelValue `json:"classificationLabelValues,omitempty"`
+}
+
+// SendMessage envia um email usando a Gmail API
+func (c *Client) SendMessage(req *SendRequest) (*SendResponse, error) {
+	// Constrói a mensagem RFC 2822
+	var rawMessage = c.buildRFC2822Message(req)
+
+	// Codifica em base64url
+	var encoded = base64.URLEncoding.EncodeToString([]byte(rawMessage))
+
+	// Monta o payload
+	var message = GmailMessage{
+		Raw: encoded,
+	}
+
+	// Se tem classificação, adiciona
+	if req.ClassificationID != "" {
+		message.ClassificationLabelValues = []ClassificationLabelValue{
+			{
+				LabelID: req.ClassificationID,
+			},
+		}
+	}
+
+	// Serializa
+	var payload, err = json.Marshal(message)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar mensagem: %w", err)
+	}
+
+	// Envia via API
+	var url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+	var httpReq, err2 = http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err2 != nil {
+		return nil, fmt.Errorf("erro ao criar requisição: %w", err2)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	var resp, err3 = c.httpClient.Do(httpReq)
+	if err3 != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err3)
+	}
+	defer resp.Body.Close()
+
+	var respBody, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result SendResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &result, nil
+}
+
+// buildRFC2822Message constrói uma mensagem no formato RFC 2822
+func (c *Client) buildRFC2822Message(req *SendRequest) string {
+	var msg strings.Builder
+
+	// Headers obrigatórios
+	msg.WriteString(fmt.Sprintf("From: %s\r\n", c.email))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(req.To, ", ")))
+
+	if len(req.Cc) > 0 {
+		msg.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(req.Cc, ", ")))
+	}
+
+	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", req.Subject))
+	msg.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
+
+	// Headers de threading
+	if req.InReplyTo != "" {
+		msg.WriteString(fmt.Sprintf("In-Reply-To: %s\r\n", req.InReplyTo))
+	}
+	if req.References != "" {
+		msg.WriteString(fmt.Sprintf("References: %s\r\n", req.References))
+	}
+
+	// MIME
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	if req.IsHTML {
+		msg.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	} else {
+		msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	}
+
+	// Corpo
+	msg.WriteString("\r\n")
+	msg.WriteString(req.Body)
+
+	return msg.String()
+}
+
+// ListClassificationLabels lista os labels de classificação disponíveis
+func (c *Client) ListClassificationLabels() ([]Label, error) {
+	var url = "https://gmail.googleapis.com/gmail/v1/users/me/labels"
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Labels []Label `json:"labels"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return result.Labels, nil
+}
+
+// Label representa um label do Gmail
+type Label struct {
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	Type                  string `json:"type"`
+	MessageListVisibility string `json:"messageListVisibility,omitempty"`
+	LabelListVisibility   string `json:"labelListVisibility,omitempty"`
 }

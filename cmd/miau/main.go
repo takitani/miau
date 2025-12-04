@@ -140,6 +140,12 @@ func main() {
 		return
 	}
 
+	// Comando para autenticação OAuth2
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		runOAuth2Auth()
+		return
+	}
+
 	// Verifica flag --debug
 	var debugMode = false
 	for _, arg := range os.Args[1:] {
@@ -372,4 +378,67 @@ func extractSignatureFromHTML(html string) string {
 	}
 
 	return ""
+}
+
+// runOAuth2Auth executa o fluxo de autenticação OAuth2 fora da TUI
+func runOAuth2Auth() {
+	var cfg, err = config.Load()
+	if err != nil || cfg == nil || len(cfg.Accounts) == 0 {
+		fmt.Println("❌ Nenhuma conta configurada")
+		os.Exit(1)
+	}
+
+	var account = &cfg.Accounts[0]
+
+	if account.AuthType != config.AuthTypeOAuth2 {
+		fmt.Println("❌ Conta não está configurada para OAuth2")
+		fmt.Printf("   auth_type atual: %s\n", account.AuthType)
+		os.Exit(1)
+	}
+
+	if account.OAuth2 == nil {
+		fmt.Println("❌ Configuração OAuth2 não encontrada")
+		os.Exit(1)
+	}
+
+	fmt.Println("🐱 miau - Autenticação OAuth2")
+	fmt.Println("=============================")
+	fmt.Printf("📧 Conta: %s\n", account.Email)
+	fmt.Printf("🔑 Client ID: %s...\n", account.OAuth2.ClientID[:20])
+
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Name)
+	var oauthCfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
+
+	// Verifica se já tem token válido
+	var existingToken, err2 = auth.GetValidToken(oauthCfg, tokenPath)
+	if err2 == nil {
+		fmt.Println("\n✓ Token OAuth2 já existe e é válido!")
+		fmt.Printf("   Expira em: %s\n", existingToken.Expiry.Format("2006-01-02 15:04:05"))
+		fmt.Println("\nDeseja renovar o token? (y/N)")
+
+		var input string
+		fmt.Scanln(&input)
+		if input != "y" && input != "Y" {
+			fmt.Println("Mantendo token existente.")
+			return
+		}
+	}
+
+	// Inicia fluxo de autenticação
+	var token, err3 = auth.AuthenticateWithBrowser(oauthCfg)
+	if err3 != nil {
+		fmt.Printf("❌ Erro na autenticação: %v\n", err3)
+		os.Exit(1)
+	}
+
+	// Salva token
+	if err := auth.SaveToken(tokenPath, token); err != nil {
+		fmt.Printf("❌ Erro ao salvar token: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("\n✓ Token OAuth2 salvo com sucesso!")
+	fmt.Printf("   Local: %s\n", tokenPath)
+	fmt.Printf("   Expira em: %s\n", token.Expiry.Format("2006-01-02 15:04:05"))
+	fmt.Println("\nAgora você pode executar 'miau' normalmente.")
 }

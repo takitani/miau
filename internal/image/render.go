@@ -41,10 +41,19 @@ func Render(caps Capabilities, opts RenderOptions) (string, error) {
 
 // renderWithChafa uses chafa to render image in terminal
 func renderWithChafa(toolPath string, opts RenderOptions) (string, error) {
+	var targetWidth = opts.Width
+	if targetWidth <= 0 {
+		targetWidth = 80
+	}
+
+	// Use --passthrough none to prevent Kitty/iTerm graphics protocol (incompatible with TUI)
+	// Use --work 9 for best quality, --colors full for 24-bit color
 	var args = []string{
-		"--size", fmt.Sprintf("%dx%d", opts.Width, opts.Height),
-		"--format", "symbols", // Universal fallback, works in all terminals
-		"--colors", "full",    // Use full colors
+		"--format", "symbols",
+		"--passthrough", "none",
+		"--work", "9",
+		"--colors", "full",
+		"--size", fmt.Sprintf("%d", targetWidth),
 	}
 
 	var cmd *exec.Cmd

@@ -1661,11 +1661,17 @@ func (m Model) renderCurrentImage() tea.Cmd {
 	var caps = m.imageCapabilities
 	var att = m.imageAttachments[m.selectedImage]
 
-	return func() tea.Msg {
-		// Calcula tamanho baseado no terminal (deixa espaço para bordas/info)
-		var width = 60
-		var height = 20
+	// Captura dimensões do terminal (overlay: -6, padding: -4, border: -2)
+	var width = m.width - 14
+	var height = m.height - 14 // header + footer + info + padding
+	if width < 40 {
+		width = 40
+	}
+	if height < 10 {
+		height = 10
+	}
 
+	return func() tea.Msg {
 		var opts = image.RenderOptions{
 			Width:  width,
 			Height: height,
@@ -4428,12 +4434,10 @@ func (m Model) viewImagePreview() string {
 
 	var currentImage = m.imageAttachments[m.selectedImage]
 
-	// Estilo do overlay
+	// Estilo do overlay - sem Background para não interferir com cores ANSI do chafa
 	var overlayStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#4ECDC4")).
-		Background(lipgloss.Color("#1a1a1a")).
-		Foreground(lipgloss.Color("#FFFFFF")).
 		Padding(1, 2)
 
 	// Header com info da imagem
@@ -4492,20 +4496,10 @@ func (m Model) viewImagePreview() string {
 		rendererInfo,
 	)
 
-	// Tamanho do overlay baseado no terminal
-	var width = m.width - 10
-	if width > 80 {
-		width = 80
-	}
+	// Tamanho do overlay baseado no terminal - sem limitar para aproveitar espaço
+	var width = m.width - 6
 	if width < 50 {
 		width = 50
-	}
-	var height = m.height - 6
-	if height > 35 {
-		height = 35
-	}
-	if height < 15 {
-		height = 15
 	}
 
 	var modal = overlayStyle.Width(width).Render(content)

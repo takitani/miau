@@ -578,6 +578,285 @@ case tea.MouseMsg:
 
 ---
 
+## Undo/Redo (Ctrl+Z Infinito)
+
+### Proposed Features
+- Histórico de ações ilimitado
+- Undo para: archive, delete, move, star, mark read/unread
+- Redo com Ctrl+Shift+Z ou Ctrl+Y
+- Histórico persistente entre sessões (SQLite)
+
+```
+┌─ Undo History ───────────────────────────────────────────────┐
+│ ↩ Archived "Newsletter Weekly"                    2 min ago  │
+│ ↩ Deleted 3 emails from "Promotions"              5 min ago  │
+│ ↩ Marked 12 emails as read                       10 min ago  │
+│ ↩ Moved "Invoice" to "Finance" folder            15 min ago  │
+└──────────────────────────────────────────────────────────────┘
+ Ctrl+Z: undo last  Ctrl+Shift+Z: redo
+```
+
+---
+
+## Temas e Customização Visual
+
+### Theme Options
+- **Dark Mode** (padrão)
+- **Light Mode** - cores invertidas
+- **High Contrast** - acessibilidade
+- **Custom** - user-defined colors
+- **Solarized** - popular coding theme
+- **Dracula** - dark theme
+
+### Font Support
+- Troca de fonte via config
+- Suporte a Nerd Fonts para ícones
+- Tamanho de fonte (densidade de informação)
+
+```yaml
+# config.yaml
+theme:
+  name: "dark"  # dark, light, high-contrast, solarized, dracula
+  accent_color: "#4ECDC4"
+
+display:
+  font: "JetBrains Mono"
+  font_size: "normal"  # compact, normal, large
+  icons: true  # requires Nerd Font
+```
+
+---
+
+## Multi-Language / Internacionalização
+
+### Supported Languages
+- [ ] Português (pt-BR) - default
+- [ ] English (en-US)
+- [ ] Español (es)
+- [ ] Français (fr)
+- [ ] Deutsch (de)
+
+### Implementation
+```yaml
+# config.yaml
+language: "pt-BR"
+```
+
+### Translated Elements
+- UI labels e menus
+- AI prompts e responses
+- Help documentation
+- Error messages
+- Date/time formats
+
+---
+
+## Tasks / Todo Integration
+
+### Options
+
+#### 1. Gmail Tasks API
+- Sincronizar com Google Tasks
+- Criar tasks a partir de emails
+- Checkbox para marcar completo
+- Datas de vencimento
+
+#### 2. Internal Tasks
+- Tasks locais em SQLite
+- Não depende de API externa
+- Privacidade total
+
+```sql
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    email_id INTEGER REFERENCES emails(id),
+    title TEXT NOT NULL,
+    description TEXT,
+    due_date DATETIME,
+    completed BOOLEAN DEFAULT 0,
+    priority INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Task Panel
+```
+┌─ Tasks (3 pending) ──────────────────────────────────────────┐
+│ [ ] Reply to John about proposal          Due: Today         │
+│ [ ] Send invoice to client                Due: Tomorrow      │
+│ [ ] Review contracts                      Due: Dec 15        │
+│ [✓] Schedule meeting with team            Completed          │
+└──────────────────────────────────────────────────────────────┘
+ Enter: toggle  n: new task  e: edit  d: delete  t: tasks panel
+```
+
+---
+
+## Calendar Integration (iCal/Gmail)
+
+### Features
+- Sincronizar com Google Calendar
+- Importar arquivos .ics de emails
+- Mostrar eventos do dia no sidebar
+- Criar eventos a partir de emails
+- Accept/Decline meeting invites
+
+### Implementation Options
+1. **Google Calendar API** - Full sync
+2. **iCal/CalDAV** - Standard protocol
+3. **Local only** - Parse .ics attachments
+
+```
+┌─ Today ──────────────────────────────────────────────────────┐
+│ 09:00 - Team Standup (Google Meet)                           │
+│ 14:00 - Client Call (from email: John Smith)                 │
+│ 16:30 - 1:1 with Manager                                     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Multi-AI Integration
+
+### Current State
+- Claude via miau TUI
+
+### Proposed AI Providers
+
+| Provider | Method | Pros | Cons |
+|----------|--------|------|------|
+| **Claude** | TUI integration | Best quality | Requires setup |
+| **Gemini CLI** | Shell out | Free tier | Google account |
+| **Codex CLI** | Shell out | OpenAI | Paid |
+| **Ollama** | Local API | Privacy, offline | Requires GPU |
+| **OpenRouter** | API | Multi-model | API key |
+
+### Agent SDK Architecture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     AI Agent SDK                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Claude    │  │   Gemini    │  │   Ollama    │              │
+│  │   Provider  │  │   Provider  │  │   Provider  │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│                         │                                       │
+│                         ▼                                       │
+│              ┌─────────────────────┐                            │
+│              │   Unified Interface │                            │
+│              │   - Chat            │                            │
+│              │   - Email Draft     │                            │
+│              │   - Summarize       │                            │
+│              │   - Batch Ops       │                            │
+│              └─────────────────────┘                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Config Example
+```yaml
+# config.yaml
+ai:
+  default_provider: "claude"
+  providers:
+    claude:
+      enabled: true
+    gemini:
+      enabled: true
+      cli_path: "/usr/local/bin/gemini"
+    ollama:
+      enabled: true
+      model: "llama3"
+      url: "http://localhost:11434"
+```
+
+### Multi-Agent Features
+- Email triage por múltiplos agentes
+- Fallback quando um provider falha
+- Comparação de respostas
+- Custo optimization (usar mais barato primeiro)
+
+---
+
+## Scheduled Messages (Send Later)
+
+Send emails at a future date/time, similar to Gmail's "Schedule send" feature.
+
+### UX Mockup
+```
+┌─ Compose ─────────────────────────────────────────────────────────────┐
+│ To: recipient@example.com                                              │
+│ Subject: Meeting follow-up                                             │
+│                                                                        │
+│ Hi,                                                                    │
+│                                                                        │
+│ Thanks for meeting today...                                            │
+│                                                                        │
+├────────────────────────────────────────────────────────────────────────┤
+│  [s] Send now    [S] Schedule send    [Esc] Cancel                     │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌─ Schedule Send ───────────────────────────────────────────────────────┐
+│                                                                        │
+│  Quick options:                                                        │
+│  [1] Tomorrow morning (8:00 AM)                                        │
+│  [2] Tomorrow afternoon (2:00 PM)                                      │
+│  [3] Monday morning (8:00 AM)                                          │
+│  [4] Custom date/time...                                               │
+│                                                                        │
+│  ┌─ Custom ─────────────────────────────────────────────────┐          │
+│  │ Date: [2024-12-10]  Time: [09:30]                        │          │
+│  │                                                          │          │
+│  │ Scheduled: Tuesday, Dec 10, 2024 at 9:30 AM              │          │
+│  └──────────────────────────────────────────────────────────┘          │
+│                                                                        │
+│  [Enter] Schedule    [Esc] Back                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Scheduled Messages Panel
+```
+┌─ Scheduled Messages (3) ──────────────────────────────────────────────┐
+│                                                                        │
+│  📅 Tomorrow 8:00 AM                                                   │
+│     To: john@example.com                                               │
+│     Subject: Project update                                            │
+│                                                                        │
+│  📅 Dec 10, 9:30 AM                                                    │
+│     To: team@company.com                                               │
+│     Subject: Weekly report                                             │
+│                                                                        │
+│  📅 Dec 15, 2:00 PM                                                    │
+│     To: client@external.com                                            │
+│     Subject: Proposal follow-up                                        │
+│                                                                        │
+├────────────────────────────────────────────────────────────────────────┤
+│  [Enter] Edit    [d] Delete    [s] Send now    [Esc] Close             │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Notes
+- Store in SQLite `scheduled_emails` table
+- Background goroutine checks every minute
+- Support timezone-aware scheduling
+- Notify user when sent (optional)
+- Allow editing/canceling before send time
+- Integrate with drafts system
+
+### Database Schema
+```sql
+CREATE TABLE scheduled_emails (
+    id INTEGER PRIMARY KEY,
+    account_id INTEGER REFERENCES accounts(id),
+    draft_id INTEGER REFERENCES drafts(id),
+    scheduled_at DATETIME NOT NULL,
+    timezone TEXT DEFAULT 'UTC',
+    status TEXT DEFAULT 'pending',  -- pending, sent, canceled, failed
+    sent_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
 ## Technical Debt
 
 ### Current Issues to Address

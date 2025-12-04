@@ -525,6 +525,100 @@ func (c *Client) GetAllUIDs() ([]uint32, error) {
 	return result, nil
 }
 
+// MoveToFolder move um email para outra pasta usando MOVE ou COPY+DELETE
+func (c *Client) MoveToFolder(uid uint32, targetFolder string) error {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	// Tenta usar MOVE primeiro (mais eficiente, suportado pela maioria dos servidores modernos)
+	var moveCmd = c.client.Move(uidSet, targetFolder)
+	var _, err = moveCmd.Wait()
+	if err == nil {
+		return nil
+	}
+
+	// Fallback: COPY + DELETE
+	var copyCmd = c.client.Copy(uidSet, targetFolder)
+	if _, err = copyCmd.Wait(); err != nil {
+		return fmt.Errorf("erro ao copiar email: %w", err)
+	}
+
+	// Marca como deleted
+	var storeFlags = imap.StoreFlags{
+		Op:     imap.StoreFlagsAdd,
+		Silent: true,
+		Flags:  []imap.Flag{imap.FlagDeleted},
+	}
+	if _, err = c.client.Store(uidSet, &storeFlags, nil).Collect(); err != nil {
+		return fmt.Errorf("erro ao marcar como deletado: %w", err)
+	}
+
+	// Expunge
+	var _, err2 = c.client.Expunge().Collect()
+	return err2
+}
+
+// ArchiveEmail arquiva um email (remove do INBOX, mantém em All Mail)
+// Para Gmail: remove da pasta atual (fica automaticamente em All Mail)
+// Para outros: move para Archive ou All Mail
+func (c *Client) ArchiveEmail(uid uint32) error {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	// Para Gmail, basta deletar do INBOX que o email permanece em All Mail
+	// Marca como deleted e expunge
+	var storeFlags = imap.StoreFlags{
+		Op:     imap.StoreFlagsAdd,
+		Silent: true,
+		Flags:  []imap.Flag{imap.FlagDeleted},
+	}
+
+	if _, err := c.client.Store(uidSet, &storeFlags, nil).Collect(); err != nil {
+		return fmt.Errorf("erro ao marcar como deletado: %w", err)
+	}
+
+	var _, err = c.client.Expunge().Collect()
+	return err
+}
+
+// TrashEmail move um email para a lixeira
+// Para Gmail: move para [Gmail]/Trash
+// Para outros: move para Trash ou Deleted Items
+func (c *Client) TrashEmail(uid uint32, trashFolder string) error {
+	if trashFolder == "" {
+		trashFolder = "[Gmail]/Trash"
+	}
+	return c.MoveToFolder(uid, trashFolder)
+}
+
+// GetTrashFolder tenta detectar a pasta de lixeira
+func (c *Client) GetTrashFolder() string {
+	var listCmd = c.client.List("", "*", nil)
+	var list, err = listCmd.Collect()
+	if err != nil {
+		return "[Gmail]/Trash"
+	}
+
+	var trashNames = []string{
+		"[Gmail]/Trash",
+		"Trash",
+		"Deleted Items",
+		"Deleted",
+		"[Gmail]/Lixeira",
+		"Lixeira",
+	}
+
+	for _, name := range trashNames {
+		for _, mbox := range list {
+			if strings.EqualFold(mbox.Mailbox, name) {
+				return mbox.Mailbox
+			}
+		}
+	}
+
+	return "[Gmail]/Trash"
+}
+
 // Close fecha a conexão
 func (c *Client) Close() error {
 	return c.client.Close()

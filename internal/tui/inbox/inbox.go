@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -122,12 +123,14 @@ type Model struct {
 	totalEmails     int
 	syncedEmails    int
 	// AI panel
-	showAI          bool
-	aiInput         textinput.Model
-	aiResponse      string
-	aiLastQuestion  string
-	aiLoading       bool
-	aiScrollOffset  int
+	showAI           bool
+	aiInput          textinput.Model
+	aiResponse       string
+	aiLastQuestion   string
+	aiLoading        bool
+	aiScrollOffset   int
+	aiEmailContext   *storage.EmailSummary // Email selecionado para contexto (quando usa Shift+A)
+	aiEmailBody      string                // Corpo do email para contexto
 	// Spinner
 	spinner         spinner.Model
 	// Email viewer
@@ -153,6 +156,18 @@ type Model struct {
 	sentEmails      []SentEmailTracker
 	alerts          []Alert
 	showAlert       bool
+	// Drafts
+	showDrafts       bool
+	drafts           []storage.Draft
+	selectedDraft    int
+	editingDraftID   *int64           // Se estamos editando um draft existente
+	scheduledDraft   *storage.Draft   // Draft atualmente agendado (para overlay de undo)
+	showUndoOverlay  bool
+	// Batch operation filter mode
+	filterActive      bool                   // Modo de filtro ativo (preview de batch op)
+	filterDescription string                 // "Arquivar 15 emails de zaqueu@..."
+	pendingBatchOp    *storage.PendingBatchOp // Operação pendente
+	originalEmails    []storage.EmailSummary  // Emails originais antes do filtro
 }
 
 // SentEmailTracker rastreia emails enviados para detectar bounces
@@ -192,9 +207,10 @@ type syncProgressMsg struct {
 }
 
 type syncDoneMsg struct {
-	synced int
-	total  int
-	purged int
+	synced   int
+	total    int
+	purged   int
+	archived int // emails movidos para arquivo permanente
 }
 
 type emailsLoadedMsg struct {
@@ -217,6 +233,12 @@ type htmlOpenedMsg struct {
 }
 
 type emailContentMsg struct {
+	content string
+	err     error
+}
+
+type aiEmailContextMsg struct {
+	email   *storage.EmailSummary
 	content string
 	err     error
 }
@@ -247,6 +269,61 @@ type bounceFoundMsg struct {
 	bounceReason    string
 	bounceFrom      string
 	bounceSubject   string
+}
+
+// Draft messages
+type draftCreatedMsg struct {
+	draft *storage.Draft
+	err   error
+}
+
+type draftScheduledMsg struct {
+	draft   *storage.Draft
+	sendAt  time.Time
+	err     error
+}
+
+type draftSentMsg struct {
+	draftID int64
+	to      string
+	backend string
+	err     error
+}
+
+type draftSendTickMsg struct{}
+
+type draftsLoadedMsg struct {
+	drafts    []storage.Draft
+	err       error
+	accountID int64
+}
+
+// Archive/Delete messages
+type emailArchivedMsg struct {
+	emailID int64
+	err     error
+}
+
+type emailDeletedMsg struct {
+	emailID int64
+	err     error
+}
+
+// Batch operation filter messages
+type batchFilterAppliedMsg struct {
+	op     *storage.PendingBatchOp
+	emails []storage.EmailSummary
+	err    error
+}
+
+type batchOpExecutedMsg struct {
+	count int
+	err   error
+}
+
+type checkPendingBatchOpsMsg struct {
+	op  *storage.PendingBatchOp
+	err error
 }
 
 func New(account *config.Account, debug bool) Model {
@@ -421,6 +498,9 @@ func (m Model) syncEmails() tea.Cmd {
 		}
 		var purged, _ = storage.PurgeDeletedFromServer(m.dbAccount.ID, m.dbFolder.ID, serverUIDs)
 
+		// Move emails deletados há mais de 30 dias para arquivo permanente
+		var archived, _ = storage.PurgeToArchive(m.dbAccount.ID, 30)
+
 		// Atualiza stats da pasta
 		var total, unread, _ = storage.CountEmails(m.dbAccount.ID, m.dbFolder.ID)
 		storage.UpdateFolderStats(m.dbFolder.ID, total, unread)
@@ -431,7 +511,7 @@ func (m Model) syncEmails() tea.Cmd {
 			totalInBox = selectData.NumMessages
 		}
 
-		return syncDoneMsg{synced: len(emails), total: int(totalInBox), purged: purged}
+		return syncDoneMsg{synced: len(emails), total: int(totalInBox), purged: purged, archived: archived}
 	}
 }
 
@@ -445,13 +525,75 @@ func (m Model) loadEmailsFromDB() tea.Cmd {
 	}
 }
 
-func (m Model) runAI(prompt string) tea.Cmd {
+func (m Model) loadEmailForAI() tea.Cmd {
 	return func() tea.Msg {
-		var fullPrompt = fmt.Sprintf(`[Context: Email database at ~/.config/miau/data/miau.db | Account: %s | Folder: %s]
+		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
+			return aiEmailContextMsg{err: fmt.Errorf("nenhum email selecionado")}
+		}
+
+		var email = m.emails[m.selectedEmail]
+
+		if m.client == nil {
+			return aiEmailContextMsg{email: &email, content: "", err: nil}
+		}
+
+		// Seleciona a mailbox antes de buscar
+		if _, err := m.client.SelectMailbox(m.currentBox); err != nil {
+			return aiEmailContextMsg{email: &email, content: "", err: nil}
+		}
+
+		var rawData, err = m.client.FetchEmailRaw(email.UID)
+		if err != nil {
+			return aiEmailContextMsg{email: &email, content: "", err: nil}
+		}
+
+		// Tenta extrair texto plain primeiro, depois HTML convertido
+		var textContent = extractText(rawData)
+		if textContent == "" {
+			var htmlContent = extractHTML(rawData)
+			if htmlContent != "" {
+				textContent = htmlToText(htmlContent)
+			}
+		}
+
+		return aiEmailContextMsg{email: &email, content: textContent, err: nil}
+	}
+}
+
+func (m Model) runAI(prompt string) tea.Cmd {
+	// Copia contexto para a goroutine
+	var emailContext = m.aiEmailContext
+	var emailBody = m.aiEmailBody
+
+	return func() tea.Msg {
+		var fullPrompt string
+
+		if emailContext != nil {
+			// Prompt com contexto do email selecionado
+			var emailInfo = fmt.Sprintf(`[Email selecionado]
+De: %s <%s>
+Assunto: %s
+Data: %s
+---
+%s
+---`, emailContext.FromName, emailContext.FromEmail, emailContext.Subject, emailContext.Date.Time.Format("02/01/2006 15:04"), emailBody)
+
+			fullPrompt = fmt.Sprintf(`[Context: Email database at ~/.config/miau/data/miau.db | Account: %s | Folder: %s]
+[Schema: emails(id, subject, from_name, from_email, date, is_read, is_starred, is_deleted, body_text)]
+[Use sqlite3 to query. Be concise.]
+
+%s
+
+Pergunta do usuário sobre este email:
+%s`, m.account.Email, m.currentBox, emailInfo, prompt)
+		} else {
+			// Prompt geral (sem contexto de email específico)
+			fullPrompt = fmt.Sprintf(`[Context: Email database at ~/.config/miau/data/miau.db | Account: %s | Folder: %s]
 [Schema: emails(id, subject, from_name, from_email, date, is_read, is_starred, is_deleted, body_text)]
 [Use sqlite3 to query. Be concise.]
 
 %s`, m.account.Email, m.currentBox, prompt)
+		}
 
 		// Debug: salva o comando em arquivo de log
 		var logFile, _ = exec.Command("sh", "-c", "echo '['+$(date)+'] Running claude -p ...' >> /tmp/miau-ai.log").Output()
@@ -861,6 +1003,324 @@ func scheduleBounceCheck() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 		return bounceCheckTickMsg{}
 	})
+}
+
+// scheduleDraftSend agenda verificação de drafts prontos para envio
+func scheduleDraftSend() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return draftSendTickMsg{}
+	})
+}
+
+// loadDrafts carrega drafts pendentes do banco
+func (m Model) loadDrafts() tea.Cmd {
+	var accountID int64
+	if m.dbAccount != nil {
+		accountID = m.dbAccount.ID
+	}
+	return func() tea.Msg {
+		if accountID == 0 {
+			return draftsLoadedMsg{err: fmt.Errorf("conta não inicializada")}
+		}
+		var drafts, err = storage.GetPendingDrafts(accountID)
+		return draftsLoadedMsg{drafts: drafts, err: err, accountID: accountID}
+	}
+}
+
+// archiveEmail arquiva um email (local + servidor)
+func (m Model) archiveEmail(emailID int64, uid uint32, messageID string) tea.Cmd {
+	return func() tea.Msg {
+		// 1. Marca como arquivado no banco local
+		if err := storage.MarkAsArchived(emailID, true); err != nil {
+			return emailArchivedMsg{emailID: emailID, err: err}
+		}
+
+		// 2. Arquiva no servidor
+		if m.account.AuthType == config.AuthTypeOAuth2 && m.account.SendMethod == config.SendMethodGmailAPI {
+			// Usa Gmail API
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
+			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
+			if err == nil {
+				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
+				// Busca ID da mensagem no Gmail pelo Message-ID RFC822
+				if gmailMsgID, err := gmailClient.GetMessageIDByRFC822MsgID(messageID); err == nil {
+					gmailClient.ArchiveMessage(gmailMsgID)
+				}
+			}
+		} else if m.client != nil {
+			// Usa IMAP
+			m.client.ArchiveEmail(uid)
+		}
+
+		return emailArchivedMsg{emailID: emailID, err: nil}
+	}
+}
+
+// deleteEmail deleta um email (move para lixeira - local + servidor)
+func (m Model) deleteEmail(emailID int64, uid uint32, messageID string) tea.Cmd {
+	return func() tea.Msg {
+		// 1. Marca como deletado no banco local
+		if err := storage.DeleteEmail(emailID); err != nil {
+			return emailDeletedMsg{emailID: emailID, err: err}
+		}
+
+		// 2. Move para lixeira no servidor
+		if m.account.AuthType == config.AuthTypeOAuth2 && m.account.SendMethod == config.SendMethodGmailAPI {
+			// Usa Gmail API
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
+			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
+			if err == nil {
+				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
+				// Busca ID da mensagem no Gmail pelo Message-ID RFC822
+				if gmailMsgID, err := gmailClient.GetMessageIDByRFC822MsgID(messageID); err == nil {
+					gmailClient.TrashMessage(gmailMsgID)
+				}
+			}
+		} else if m.client != nil {
+			// Usa IMAP
+			var trashFolder = m.client.GetTrashFolder()
+			m.client.TrashEmail(uid, trashFolder)
+		}
+
+		return emailDeletedMsg{emailID: emailID, err: nil}
+	}
+}
+
+// applyBatchFilter aplica filtro para preview de batch operation
+func (m Model) applyBatchFilter(op *storage.PendingBatchOp) tea.Cmd {
+	return func() tea.Msg {
+		// Parse email IDs do JSON
+		var emailIDs []int64
+		if err := json.Unmarshal([]byte(op.EmailIDs), &emailIDs); err != nil {
+			return batchFilterAppliedMsg{err: err}
+		}
+
+		// Busca os emails
+		var emails, err = storage.GetEmailsByIDs(emailIDs)
+		if err != nil {
+			return batchFilterAppliedMsg{err: err}
+		}
+
+		return batchFilterAppliedMsg{op: op, emails: emails, err: nil}
+	}
+}
+
+// executeBatchOp executa a operação em lote confirmada
+func (m Model) executeBatchOp() tea.Cmd {
+	return func() tea.Msg {
+		if m.pendingBatchOp == nil {
+			return batchOpExecutedMsg{err: fmt.Errorf("nenhuma operação pendente")}
+		}
+
+		var count, err = storage.ExecuteBatchOp(m.pendingBatchOp.ID)
+		return batchOpExecutedMsg{count: count, err: err}
+	}
+}
+
+// cancelBatchOp cancela a operação em lote
+func (m Model) cancelBatchOp() tea.Cmd {
+	return func() tea.Msg {
+		if m.pendingBatchOp != nil {
+			storage.CancelBatchOp(m.pendingBatchOp.ID)
+		}
+		return nil
+	}
+}
+
+// checkPendingBatchOps verifica se há operações em lote pendentes (após AI response)
+func (m Model) checkPendingBatchOps() tea.Cmd {
+	var accountID int64
+	if m.dbAccount != nil {
+		accountID = m.dbAccount.ID
+	}
+	return func() tea.Msg {
+		if accountID == 0 {
+			return checkPendingBatchOpsMsg{err: nil}
+		}
+
+		var ops, err = storage.GetPendingBatchOps(accountID)
+		if err != nil {
+			return checkPendingBatchOpsMsg{err: err}
+		}
+
+		// Retorna a operação mais recente pendente
+		if len(ops) > 0 {
+			return checkPendingBatchOpsMsg{op: &ops[0], err: nil}
+		}
+
+		return checkPendingBatchOpsMsg{err: nil}
+	}
+}
+
+// createScheduledDraft cria um draft e agenda para envio
+func (m Model) createScheduledDraft() tea.Cmd {
+	return func() tea.Msg {
+		var cfg, err = config.Load()
+		if err != nil {
+			return draftCreatedMsg{err: err}
+		}
+
+		var to = m.composeTo.Value()
+		var subject = m.composeSubject.Value()
+		var bodyText = m.composeBodyText
+
+		// Determina formato e prepara corpo
+		var isHTML = cfg.Compose.Format != "plain"
+		var bodyHTML string
+
+		if isHTML {
+			bodyHTML = "<html><body>" + strings.ReplaceAll(bodyText, "\n", "<br>") + "</body></html>"
+			// Adiciona assinatura HTML se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.HTML != "" {
+				bodyHTML = strings.Replace(bodyHTML, "</body></html>",
+					"<br><br>"+m.account.Signature.HTML+"</body></html>", 1)
+			}
+		} else {
+			// Adiciona assinatura texto se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.Text != "" {
+				bodyText = bodyText + "\n\n--\n" + m.account.Signature.Text
+			}
+		}
+
+		// Threading headers
+		var inReplyTo, references string
+		var replyToEmailID sql.NullInt64
+		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
+			inReplyTo = m.composeReplyTo.MessageID.String
+			references = m.composeReplyTo.MessageID.String
+			replyToEmailID = sql.NullInt64{Int64: m.composeReplyTo.ID, Valid: true}
+		}
+
+		// Classificação
+		var classification string
+		if m.composeClassification > 0 && m.composeClassification < len(smtp.Classifications) {
+			classification = smtp.Classifications[m.composeClassification]
+		}
+
+		// Cria draft
+		var draft = &storage.Draft{
+			AccountID:        m.dbAccount.ID,
+			ToAddresses:      to,
+			Subject:          subject,
+			BodyHTML:         sql.NullString{String: bodyHTML, Valid: bodyHTML != ""},
+			BodyText:         sql.NullString{String: bodyText, Valid: bodyText != ""},
+			Classification:   sql.NullString{String: classification, Valid: classification != ""},
+			InReplyTo:        sql.NullString{String: inReplyTo, Valid: inReplyTo != ""},
+			ReferenceIDs:     sql.NullString{String: references, Valid: references != ""},
+			ReplyToEmailID:   replyToEmailID,
+			Status:           storage.DraftStatusScheduled,
+			GenerationSource: "manual",
+		}
+
+		// Calcula tempo de envio
+		var delay = time.Duration(cfg.Compose.SendDelaySeconds) * time.Second
+		var sendAt = time.Now().Add(delay)
+		draft.ScheduledSendAt = sql.NullTime{Time: sendAt, Valid: true}
+
+		var draftID, err2 = storage.CreateDraft(draft)
+		if err2 != nil {
+			return draftCreatedMsg{err: err2}
+		}
+
+		draft.ID = draftID
+		return draftScheduledMsg{draft: draft, sendAt: sendAt, err: nil}
+	}
+}
+
+// sendDraft envia um draft específico
+func (m Model) sendDraft(draftID int64) tea.Cmd {
+	return func() tea.Msg {
+		var draft, err = storage.GetDraftByID(draftID)
+		if err != nil {
+			return draftSentMsg{draftID: draftID, err: err}
+		}
+
+		// Marca como enviando
+		storage.MarkDraftSending(draftID)
+
+		// Determina backend e envia
+		var backend = "smtp"
+		if m.account.SendMethod == config.SendMethodGmailAPI {
+			// Gmail API
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
+			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
+			if err != nil {
+				storage.MarkDraftFailed(draftID, err.Error())
+				return draftSentMsg{draftID: draftID, err: err}
+			}
+
+			var client = gmail.NewClient(token, oauthCfg, m.account.Email)
+			var req = &gmail.SendRequest{
+				To:         []string{draft.ToAddresses},
+				Subject:    draft.Subject,
+				Body:       draft.BodyText.String,
+				InReplyTo:  draft.InReplyTo.String,
+				References: draft.ReferenceIDs.String,
+				IsHTML:     draft.BodyHTML.Valid && draft.BodyHTML.String != "",
+			}
+			if draft.BodyHTML.Valid && draft.BodyHTML.String != "" {
+				req.Body = draft.BodyHTML.String
+			}
+
+			var _, err2 = client.SendMessage(req)
+			if err2 != nil {
+				storage.MarkDraftFailed(draftID, err2.Error())
+				return draftSentMsg{draftID: draftID, err: err2}
+			}
+			backend = "gmail_api"
+		} else {
+			// SMTP
+			var smtpClient = smtp.NewClient(m.account)
+			var email = smtp.Email{
+				To:             []string{draft.ToAddresses},
+				Subject:        draft.Subject,
+				Body:           draft.BodyText.String,
+				InReplyTo:      draft.InReplyTo.String,
+				References:     draft.ReferenceIDs.String,
+				Classification: draft.Classification.String,
+				IsHTML:         draft.BodyHTML.Valid && draft.BodyHTML.String != "",
+			}
+			if draft.BodyHTML.Valid && draft.BodyHTML.String != "" {
+				email.Body = draft.BodyHTML.String
+			}
+
+			var _, err = smtpClient.Send(&email)
+			if err != nil {
+				storage.MarkDraftFailed(draftID, err.Error())
+				return draftSentMsg{draftID: draftID, err: err}
+			}
+		}
+
+		// Registra email enviado permanentemente
+		storage.RecordSentEmail(
+			draft.AccountID,
+			"", // messageID (preenchido pelo servidor)
+			draft.ToAddresses,
+			draft.CcAddresses.String,
+			draft.BccAddresses.String,
+			draft.Subject,
+			draft.BodyHTML.String,
+			draft.BodyText.String,
+			draft.InReplyTo.String,
+			draft.ReferenceIDs.String,
+			backend,
+			draft.ReplyToEmailID,
+			sql.NullInt64{Int64: draftID, Valid: true},
+		)
+
+		// Arquiva o draft no histórico permanente (nunca deletamos)
+		storage.ArchiveDraftPermanently(draftID, "sent")
+
+		// Se era reply, marca email original como respondido
+		if draft.ReplyToEmailID.Valid {
+			storage.MarkAsReplied(draft.ReplyToEmailID.Int64)
+		}
+
+		return draftSentMsg{draftID: draftID, to: draft.ToAddresses, backend: backend, err: nil}
+	}
 }
 
 func (m Model) openEmailHTML() tea.Cmd {
@@ -1339,6 +1799,129 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Bloqueia outras teclas enquanto alerta está aberto
 		}
 
+		// Verifica overlay de Undo Send
+		if m.showUndoOverlay && m.scheduledDraft != nil {
+			switch msg.String() {
+			case "enter":
+				// Cancela o envio - volta para draft
+				storage.CancelDraft(m.scheduledDraft.ID)
+				m.log("🚫 Envio cancelado, draft salvo")
+				m.aiResponse = infoStyle.Render("📝 Envio cancelado. Draft salvo.")
+				m.showUndoOverlay = false
+				m.scheduledDraft = nil
+				return m, m.loadDrafts()
+			case "esc":
+				// Fecha overlay mas continua o envio
+				m.showUndoOverlay = false
+				return m, nil
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			}
+			return m, nil // Bloqueia outras teclas enquanto overlay está aberto
+		}
+
+		// Verifica drafts panel
+		if m.showDrafts {
+			switch msg.String() {
+			case "esc", "d":
+				m.showDrafts = false
+				return m, nil
+			case "up", "k":
+				if m.selectedDraft > 0 {
+					m.selectedDraft--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedDraft < len(m.drafts)-1 {
+					m.selectedDraft++
+				}
+				return m, nil
+			case "e":
+				// Editar draft
+				if len(m.drafts) > 0 {
+					var draft = m.drafts[m.selectedDraft]
+					m.showDrafts = false
+					m.showCompose = true
+					m.composeTo.SetValue(draft.ToAddresses)
+					m.composeSubject.SetValue(draft.Subject)
+					m.composeBodyText = draft.BodyText.String
+					m.composeFocus = 2 // Foca no body
+					m.editingDraftID = &draft.ID
+					return m, textinput.Blink
+				}
+			case "s":
+				// Enviar draft (agenda com delay)
+				if len(m.drafts) > 0 {
+					var draft = m.drafts[m.selectedDraft]
+					if draft.Status == storage.DraftStatusDraft {
+						var cfg, _ = config.Load()
+						var delay = time.Duration(cfg.Compose.SendDelaySeconds) * time.Second
+						storage.ScheduleDraft(draft.ID, time.Now().Add(delay))
+						m.log("📤 Draft #%d agendado para envio", draft.ID)
+						// Recarrega draft para obter dados atualizados
+						var updatedDraft, _ = storage.GetDraftByID(draft.ID)
+						if updatedDraft != nil {
+							m.scheduledDraft = updatedDraft
+							m.showUndoOverlay = true
+						}
+						return m, tea.Batch(m.loadDrafts(), scheduleDraftSend())
+					}
+				}
+			case "x":
+				// Cancelar/deletar draft (move para histórico permanente)
+				if len(m.drafts) > 0 {
+					var draft = m.drafts[m.selectedDraft]
+					storage.ArchiveDraftPermanently(draft.ID, "deleted")
+					m.log("🗑️ Draft #%d arquivado no histórico", draft.ID)
+					if m.selectedDraft >= len(m.drafts)-1 && m.selectedDraft > 0 {
+						m.selectedDraft--
+					}
+					return m, m.loadDrafts()
+				}
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Verifica batch filter mode (preview de operação em lote)
+		if m.filterActive {
+			switch msg.String() {
+			case "y", "Y":
+				// Confirma e executa a operação
+				if m.pendingBatchOp != nil {
+					m.log("✅ Operação confirmada: %s", m.pendingBatchOp.Description)
+					return m, m.executeBatchOp()
+				}
+			case "n", "N", "esc":
+				// Cancela a operação e restaura lista original
+				if m.pendingBatchOp != nil {
+					storage.CancelBatchOp(m.pendingBatchOp.ID)
+					m.log("❌ Operação cancelada")
+				}
+				m.filterActive = false
+				m.filterDescription = ""
+				m.pendingBatchOp = nil
+				m.emails = m.originalEmails
+				m.originalEmails = nil
+				m.selectedEmail = 0
+				return m, nil
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			case "up", "k":
+				if m.selectedEmail > 0 {
+					m.selectedEmail--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedEmail < len(m.emails)-1 {
+					m.selectedEmail++
+				}
+				return m, nil
+			}
+			return m, nil // Bloqueia outras teclas no modo filtro
+		}
+
 		if m.state == stateNeedsAppPassword {
 			switch msg.String() {
 			case "ctrl+c":
@@ -1370,6 +1953,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.showAI = false
 				m.aiInput.Blur()
+				m.editingDraftID = nil
 				return m, nil
 			case "enter":
 				var prompt = strings.TrimSpace(m.aiInput.Value())
@@ -1381,6 +1965,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.aiLoading = true
 				m.aiResponse = ""
 				return m, m.runAI(prompt)
+			case "e":
+				// Editar draft criado pelo AI (só quando input está vazio)
+				if m.aiInput.Value() == "" && m.editingDraftID != nil && !m.aiLoading {
+					var draft, err = storage.GetDraftByID(*m.editingDraftID)
+					if err == nil && draft != nil {
+						m.showAI = false
+						m.showCompose = true
+						m.composeTo.SetValue(draft.ToAddresses)
+						m.composeSubject.SetValue(draft.Subject)
+						m.composeBodyText = draft.BodyText.String
+						m.composeFocus = 2
+						return m, textinput.Blink
+					}
+				}
+			case "d":
+				// Ir para drafts panel (só quando input está vazio)
+				if m.aiInput.Value() == "" && !m.aiLoading {
+					m.showAI = false
+					m.showDrafts = true
+					m.selectedDraft = 0
+					m.editingDraftID = nil
+					return m, m.loadDrafts()
+				}
 			case "up":
 				if m.aiScrollOffset > 0 {
 					m.aiScrollOffset--
@@ -1457,7 +2064,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			case "ctrl+s":
-				// Envia email
+				// Cria draft e agenda envio com delay
 				if m.composeSending {
 					return m, nil
 				}
@@ -1467,7 +2074,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.composeSending = true
-				return m, m.sendEmail()
+				return m, m.createScheduledDraft()
 			}
 			// Atualiza input focado
 			var cmd tea.Cmd
@@ -1546,10 +2153,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.syncEmails()
 
 		case "a":
+			// AI geral (sem contexto de email)
 			m.showAI = true
 			m.aiInput.Focus()
 			m.aiScrollOffset = 0
+			m.aiEmailContext = nil
+			m.aiEmailBody = ""
 			return m, textinput.Blink
+
+		case "A":
+			// AI com contexto do email selecionado
+			if !m.showFolders && len(m.emails) > 0 {
+				m.aiLoading = true
+				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
+				return m, m.loadEmailForAI()
+			}
 
 		case "c":
 			// Novo email
@@ -1560,7 +2178,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.composeFocus = 0
 			m.composeTo.Focus()
 			m.composeReplyTo = nil
+			m.editingDraftID = nil
 			return m, textinput.Blink
+
+		case "d":
+			// Abre drafts panel
+			m.showDrafts = true
+			m.selectedDraft = 0
+			return m, m.loadDrafts()
 
 		case "R":
 			// Reply
@@ -1587,7 +2212,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 
-		case "x":
+		case "e":
+			// Archive email (Gmail style)
+			if !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				var messageID = ""
+				if email.MessageID.Valid {
+					messageID = email.MessageID.String
+				}
+				m.log("📦 Arquivando email: %s", email.Subject)
+				return m, m.archiveEmail(email.ID, email.UID, messageID)
+			}
+
+		case "x", "#":
+			// Delete email (move to trash)
+			if !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				var messageID = ""
+				if email.MessageID.Valid {
+					messageID = email.MessageID.String
+				}
+				m.log("🗑️ Deletando email: %s", email.Subject)
+				return m, m.deleteEmail(email.ID, email.UID, messageID)
+			}
+
+		case "X":
 			// Limpa alertas
 			if len(m.alerts) > 0 {
 				m.alerts = []Alert{}
@@ -1677,7 +2326,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case syncDoneMsg:
-		m.log("✅ Sync completo: %d novos, %d removidos (total servidor: %d)", msg.synced, msg.purged, msg.total)
+		if msg.archived > 0 {
+			m.log("✅ Sync: %d novos, %d removidos, %d arquivados permanentemente", msg.synced, msg.purged, msg.archived)
+		} else {
+			m.log("✅ Sync: %d novos, %d removidos (total servidor: %d)", msg.synced, msg.purged, msg.total)
+		}
 		// Recarrega emails do DB após sync
 		if m.state != stateReady {
 			m.state = stateLoadingEmails
@@ -1686,7 +2339,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case emailsLoadedMsg:
 		m.log("📧 %d emails carregados do cache", len(msg.emails))
-		m.emails = msg.emails
+		// Não sobrescreve se filtro está ativo (evita race condition)
+		if m.filterActive {
+			m.log("⚠️ Filtro ativo, mantendo emails filtrados")
+			// Atualiza originalEmails para quando sair do filtro
+			m.originalEmails = msg.emails
+		} else {
+			m.emails = msg.emails
+		}
 		// Sempre vai para ready quando temos emails do cache
 		m.state = stateReady
 
@@ -1698,11 +2358,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.aiResponse = errorStyle.Render("Erro: " + msg.err.Error())
 		} else {
+			// Se tinha contexto de email, cria draft automaticamente
+			if m.aiEmailContext != nil && msg.response != "" {
+				// Cria draft com a resposta do AI
+				var draft = &storage.Draft{
+					AccountID:        m.dbAccount.ID,
+					ToAddresses:      m.aiEmailContext.FromEmail,
+					Subject:          "Re: " + m.aiEmailContext.Subject,
+					BodyText:         sql.NullString{String: msg.response, Valid: true},
+					GenerationSource: "ai",
+					AIPrompt:         sql.NullString{String: m.aiLastQuestion, Valid: true},
+					Status:           storage.DraftStatusDraft,
+				}
+				if m.aiEmailContext.MessageID.Valid {
+					draft.InReplyTo = sql.NullString{String: m.aiEmailContext.MessageID.String, Valid: true}
+					draft.ReferenceIDs = sql.NullString{String: m.aiEmailContext.MessageID.String, Valid: true}
+				}
+				draft.ReplyToEmailID = sql.NullInt64{Int64: m.aiEmailContext.ID, Valid: true}
+
+				var draftID, err = storage.CreateDraft(draft)
+				if err != nil {
+					m.aiResponse = errorStyle.Render("Erro ao criar draft: " + err.Error())
+				} else {
+					draft.ID = draftID
+					m.log("📝 Draft AI criado #%d para %s", draftID, draft.ToAddresses)
+					m.aiResponse = successStyle.Render(fmt.Sprintf(
+						"📝 Draft criado!\n\nPara: %s\nAssunto: %s\n\n--- Resposta ---\n%s\n\n[d] Ver drafts  [e] Editar agora  [Esc] Fechar",
+						draft.ToAddresses,
+						draft.Subject,
+						truncate(msg.response, 200)))
+					// Guarda o draft ID para possível edição
+					m.editingDraftID = &draftID
+				}
+				m.aiEmailContext = nil
+				m.aiEmailBody = ""
+				return m, m.loadDrafts()
+			}
 			m.aiResponse = msg.response
 		}
 		m.aiScrollOffset = 0
-		// Recarrega emails (AI pode ter feito alterações)
-		return m, m.loadEmailsFromDB()
+		// Recarrega emails (AI pode ter feito alterações) e verifica batch ops pendentes
+		return m, tea.Batch(m.loadEmailsFromDB(), m.checkPendingBatchOps())
+
+	case aiEmailContextMsg:
+		m.aiLoading = false
+		if msg.err != nil {
+			m.aiResponse = errorStyle.Render("Erro: " + msg.err.Error())
+			return m, nil
+		}
+		// Configura contexto e abre AI
+		m.aiEmailContext = msg.email
+		m.aiEmailBody = msg.content
+		m.showAI = true
+		m.aiInput.Focus()
+		m.aiScrollOffset = 0
+		// Mostra preview do contexto
+		var preview = fmt.Sprintf("📧 Contexto: %s\nDe: %s\n\nDigite sua pergunta sobre este email...",
+			truncate(msg.email.Subject, 50),
+			msg.email.FromEmail)
+		m.aiResponse = infoStyle.Render(preview)
+		return m, textinput.Blink
 
 	case htmlOpenedMsg:
 		if msg.err != nil {
@@ -1800,6 +2515,91 @@ Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 		}
 		return m, nil
 
+	case emailArchivedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao arquivar: %v", msg.err)
+			return m, nil
+		}
+		m.log("✓ Email arquivado")
+		// Remove da lista local
+		for i := range m.emails {
+			if m.emails[i].ID == msg.emailID {
+				m.emails = append(m.emails[:i], m.emails[i+1:]...)
+				break
+			}
+		}
+		// Ajusta seleção se necessário
+		if m.selectedEmail >= len(m.emails) && m.selectedEmail > 0 {
+			m.selectedEmail--
+		}
+		return m, nil
+
+	case emailDeletedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao deletar: %v", msg.err)
+			return m, nil
+		}
+		m.log("✓ Email movido para lixeira")
+		// Remove da lista local
+		for i := range m.emails {
+			if m.emails[i].ID == msg.emailID {
+				m.emails = append(m.emails[:i], m.emails[i+1:]...)
+				break
+			}
+		}
+		// Ajusta seleção se necessário
+		if m.selectedEmail >= len(m.emails) && m.selectedEmail > 0 {
+			m.selectedEmail--
+		}
+		return m, nil
+
+	case batchFilterAppliedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao aplicar filtro: %v", msg.err)
+			return m, nil
+		}
+		// Salva emails originais e aplica filtro
+		m.originalEmails = m.emails
+		m.emails = msg.emails
+		m.filterActive = true
+		m.filterDescription = msg.op.Description
+		m.pendingBatchOp = msg.op
+		m.selectedEmail = 0
+		m.log("🔍 Filtro aplicado: %d emails. [y] confirmar, [n] cancelar", len(msg.emails))
+		return m, nil
+
+	case batchOpExecutedMsg:
+		// Limpa filtro e restaura view
+		m.filterActive = false
+		m.filterDescription = ""
+		m.pendingBatchOp = nil
+		if msg.err != nil {
+			m.log("❌ Erro na operação: %v", msg.err)
+			m.emails = m.originalEmails
+		} else {
+			m.log("✅ Operação concluída: %d emails processados", msg.count)
+			// Recarrega do banco
+			return m, m.loadEmailsFromDB()
+		}
+		m.originalEmails = nil
+		return m, nil
+
+	case checkPendingBatchOpsMsg:
+		// Verifica se há operações pendentes após resposta do AI
+		m.log("🔎 Verificando batch ops pendentes...")
+		if msg.err != nil {
+			m.log("❌ Erro ao verificar batch ops: %v", msg.err)
+			return m, nil
+		}
+		if msg.op != nil {
+			// Há operação pendente, aplica filtro
+			m.log("📋 Operação pendente detectada: %s (ID=%d, %d emails)", msg.op.Description, msg.op.ID, msg.op.EmailCount)
+			m.showAI = false // Fecha AI panel para mostrar preview
+			return m, m.applyBatchFilter(msg.op)
+		}
+		m.log("✓ Nenhuma operação pendente encontrada")
+		return m, nil
+
 	case bounceCheckTickMsg:
 		// Verifica se ainda há emails para monitorar
 		var now = time.Now()
@@ -1819,6 +2619,77 @@ Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 			return m, tea.Batch(m.syncEmails(), m.checkForBounces(), scheduleBounceCheck())
 		}
 		m.log("⏱️ Monitoramento encerrado")
+		return m, nil
+
+	// === DRAFT HANDLERS ===
+
+	case draftSendTickMsg:
+		// Verifica se há drafts prontos para envio
+		var readyDrafts, err = storage.GetScheduledDraftsReady()
+		if err != nil {
+			return m, scheduleDraftSend()
+		}
+
+		// Envia o primeiro draft pronto
+		if len(readyDrafts) > 0 {
+			var draft = readyDrafts[0]
+			m.log("📤 Enviando draft #%d para %s", draft.ID, draft.ToAddresses)
+			return m, tea.Batch(m.sendDraft(draft.ID), scheduleDraftSend())
+		}
+
+		// Verifica se ainda há drafts agendados (não prontos ainda)
+		if m.dbAccount != nil {
+			var pending, _ = storage.CountPendingDrafts(m.dbAccount.ID)
+			if pending > 0 {
+				return m, scheduleDraftSend()
+			}
+		}
+		return m, nil
+
+	case draftScheduledMsg:
+		if msg.err != nil {
+			m.aiResponse = errorStyle.Render("Erro ao agendar: " + msg.err.Error())
+			return m, nil
+		}
+
+		m.showCompose = false
+		m.composeSending = false
+		m.scheduledDraft = msg.draft
+		m.showUndoOverlay = true
+		m.composeTo.SetValue("")
+		m.composeSubject.SetValue("")
+		m.composeBodyText = ""
+		m.editingDraftID = nil
+
+		// Inicia scheduler de envio se não estiver rodando
+		return m, tea.Batch(m.loadDrafts(), scheduleDraftSend())
+
+	case draftSentMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao enviar draft: %v", msg.err)
+			m.aiResponse = errorStyle.Render("Erro no envio: " + msg.err.Error())
+		} else {
+			m.log("✅ Draft enviado via %s para %s", msg.backend, msg.to)
+			var backendMsg = "SMTP"
+			if msg.backend == "gmail_api" {
+				backendMsg = "Gmail API"
+			}
+			m.aiResponse = successStyle.Render(fmt.Sprintf("📨 Email enviado via %s!\nPara: %s", backendMsg, msg.to))
+		}
+		// Remove do overlay se era o draft sendo exibido
+		if m.scheduledDraft != nil && m.scheduledDraft.ID == msg.draftID {
+			m.scheduledDraft = nil
+			m.showUndoOverlay = false
+		}
+		return m, tea.Batch(m.loadDrafts(), m.syncEmails())
+
+	case draftsLoadedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao carregar drafts: %v", msg.err)
+		} else {
+			m.drafts = msg.drafts
+			m.log("📝 Drafts carregados: %d (account_id=%d)", len(msg.drafts), msg.accountID)
+		}
 		return m, nil
 
 	case bounceFoundMsg:
@@ -1940,6 +2811,16 @@ func (m Model) View() string {
 		return m.viewAlertOverlay(baseView)
 	}
 
+	// Overlay de Undo Send
+	if m.showUndoOverlay && m.scheduledDraft != nil {
+		return m.viewUndoSendOverlay(baseView)
+	}
+
+	// Panel de drafts
+	if m.showDrafts {
+		return m.viewDraftsPanel(baseView)
+	}
+
 	return baseView
 }
 
@@ -2037,6 +2918,12 @@ func (m Model) viewInbox() string {
 			activeAlerts++
 		}
 	}
+
+	// Indicador de drafts pendentes
+	var draftIndicator = ""
+	if len(m.drafts) > 0 {
+		draftIndicator = infoStyle.Render(fmt.Sprintf(" 📝%d ", len(m.drafts)))
+	}
 	if activeAlerts > 0 {
 		alertIndicator = errorStyle.Render(fmt.Sprintf(" 🚨%d ", activeAlerts))
 	}
@@ -2045,7 +2932,19 @@ func (m Model) viewInbox() string {
 		m.account.Email,
 		m.currentBox,
 		stats,
-	)) + monitorIndicator + alertIndicator
+	)) + draftIndicator + monitorIndicator + alertIndicator
+
+	// Filter banner (quando em modo de preview de operação em lote)
+	var filterBanner = ""
+	if m.filterActive && m.pendingBatchOp != nil {
+		var bannerStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#4ECDC4")).
+			Foreground(lipgloss.Color("#000000")).
+			Bold(true).
+			Padding(0, 1).
+			Width(m.width)
+		filterBanner = bannerStyle.Render(fmt.Sprintf("⚡ %s  |  y:confirmar  n:cancelar  ↑↓:navegar", m.filterDescription))
+	}
 
 	// Folders panel (se ativo)
 	var foldersPanel string
@@ -2058,12 +2957,18 @@ func (m Model) viewInbox() string {
 
 	// Footer
 	var footer string
-	if m.showAI {
-		footer = subtitleStyle.Render(" Enter:enviar  ↑↓:scroll  Esc:fechar ")
+	if m.filterActive {
+		footer = subtitleStyle.Render(" y:CONFIRMAR operação  n/Esc:CANCELAR e voltar  ↑↓:navegar preview ")
+	} else if m.showAI {
+		var contextHint = ""
+		if m.aiEmailContext != nil {
+			contextHint = " [com email]"
+		}
+		footer = subtitleStyle.Render(fmt.Sprintf(" Enter:enviar  ↑↓:scroll  Esc:fechar%s ", contextHint))
 	} else if activeAlerts > 0 {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else {
-		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  Tab:pastas  a:AI  q:sair ")
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  d:drafts  Tab:pastas  a:AI  q:sair ")
 	}
 
 	// Layout
@@ -2086,11 +2991,21 @@ func (m Model) viewInbox() string {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, content, debugPanel)
 	}
 
-	var view = lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		content,
-		footer,
-	)
+	var view string
+	if filterBanner != "" {
+		view = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			filterBanner,
+			content,
+			footer,
+		)
+	} else {
+		view = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			content,
+			footer,
+		)
+	}
 
 	return view
 }
@@ -2232,12 +3147,21 @@ func (m Model) renderAIPanel() string {
 		Padding(0, 1)
 
 	var width = m.width - 4
+	// Desconta largura do debug panel se ativo
+	if m.debugMode {
+		width -= 44 // 40 (debug width) + 4 (border/padding)
+	}
 	if width < 40 {
-		width = 60
+		width = 40
 	}
 
-	// Input
-	var inputLabel = infoStyle.Render("🤖 AI: ")
+	// Input com indicador de contexto
+	var inputLabel string
+	if m.aiEmailContext != nil {
+		inputLabel = infoStyle.Render("🤖 AI [📧]: ")
+	} else {
+		inputLabel = infoStyle.Render("🤖 AI: ")
+	}
 	var input = m.aiInput.View()
 
 	// Last question (se houver resposta)
@@ -2552,4 +3476,107 @@ func (m Model) viewAlertOverlay(baseView string) string {
 	// Sobrepõe o modal sobre o conteúdo base (escurecido)
 	// Como não podemos fazer transparência real, apenas mostramos o modal centralizado
 	return centeredModal
+}
+
+// viewUndoSendOverlay renderiza overlay de "Undo Send"
+func (m Model) viewUndoSendOverlay(baseView string) string {
+	if m.scheduledDraft == nil {
+		return baseView
+	}
+
+	var remaining = time.Until(m.scheduledDraft.ScheduledSendAt.Time)
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	var overlayStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2).
+		Width(50)
+
+	var titleStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#4ECDC4"))
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render(fmt.Sprintf("📤 Enviando em %d segundos...", int(remaining.Seconds()))),
+		"",
+		fmt.Sprintf("Para: %s", m.scheduledDraft.ToAddresses),
+		fmt.Sprintf("Assunto: %s", truncate(m.scheduledDraft.Subject, 35)),
+		"",
+		subtitleStyle.Render("[Enter] Cancelar envio  [Esc] Fechar"),
+	)
+
+	var modal = overlayStyle.Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// viewDraftsPanel renderiza painel de drafts
+func (m Model) viewDraftsPanel(baseView string) string {
+	var panelStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2).
+		Width(60)
+
+	var headerStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#4ECDC4"))
+
+	var header = headerStyle.Render("📝 Drafts Pendentes")
+
+	var lines []string
+	if len(m.drafts) == 0 {
+		lines = append(lines, statusStyle.Render("Nenhum draft pendente"))
+	} else {
+		for i, draft := range m.drafts {
+			var status string
+			switch draft.Status {
+			case storage.DraftStatusDraft:
+				status = "⏳"
+			case storage.DraftStatusScheduled:
+				var remaining = time.Until(draft.ScheduledSendAt.Time)
+				if remaining > 0 {
+					status = fmt.Sprintf("🕐%ds", int(remaining.Seconds()))
+				} else {
+					status = "🚀"
+				}
+			case storage.DraftStatusSending:
+				status = "📤"
+			default:
+				status = "  "
+			}
+
+			var line = fmt.Sprintf(" %s │ %s │ %s",
+				status,
+				truncate(draft.ToAddresses, 20),
+				truncate(draft.Subject, 25))
+
+			if i == m.selectedDraft {
+				lines = append(lines, selectedStyle.Render(line))
+			} else {
+				lines = append(lines, line)
+			}
+		}
+	}
+
+	var footer = subtitleStyle.Render(" ↑↓:navegar  e:editar  s:enviar  x:deletar  Esc:voltar ")
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		strings.Join(lines, "\n"),
+		"",
+		footer,
+	)
+
+	var modal = panelStyle.Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }

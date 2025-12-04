@@ -85,6 +85,7 @@ type Email struct {
 	Date           SQLiteTime     `db:"date"`
 	IsRead         bool           `db:"is_read"`
 	IsStarred      bool           `db:"is_starred"`
+	IsArchived     bool           `db:"is_archived"`
 	IsDeleted      bool           `db:"is_deleted"`
 	IsReplied      bool           `db:"is_replied"`
 	HasAttachments bool           `db:"has_attachments"`
@@ -110,4 +111,139 @@ type EmailSummary struct {
 	IsStarred bool           `db:"is_starred"`
 	IsReplied bool           `db:"is_replied"`
 	Snippet   string         `db:"snippet"`
+}
+
+// DraftStatus representa o estado de um draft
+type DraftStatus string
+
+const (
+	DraftStatusDraft     DraftStatus = "draft"     // Aguardando aprovação (AI drafts)
+	DraftStatusScheduled DraftStatus = "scheduled" // Aprovado, aguardando delay para envio
+	DraftStatusSending   DraftStatus = "sending"   // Em processo de envio
+	DraftStatusSent      DraftStatus = "sent"      // Enviado com sucesso
+	DraftStatusCancelled DraftStatus = "cancelled" // Cancelado pelo usuário
+	DraftStatusFailed    DraftStatus = "failed"    // Falha no envio
+)
+
+// Draft representa um rascunho ou email agendado para envio
+type Draft struct {
+	ID               int64          `db:"id"`
+	AccountID        int64          `db:"account_id"`
+	ToAddresses      string         `db:"to_addresses"`
+	CcAddresses      sql.NullString `db:"cc_addresses"`
+	BccAddresses     sql.NullString `db:"bcc_addresses"`
+	Subject          string         `db:"subject"`
+	BodyHTML         sql.NullString `db:"body_html"`
+	BodyText         sql.NullString `db:"body_text"`
+	Classification   sql.NullString `db:"classification"`
+	InReplyTo        sql.NullString `db:"in_reply_to"`
+	ReferenceIDs     sql.NullString `db:"reference_ids"`
+	ReplyToEmailID   sql.NullInt64  `db:"reply_to_email_id"`
+	Status           DraftStatus    `db:"status"`
+	ScheduledSendAt  sql.NullTime   `db:"scheduled_send_at"`
+	SentAt           sql.NullTime   `db:"sent_at"`
+	GenerationSource string         `db:"generation_source"` // "manual" ou "ai"
+	AIPrompt         sql.NullString `db:"ai_prompt"`
+	ErrorMessage     sql.NullString `db:"error_message"`
+	CreatedAt        SQLiteTime     `db:"created_at"`
+	UpdatedAt        SQLiteTime     `db:"updated_at"`
+}
+
+// === ARCHIVE TABLES (permanent storage - never delete) ===
+
+// EmailArchive armazena emails permanentemente após remoção do servidor
+type EmailArchive struct {
+	ID                int64          `db:"id"`
+	OriginalID        int64          `db:"original_id"`
+	AccountID         int64          `db:"account_id"`
+	FolderID          int64          `db:"folder_id"`
+	UID               uint32         `db:"uid"`
+	MessageID         sql.NullString `db:"message_id"`
+	Subject           string         `db:"subject"`
+	FromName          string         `db:"from_name"`
+	FromEmail         string         `db:"from_email"`
+	ToAddresses       string         `db:"to_addresses"`
+	CcAddresses       string         `db:"cc_addresses"`
+	Date              SQLiteTime     `db:"date"`
+	IsRead            bool           `db:"is_read"`
+	IsStarred         bool           `db:"is_starred"`
+	HasAttachments    bool           `db:"has_attachments"`
+	Snippet           string         `db:"snippet"`
+	BodyText          string         `db:"body_text"`
+	BodyHTML          string         `db:"body_html"`
+	RawHeaders        string         `db:"raw_headers"`
+	Size              int64          `db:"size"`
+	OriginalCreatedAt SQLiteTime     `db:"original_created_at"`
+	OriginalUpdatedAt SQLiteTime     `db:"original_updated_at"`
+	ArchivedAt        SQLiteTime     `db:"archived_at"`
+	ArchiveReason     string         `db:"archive_reason"` // server_purged, user_deleted, manual_archive
+}
+
+// DraftHistory armazena histórico permanente de drafts
+type DraftHistory struct {
+	ID                int64        `db:"id"`
+	OriginalID        int64        `db:"original_id"`
+	AccountID         int64        `db:"account_id"`
+	ToAddresses       string       `db:"to_addresses"`
+	CcAddresses       string       `db:"cc_addresses"`
+	BccAddresses      string       `db:"bcc_addresses"`
+	Subject           string       `db:"subject"`
+	BodyHTML          string       `db:"body_html"`
+	BodyText          string       `db:"body_text"`
+	Classification    string       `db:"classification"`
+	InReplyTo         string       `db:"in_reply_to"`
+	ReferenceIDs      string       `db:"reference_ids"`
+	ReplyToEmailID    sql.NullInt64 `db:"reply_to_email_id"`
+	FinalStatus       string       `db:"final_status"` // sent, cancelled, deleted, failed
+	ScheduledSendAt   sql.NullTime `db:"scheduled_send_at"`
+	SentAt            sql.NullTime `db:"sent_at"`
+	GenerationSource  string       `db:"generation_source"`
+	AIPrompt          string       `db:"ai_prompt"`
+	ErrorMessage      string       `db:"error_message"`
+	OriginalCreatedAt SQLiteTime   `db:"original_created_at"`
+	OriginalUpdatedAt SQLiteTime   `db:"original_updated_at"`
+	ArchivedAt        SQLiteTime   `db:"archived_at"`
+}
+
+// SentEmail registro permanente de emails enviados
+type SentEmail struct {
+	ID             int64          `db:"id"`
+	AccountID      int64          `db:"account_id"`
+	MessageID      sql.NullString `db:"message_id"`
+	ToAddresses    string         `db:"to_addresses"`
+	CcAddresses    string         `db:"cc_addresses"`
+	BccAddresses   string         `db:"bcc_addresses"`
+	Subject        string         `db:"subject"`
+	BodyHTML       string         `db:"body_html"`
+	BodyText       string         `db:"body_text"`
+	InReplyTo      string         `db:"in_reply_to"`
+	ReferenceIDs   string         `db:"reference_ids"`
+	ReplyToEmailID sql.NullInt64  `db:"reply_to_email_id"`
+	SentAt         SQLiteTime     `db:"sent_at"`
+	SendMethod     string         `db:"send_method"` // smtp, gmail_api
+	DraftID        sql.NullInt64  `db:"draft_id"`
+}
+
+// PendingBatchOp representa uma operação em lote aguardando confirmação
+type PendingBatchOp struct {
+	ID          int64        `db:"id"`
+	AccountID   int64        `db:"account_id"`
+	Operation   string       `db:"operation"`    // archive, delete, mark_read, mark_unread
+	Description string       `db:"description"`  // "Arquivar 15 emails de newsletter@example.com"
+	FilterQuery string       `db:"filter_query"` // descrição do filtro
+	EmailIDs    string       `db:"email_ids"`    // JSON array de IDs
+	EmailCount  int            `db:"email_count"`
+	PreviewData sql.NullString `db:"preview_data"` // JSON com preview (pode ser NULL)
+	Status      string         `db:"status"`       // pending, confirmed, cancelled, executed
+	CreatedAt   SQLiteTime   `db:"created_at"`
+	ExecutedAt  sql.NullTime `db:"executed_at"`
+}
+
+// EmailPreview para exibição no preview de operações
+type EmailPreview struct {
+	ID        int64  `json:"id"`
+	Subject   string `json:"subject"`
+	FromName  string `json:"from_name"`
+	FromEmail string `json:"from_email"`
+	Date      string `json:"date"`
 }

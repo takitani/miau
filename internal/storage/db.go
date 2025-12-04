@@ -92,6 +92,151 @@ CREATE TRIGGER IF NOT EXISTS emails_au AFTER UPDATE ON emails BEGIN
 	INSERT INTO emails_fts(rowid, subject, from_name, from_email, body_text)
 	VALUES (new.id, new.subject, new.from_name, new.from_email, new.body_text);
 END;
+
+-- Tabela de drafts (rascunhos e emails agendados)
+CREATE TABLE IF NOT EXISTS drafts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+
+	-- Destinatários
+	to_addresses TEXT NOT NULL,
+	cc_addresses TEXT,
+	bcc_addresses TEXT,
+
+	-- Conteúdo
+	subject TEXT NOT NULL,
+	body_html TEXT,
+	body_text TEXT,
+	classification TEXT,
+
+	-- Threading (se for reply)
+	in_reply_to TEXT,
+	reference_ids TEXT,
+	reply_to_email_id INTEGER,
+
+	-- Status e Timing
+	status TEXT NOT NULL DEFAULT 'draft',
+	scheduled_send_at DATETIME,
+	sent_at DATETIME,
+
+	-- Metadados
+	generation_source TEXT NOT NULL DEFAULT 'manual',
+	ai_prompt TEXT,
+	error_message TEXT,
+
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	FOREIGN KEY (reply_to_email_id) REFERENCES emails(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drafts_account_status ON drafts(account_id, status);
+CREATE INDEX IF NOT EXISTS idx_drafts_scheduled ON drafts(status, scheduled_send_at);
+
+-- Tabela de arquivo permanente de emails (nunca deletamos nada)
+CREATE TABLE IF NOT EXISTS emails_archive (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	original_id INTEGER NOT NULL,
+	account_id INTEGER NOT NULL,
+	folder_id INTEGER NOT NULL,
+	uid INTEGER NOT NULL,
+	message_id TEXT,
+	subject TEXT,
+	from_name TEXT,
+	from_email TEXT,
+	to_addresses TEXT,
+	cc_addresses TEXT,
+	date DATETIME,
+	is_read BOOLEAN DEFAULT 0,
+	is_starred BOOLEAN DEFAULT 0,
+	has_attachments BOOLEAN DEFAULT 0,
+	snippet TEXT,
+	body_text TEXT,
+	body_html TEXT,
+	raw_headers TEXT,
+	size INTEGER DEFAULT 0,
+	original_created_at DATETIME,
+	original_updated_at DATETIME,
+	archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	archive_reason TEXT NOT NULL, -- 'server_purged', 'user_deleted', 'manual_archive'
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_emails_archive_account ON emails_archive(account_id);
+CREATE INDEX IF NOT EXISTS idx_emails_archive_date ON emails_archive(date DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_archive_from ON emails_archive(from_email);
+
+-- Tabela de histórico de drafts (nunca deletamos nada)
+CREATE TABLE IF NOT EXISTS drafts_history (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	original_id INTEGER NOT NULL,
+	account_id INTEGER NOT NULL,
+	to_addresses TEXT NOT NULL,
+	cc_addresses TEXT,
+	bcc_addresses TEXT,
+	subject TEXT NOT NULL,
+	body_html TEXT,
+	body_text TEXT,
+	classification TEXT,
+	in_reply_to TEXT,
+	reference_ids TEXT,
+	reply_to_email_id INTEGER,
+	final_status TEXT NOT NULL, -- 'sent', 'cancelled', 'deleted', 'failed'
+	scheduled_send_at DATETIME,
+	sent_at DATETIME,
+	generation_source TEXT NOT NULL DEFAULT 'manual',
+	ai_prompt TEXT,
+	error_message TEXT,
+	original_created_at DATETIME,
+	original_updated_at DATETIME,
+	archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drafts_history_account ON drafts_history(account_id);
+CREATE INDEX IF NOT EXISTS idx_drafts_history_status ON drafts_history(final_status);
+
+-- Tabela de emails enviados (registro permanente)
+CREATE TABLE IF NOT EXISTS sent_emails (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	message_id TEXT,
+	to_addresses TEXT NOT NULL,
+	cc_addresses TEXT,
+	bcc_addresses TEXT,
+	subject TEXT NOT NULL,
+	body_html TEXT,
+	body_text TEXT,
+	in_reply_to TEXT,
+	reference_ids TEXT,
+	reply_to_email_id INTEGER,
+	sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	send_method TEXT NOT NULL, -- 'smtp', 'gmail_api'
+	draft_id INTEGER, -- referência ao draft original se houver
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sent_emails_account ON sent_emails(account_id);
+CREATE INDEX IF NOT EXISTS idx_sent_emails_date ON sent_emails(sent_at DESC);
+
+-- Tabela de operações em lote pendentes (preview antes de executar)
+CREATE TABLE IF NOT EXISTS pending_batch_ops (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	operation TEXT NOT NULL, -- 'archive', 'delete', 'mark_read', 'mark_unread'
+	description TEXT NOT NULL, -- descrição legível: "Arquivar 15 emails de newsletter@example.com"
+	filter_query TEXT NOT NULL, -- query SQL ou descrição do filtro usado
+	email_ids TEXT NOT NULL, -- IDs dos emails afetados (JSON array)
+	email_count INTEGER NOT NULL,
+	preview_data TEXT, -- JSON com preview dos emails (subject, from, date)
+	status TEXT NOT NULL DEFAULT 'pending', -- pending, confirmed, cancelled, executed
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	executed_at DATETIME,
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_batch_ops_status ON pending_batch_ops(account_id, status);
 `
 
 func Init(dbPath string) error {
@@ -121,6 +266,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração is_replied: %w", err)
 	}
 
+	// Migração: adiciona coluna is_archived
+	if err := migrateAddIsArchived(); err != nil {
+		return fmt.Errorf("erro na migração is_archived: %w", err)
+	}
+
 	return nil
 }
 
@@ -130,6 +280,17 @@ func migrateAddIsReplied() error {
 	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return err
 	}
+	return nil
+}
+
+// migrateAddIsArchived adiciona coluna is_archived se não existir
+func migrateAddIsArchived() error {
+	var _, err = db.Exec("ALTER TABLE emails ADD COLUMN is_archived BOOLEAN DEFAULT 0")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	// Adiciona índice para is_archived
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_is_archived ON emails(is_archived)")
 	return nil
 }
 

@@ -73,7 +73,8 @@ type UIConfig struct {
 }
 
 type ComposeConfig struct {
-	Format string `yaml:"format" mapstructure:"format"` // "html" ou "plain"
+	Format           string `yaml:"format" mapstructure:"format"`                       // "html" ou "plain"
+	SendDelaySeconds int    `yaml:"send_delay_seconds" mapstructure:"send_delay_seconds"` // 0-60, default 30
 }
 
 type Config struct {
@@ -118,6 +119,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("ui.show_preview", true)
 	viper.SetDefault("ui.page_size", 50)
 	viper.SetDefault("compose.format", "html")
+	viper.SetDefault("compose.send_delay_seconds", 30)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -165,7 +167,8 @@ func DefaultConfig() *Config {
 			PageSize:    50,
 		},
 		Compose: ComposeConfig{
-			Format: "html",
+			Format:           "html",
+			SendDelaySeconds: 30,
 		},
 	}
 }

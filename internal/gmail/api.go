@@ -280,3 +280,132 @@ type Label struct {
 	MessageListVisibility string `json:"messageListVisibility,omitempty"`
 	LabelListVisibility   string `json:"labelListVisibility,omitempty"`
 }
+
+// === ARCHIVE/TRASH OPERATIONS ===
+
+// ModifyLabelsRequest representa requisição para modificar labels
+type ModifyLabelsRequest struct {
+	AddLabelIDs    []string `json:"addLabelIds,omitempty"`
+	RemoveLabelIDs []string `json:"removeLabelIds,omitempty"`
+}
+
+// ArchiveMessage arquiva uma mensagem (remove label INBOX)
+// No Gmail, arquivar = remover do INBOX, o email continua em "All Mail"
+func (c *Client) ArchiveMessage(messageID string) error {
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s/modify", messageID)
+
+	var req = ModifyLabelsRequest{
+		RemoveLabelIDs: []string{"INBOX"},
+	}
+
+	var payload, err = json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar: %w", err)
+	}
+
+	var httpReq, err2 = http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err2 != nil {
+		return fmt.Errorf("erro ao criar requisição: %w", err2)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	var resp, err3 = c.httpClient.Do(httpReq)
+	if err3 != nil {
+		return fmt.Errorf("erro na requisição: %w", err3)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// TrashMessage move uma mensagem para a lixeira
+func (c *Client) TrashMessage(messageID string) error {
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s/trash", messageID)
+
+	var httpReq, err = http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("erro ao criar requisição: %w", err)
+	}
+
+	var resp, err2 = c.httpClient.Do(httpReq)
+	if err2 != nil {
+		return fmt.Errorf("erro na requisição: %w", err2)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// UntrashMessage remove uma mensagem da lixeira
+func (c *Client) UntrashMessage(messageID string) error {
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s/untrash", messageID)
+
+	var httpReq, err = http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("erro ao criar requisição: %w", err)
+	}
+
+	var resp, err2 = c.httpClient.Do(httpReq)
+	if err2 != nil {
+		return fmt.Errorf("erro na requisição: %w", err2)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// GetMessageByUID busca o messageID do Gmail dado um UID IMAP
+// Usa o header X-GM-MSGID ou busca por Message-ID
+func (c *Client) GetMessageIDByRFC822MsgID(rfc822MsgID string) (string, error) {
+	if rfc822MsgID == "" {
+		return "", fmt.Errorf("Message-ID vazio")
+	}
+
+	// Remove < e > se presentes
+	var msgID = strings.Trim(rfc822MsgID, "<>")
+
+	// Busca pelo rfc822msgid
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=rfc822msgid:%s", msgID)
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return "", fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Messages []struct {
+			ID       string `json:"id"`
+			ThreadID string `json:"threadId"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	if len(result.Messages) == 0 {
+		return "", fmt.Errorf("mensagem não encontrada")
+	}
+
+	return result.Messages[0].ID, nil
+}

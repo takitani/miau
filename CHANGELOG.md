@@ -5,6 +5,15 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
 ## [Unreleased]
 
 ### Adicionado
+- **Image Preview no TUI**: Visualização de imagens diretamente no terminal
+  - Tecla `i` no viewer abre preview de imagens
+  - Renderização gráfica com chafa/viu (recomendado)
+  - Fallback ASCII art nativo quando chafa não instalado
+  - Dica de instalação exibida automaticamente
+  - Navegação entre imagens com `←`/`→` ou `h`/`l`
+  - Salvar imagem com `s` (salva em ~/Downloads)
+  - Abrir no viewer externo com `Enter`
+  - Suporte a JPEG, PNG, GIF, WebP
 - **ROADMAP.md**: Roadmap visual com barras de progresso e fila de prioridades
 - **IDEAS.md**: Novas ideias adicionadas:
   - Multi-select (Space/Shift para selecionar múltiplos emails)

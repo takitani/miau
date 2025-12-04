@@ -10,6 +10,7 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20231106173351-e73c9f7bad43
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/spf13/viper v1.21.0
+	golang.org/x/image v0.33.0
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.33.0
 	golang.org/x/text v0.31.0

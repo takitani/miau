@@ -167,6 +167,7 @@ miau signature
 | `d` | View pending drafts |
 | `e` | Archive email |
 | `x` or `#` | Move to trash |
+| `i` | Image preview (in viewer) |
 | `S` | Open settings |
 | `q` | Quit |
 

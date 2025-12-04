@@ -27,6 +27,7 @@ import (
 	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/gmail"
+	"github.com/opik/miau/internal/image"
 	"github.com/opik/miau/internal/imap"
 	"github.com/opik/miau/internal/smtp"
 	"github.com/opik/miau/internal/storage"
@@ -178,6 +179,13 @@ type Model struct {
 	settingsSelection  int                        // Item selecionado no menu
 	indexState         *storage.ContentIndexState // Estado do indexador
 	indexerRunning     bool                       // Se o indexador está ativo nesta sessão
+	// Image preview
+	showImagePreview  bool                // Overlay de preview de imagem
+	imageAttachments  []Attachment        // Imagens extraídas do email atual
+	selectedImage     int                 // Índice da imagem selecionada
+	imageRenderOutput string              // Output renderizado para display
+	imageCapabilities *image.Capabilities // Capabilities detectadas
+	imageLoading      bool                // Se está carregando/renderizando
 }
 
 // SentEmailTracker rastreia emails enviados para detectar bounces
@@ -197,6 +205,16 @@ type Alert struct {
 	Timestamp time.Time
 	EmailTo   string
 	Dismissed bool
+}
+
+// Attachment representa um anexo de email
+type Attachment struct {
+	Filename    string
+	ContentType string
+	ContentID   string // Para imagens inline (cid:xxx)
+	Size        int64
+	Data        []byte
+	IsInline    bool
 }
 
 // Messages
@@ -361,6 +379,22 @@ type indexBatchDoneMsg struct {
 	err     error
 }
 
+// Image preview messages
+type imageAttachmentsMsg struct {
+	attachments []Attachment
+	err         error
+}
+
+type imageRenderedMsg struct {
+	output string
+	err    error
+}
+
+type imageSavedMsg struct {
+	path string
+	err  error
+}
+
 func New(account *config.Account, debug bool) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
@@ -403,19 +437,24 @@ func New(account *config.Account, debug bool) Model {
 		}
 	}
 
+	// Detect image rendering capabilities
+	var imgCaps = image.DetectCapabilities()
+
 	return Model{
-		account:        account,
-		state:          stateInitDB,
-		currentBox:     "INBOX",
-		showFolders:    false,
-		passwordInput:  input,
-		aiInput:        aiInput,
-		spinner:        s,
-		composeTo:      composeTo,
-		composeSubject: composeSubject,
-		searchInput:    searchInput,
-		debugMode:      debug,
-		debugLogs:      debugLogs,
+		account:           account,
+		state:             stateInitDB,
+		currentBox:        "INBOX",
+		showFolders:       false,
+		passwordInput:     input,
+		aiInput:           aiInput,
+		spinner:           s,
+		composeTo:         composeTo,
+		composeSubject:    composeSubject,
+		searchInput:       searchInput,
+		debugMode:         debug,
+		debugLogs:         debugLogs,
+		imageCapabilities: &imgCaps,
+		imageAttachments:  []Attachment{},
 	}
 }
 
@@ -1576,6 +1615,140 @@ func (m Model) openEmailHTML() tea.Cmd {
 	}
 }
 
+// loadImageAttachments extrai imagens do email selecionado
+func (m Model) loadImageAttachments() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
+			return imageAttachmentsMsg{err: fmt.Errorf("nenhum email selecionado")}
+		}
+
+		var email = m.emails[m.selectedEmail]
+
+		if m.client == nil {
+			return imageAttachmentsMsg{err: fmt.Errorf("não conectado ao servidor")}
+		}
+
+		// Seleciona a mailbox antes de buscar
+		if _, err := m.client.SelectMailbox(m.currentBox); err != nil {
+			return imageAttachmentsMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
+		}
+
+		var rawData, err = m.client.FetchEmailRaw(email.UID)
+		if err != nil {
+			return imageAttachmentsMsg{err: err}
+		}
+
+		var attachments = extractAttachments(rawData)
+
+		// Filtra apenas imagens
+		var images []Attachment
+		for _, att := range attachments {
+			if strings.HasPrefix(att.ContentType, "image/") {
+				images = append(images, att)
+			}
+		}
+
+		return imageAttachmentsMsg{attachments: images}
+	}
+}
+
+// renderCurrentImage renderiza a imagem atual usando chafa/viu
+func (m Model) renderCurrentImage() tea.Cmd {
+	if len(m.imageAttachments) == 0 || m.selectedImage >= len(m.imageAttachments) {
+		return nil
+	}
+
+	var caps = m.imageCapabilities
+	var att = m.imageAttachments[m.selectedImage]
+
+	return func() tea.Msg {
+		// Calcula tamanho baseado no terminal (deixa espaço para bordas/info)
+		var width = 60
+		var height = 20
+
+		var opts = image.RenderOptions{
+			Width:  width,
+			Height: height,
+			Data:   att.Data,
+		}
+
+		var output, err = image.Render(*caps, opts)
+		if err != nil {
+			return imageRenderedMsg{err: err}
+		}
+
+		return imageRenderedMsg{output: output}
+	}
+}
+
+// openImageExternal abre a imagem no viewer externo do sistema
+func (m Model) openImageExternal() tea.Cmd {
+	if len(m.imageAttachments) == 0 || m.selectedImage >= len(m.imageAttachments) {
+		return nil
+	}
+
+	var att = m.imageAttachments[m.selectedImage]
+
+	return func() tea.Msg {
+		var tmpFile = filepath.Join(os.TempDir(), "miau-image-"+att.Filename)
+		if err := os.WriteFile(tmpFile, att.Data, 0600); err != nil {
+			return imageSavedMsg{err: err}
+		}
+
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "linux":
+			cmd = exec.Command("xdg-open", tmpFile)
+		case "darwin":
+			cmd = exec.Command("open", tmpFile)
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", tmpFile)
+		default:
+			return imageSavedMsg{err: fmt.Errorf("sistema operacional não suportado")}
+		}
+
+		cmd.Start()
+		return nil
+	}
+}
+
+// saveImage salva a imagem atual na pasta Downloads
+func (m Model) saveImage() tea.Cmd {
+	if len(m.imageAttachments) == 0 || m.selectedImage >= len(m.imageAttachments) {
+		return nil
+	}
+
+	var att = m.imageAttachments[m.selectedImage]
+
+	return func() tea.Msg {
+		var homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return imageSavedMsg{err: err}
+		}
+
+		var downloadDir = filepath.Join(homeDir, "Downloads")
+		// Cria o diretório se não existir
+		if err := os.MkdirAll(downloadDir, 0755); err != nil {
+			return imageSavedMsg{err: err}
+		}
+
+		var savePath = filepath.Join(downloadDir, att.Filename)
+
+		// Evita sobrescrever arquivo existente
+		if _, err := os.Stat(savePath); err == nil {
+			var ext = filepath.Ext(att.Filename)
+			var base = strings.TrimSuffix(att.Filename, ext)
+			savePath = filepath.Join(downloadDir, fmt.Sprintf("%s_%d%s", base, time.Now().Unix(), ext))
+		}
+
+		if err := os.WriteFile(savePath, att.Data, 0644); err != nil {
+			return imageSavedMsg{err: err}
+		}
+
+		return imageSavedMsg{path: savePath}
+	}
+}
+
 func (m Model) loadEmailContent() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
@@ -1803,6 +1976,101 @@ func decodeImageBody(body []byte, encoding string) []byte {
 	default:
 		return body
 	}
+}
+
+// extractAttachments extrai todos os anexos de imagem de um email
+func extractAttachments(rawData []byte) []Attachment {
+	var attachments []Attachment
+
+	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
+	if err != nil {
+		return attachments
+	}
+
+	var contentType = msg.Header.Get("Content-Type")
+	var mediaType, params, _ = mime.ParseMediaType(contentType)
+
+	// Se for multipart, procura anexos e imagens
+	if strings.HasPrefix(mediaType, "multipart/") {
+		var boundary = params["boundary"]
+		if boundary != "" {
+			attachments = findImageAttachments(msg.Body, boundary)
+		}
+	}
+
+	return attachments
+}
+
+// findImageAttachments procura imagens (inline e anexos) no email
+func findImageAttachments(r io.Reader, boundary string) []Attachment {
+	var attachments []Attachment
+	var mr = multipart.NewReader(r, boundary)
+
+	for {
+		var part, err = mr.NextPart()
+		if err != nil {
+			break
+		}
+
+		var body, _ = io.ReadAll(part)
+		var contentType = part.Header.Get("Content-Type")
+		var mediaType, params, _ = mime.ParseMediaType(contentType)
+		var disposition = part.Header.Get("Content-Disposition")
+		var contentID = strings.Trim(part.Header.Get("Content-Id"), "<>")
+		var encoding = part.Header.Get("Content-Transfer-Encoding")
+
+		// Verifica se é uma imagem (inline ou anexo)
+		if strings.HasPrefix(mediaType, "image/") {
+			var decoded = decodeImageBody(body, encoding)
+
+			// Tenta obter o filename
+			var filename = params["name"]
+			if filename == "" {
+				var _, dispParams, _ = mime.ParseMediaType(disposition)
+				filename = dispParams["filename"]
+			}
+			if filename == "" && contentID != "" {
+				filename = contentID
+			}
+			if filename == "" {
+				// Gera nome baseado no tipo
+				var ext = "img"
+				switch mediaType {
+				case "image/jpeg":
+					ext = "jpg"
+				case "image/png":
+					ext = "png"
+				case "image/gif":
+					ext = "gif"
+				case "image/webp":
+					ext = "webp"
+				}
+				filename = fmt.Sprintf("image.%s", ext)
+			}
+
+			var isInline = contentID != "" || strings.HasPrefix(disposition, "inline")
+
+			attachments = append(attachments, Attachment{
+				Filename:    filename,
+				ContentType: mediaType,
+				ContentID:   contentID,
+				Size:        int64(len(decoded)),
+				Data:        decoded,
+				IsInline:    isInline,
+			})
+		}
+
+		// Multipart aninhado (comum em emails com alternative + related)
+		if strings.HasPrefix(mediaType, "multipart/") {
+			var nestedBoundary = params["boundary"]
+			if nestedBoundary != "" {
+				var nested = findImageAttachments(bytes.NewReader(body), nestedBoundary)
+				attachments = append(attachments, nested...)
+			}
+		}
+	}
+
+	return attachments
 }
 
 // replaceCIDReferences substitui cid:xxx por data URIs
@@ -2080,6 +2348,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Verifica image preview mode
+		if m.showImagePreview {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "q", "i":
+				m.showImagePreview = false
+				m.imageAttachments = []Attachment{}
+				m.selectedImage = 0
+				m.imageRenderOutput = ""
+				return m, nil
+			case "left", "h":
+				if m.selectedImage > 0 {
+					m.selectedImage--
+					m.imageLoading = true
+					return m, m.renderCurrentImage()
+				}
+				return m, nil
+			case "right", "l":
+				if m.selectedImage < len(m.imageAttachments)-1 {
+					m.selectedImage++
+					m.imageLoading = true
+					return m, m.renderCurrentImage()
+				}
+				return m, nil
+			case "enter":
+				// Abre no viewer externo
+				return m, m.openImageExternal()
+			case "s":
+				// Salva na pasta Downloads
+				return m, m.saveImage()
+			}
+			return m, nil // Bloqueia outras teclas no modo image preview
+		}
+
 		// Verifica batch filter mode (preview de operação em lote)
 		if m.filterActive {
 			switch msg.String() {
@@ -2313,6 +2616,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, m.markAsRead(m.viewerEmail.ID, m.viewerEmail.UID))
 				}
 				return m, tea.Batch(cmds...)
+			case "i":
+				// Abre preview de imagens
+				m.imageLoading = true
+				return m, m.loadImageAttachments()
 			}
 			// Passa eventos de scroll para o viewport
 			var cmd tea.Cmd
@@ -2740,6 +3047,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Mostra erro temporário no AI panel
 			m.showAI = true
 			m.aiResponse = errorStyle.Render("Erro ao abrir HTML: " + msg.err.Error())
+		}
+		return m, nil
+
+	case imageAttachmentsMsg:
+		m.imageLoading = false
+		if msg.err != nil {
+			m.showAI = true
+			m.aiResponse = errorStyle.Render("Erro ao carregar imagens: " + msg.err.Error())
+			return m, nil
+		}
+		if len(msg.attachments) == 0 {
+			m.showAI = true
+			m.aiResponse = infoStyle.Render("Este email não contém imagens.")
+			return m, nil
+		}
+		m.imageAttachments = msg.attachments
+		m.selectedImage = 0
+		m.showImagePreview = true
+		m.imageLoading = true
+		m.log("📷 %d imagens encontradas", len(msg.attachments))
+		return m, m.renderCurrentImage()
+
+	case imageRenderedMsg:
+		m.imageLoading = false
+		if msg.err != nil {
+			m.imageRenderOutput = errorStyle.Render("Erro ao renderizar: " + msg.err.Error())
+		} else {
+			m.imageRenderOutput = msg.output
+		}
+		return m, nil
+
+	case imageSavedMsg:
+		if msg.err != nil {
+			m.alerts = append(m.alerts, Alert{
+				Type:      "error",
+				Title:     "Erro ao salvar",
+				Message:   msg.err.Error(),
+				Timestamp: time.Now(),
+			})
+			m.showAlert = true
+		} else if msg.path != "" {
+			m.alerts = append(m.alerts, Alert{
+				Type:      "success",
+				Title:     "Imagem salva",
+				Message:   "Salvo em: " + msg.path,
+				Timestamp: time.Now(),
+			})
+			m.showAlert = true
+			m.log("💾 Imagem salva: %s", msg.path)
 		}
 		return m, nil
 
@@ -3221,6 +3577,11 @@ func (m Model) View() string {
 		return m.viewUndoSendOverlay(baseView)
 	}
 
+	// Overlay de Image Preview
+	if m.showImagePreview && len(m.imageAttachments) > 0 {
+		return m.viewImagePreview()
+	}
+
 	// Panel de drafts
 	if m.showDrafts {
 		return m.viewDraftsPanel(baseView)
@@ -3670,7 +4031,7 @@ func (m Model) viewEmailViewer() string {
 	}
 
 	// Footer
-	var footer = subtitleStyle.Render(" ↑↓/PgUp/PgDn:scroll  h:abrir no navegador  q/Esc:voltar ")
+	var footer = subtitleStyle.Render(" ↑↓:scroll  h:browser  i:images  q/Esc:voltar ")
 
 	// Scroll info
 	var scrollInfo = subtitleStyle.Render(fmt.Sprintf(" %d%% ", int(m.viewerViewport.ScrollPercent()*100)))
@@ -4055,6 +4416,99 @@ func (m Model) viewUndoSendOverlay(baseView string) string {
 	)
 
 	var modal = overlayStyle.Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// viewImagePreview renderiza o overlay de preview de imagem
+func (m Model) viewImagePreview() string {
+	if len(m.imageAttachments) == 0 {
+		return ""
+	}
+
+	var currentImage = m.imageAttachments[m.selectedImage]
+
+	// Estilo do overlay
+	var overlayStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2)
+
+	// Header com info da imagem
+	var header = titleStyle.Render("Image Preview") + " " +
+		subtitleStyle.Render(fmt.Sprintf("(%d/%d)", m.selectedImage+1, len(m.imageAttachments)))
+
+	// Info do arquivo
+	var info = infoStyle.Render(fmt.Sprintf("%s (%s)",
+		currentImage.Filename,
+		image.FormatSize(currentImage.Size)))
+
+	// Tipo de imagem
+	var typeInfo string
+	if currentImage.IsInline {
+		typeInfo = subtitleStyle.Render("Inline image")
+	} else {
+		typeInfo = subtitleStyle.Render("Attachment")
+	}
+
+	// Conteúdo renderizado ou loading
+	var imageContent string
+	if m.imageLoading {
+		imageContent = statusStyle.Render("Rendering image...")
+	} else if m.imageRenderOutput != "" {
+		imageContent = m.imageRenderOutput
+	} else {
+		imageContent = subtitleStyle.Render("[Image will appear here]")
+	}
+
+	// Instruções de navegação
+	var footer string
+	if len(m.imageAttachments) > 1 {
+		footer = subtitleStyle.Render("←→/h l:navigate  Enter:open  s:save  Esc:close")
+	} else {
+		footer = subtitleStyle.Render("Enter:open externally  s:save  Esc:close")
+	}
+
+	// Info sobre o renderer e dica de instalação
+	var rendererInfo string
+	if m.imageCapabilities != nil {
+		if m.imageCapabilities.Renderer == image.RendererASCII {
+			rendererInfo = subtitleStyle.Render("Tip: Install chafa for better graphics (brew/apt/dnf install chafa)")
+		} else {
+			rendererInfo = subtitleStyle.Render(fmt.Sprintf("Renderer: %s", m.imageCapabilities.String()))
+		}
+	}
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		info,
+		typeInfo,
+		"",
+		imageContent,
+		"",
+		footer,
+		rendererInfo,
+	)
+
+	// Tamanho do overlay baseado no terminal
+	var width = m.width - 10
+	if width > 80 {
+		width = 80
+	}
+	if width < 50 {
+		width = 50
+	}
+	var height = m.height - 6
+	if height > 35 {
+		height = 35
+	}
+	if height < 15 {
+		height = 15
+	}
+
+	var modal = overlayStyle.Width(width).Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }

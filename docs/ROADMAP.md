@@ -40,6 +40,7 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 | ✅ Retenção permanente de dados | 2024-12-04 | `de0d314` |
 | ✅ Menu de configurações | 2024-12-04 | merged |
 | ✅ Documentação (arch + schema) | 2024-12-04 | merged |
+| ✅ Image Preview no TUI | 2024-12-04 | - |
 
 ---
 
@@ -104,9 +105,9 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 ```
 ┌─ BACKLOG ───────────────────────────────────────────────────────┐
 │                                                                 │
-│  8.  [ ] Image Preview no TUI                                   │
-│          └─ Sixel/iTerm2/Kitty protocols                        │
-│          └─ Ver: IDEAS.md#image-viewer-in-tui                   │
+│  8.  [x] Image Preview no TUI ✅                                │
+│          └─ chafa/viu para gráficos, ASCII art como fallback    │
+│          └─ Tecla i no viewer, ←→ navega, s salva               │
 │                                                                 │
 │  9.  [ ] Web Interface (Go + HTMX)                              │
 │          └─ miau serve --port 8080                              │

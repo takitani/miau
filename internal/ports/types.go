@@ -41,11 +41,16 @@ type EmailContent struct {
 
 // Attachment represents an email attachment
 type Attachment struct {
+	ID          int64
+	EmailID     int64
 	Filename    string
 	ContentType string
 	Size        int64
 	ContentID   string // for inline images
 	IsInline    bool
+	PartNumber  string // MIME part number for IMAP fetch
+	Encoding    string // content-transfer-encoding
+	IsCached    bool   // whether content is cached in DB
 	Data        []byte // populated only when downloaded
 }
 

@@ -1,5 +1,39 @@
 # miau Architecture
 
+## CRITICAL: Single Source of Truth
+
+**REGRA DE OURO: TUI e Desktop NUNCA implementam lógica de negócio diretamente.**
+
+Toda operação DEVE passar pelos Services centralizados em `internal/services/`.
+
+### PROIBIDO (TUI/Desktop chamando diretamente):
+
+```go
+// ❌ ERRADO - acesso direto ao IMAP
+var rawData, err = m.client.FetchEmailRaw(uid)
+var attachments = extractAllAttachments(rawData)
+
+// ❌ ERRADO - parsing duplicado em cada UI
+func extractAllAttachments(rawData []byte) []Attachment { ... }
+```
+
+### CORRETO (via Application/Services):
+
+```go
+// ✅ CERTO - via Application
+var attachments, err = m.app.Attachment().GetAttachments(ctx, emailID)
+
+// ✅ CERTO - download via service
+var data, err = m.app.Attachment().DownloadByPart(ctx, emailID, partNumber)
+```
+
+### Benefícios:
+- Bug fix único = corrigido para TUI + Desktop
+- Testes unitários nos Services cobrem ambas interfaces
+- Evita divergência de comportamento
+
+---
+
 ## System Overview
 
 The application uses a layered architecture that separates UI from business logic,

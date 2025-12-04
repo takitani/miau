@@ -37,6 +37,7 @@ type AttachmentDTO struct {
 	Size        int64  `json:"size"`
 	Data        string `json:"data,omitempty"` // base64 encoded for inline images
 	IsInline    bool   `json:"isInline"`
+	PartNumber  string `json:"partNumber,omitempty"`
 }
 
 // FolderDTO represents a mail folder for the frontend
@@ -168,4 +169,25 @@ type AnalyticsResultDTO struct {
 	ResponseTime ResponseTimeStatsDTO   `json:"responseTime"`
 	Period       string                 `json:"period"`
 	GeneratedAt  time.Time              `json:"generatedAt"`
+}
+
+// ============================================================================
+// SETTINGS DTOs
+// ============================================================================
+
+// SettingsDTO contains all application settings
+type SettingsDTO struct {
+	SyncFolders      []string `json:"syncFolders"`
+	UITheme          string   `json:"uiTheme"`
+	UIShowPreview    bool     `json:"uiShowPreview"`
+	UIPageSize       int      `json:"uiPageSize"`
+	ComposeFormat    string   `json:"composeFormat"`
+	ComposeSendDelay int      `json:"composeSendDelay"`
+	SyncInterval     string   `json:"syncInterval"`
+}
+
+// AvailableFolderDTO represents a folder with its sync status
+type AvailableFolderDTO struct {
+	Name       string `json:"name"`
+	IsSelected bool   `json:"isSelected"`
 }

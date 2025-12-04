@@ -17,6 +17,7 @@ type App interface {
 	Sync() SyncService
 	AI() AIService
 	Analytics() AnalyticsService
+	Attachment() AttachmentService
 
 	// Events
 	Events() EventBus
@@ -27,6 +28,9 @@ type App interface {
 
 	// Config
 	GetConfig() AppConfig
+
+	// SetIMAPClient sets an external IMAP client (for TUI to share connection)
+	SetIMAPClient(client interface{})
 }
 
 // AppConfig contains application configuration

@@ -156,6 +156,53 @@
     };
     showCompose.set(true);
   }
+
+  // Attachment helpers
+  function getAttachmentIcon(contentType) {
+    if (!contentType) return '📄';
+    if (contentType.startsWith('image/')) return '🖼️';
+    if (contentType.startsWith('video/')) return '🎬';
+    if (contentType.startsWith('audio/')) return '🎵';
+    if (contentType.includes('pdf')) return '📕';
+    if (contentType.includes('word') || contentType.includes('document')) return '📘';
+    if (contentType.includes('excel') || contentType.includes('sheet')) return '📗';
+    if (contentType.includes('zip') || contentType.includes('compressed')) return '📦';
+    if (contentType.includes('text')) return '📝';
+    return '📄';
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  async function downloadAttachment(att) {
+    try {
+      if (window.go?.desktop?.App) {
+        // Use email ID and part number to download
+        var result = await window.go.desktop.App.SaveAttachmentByPart(email.id, att.partNumber, att.filename);
+        if (result) {
+          console.log('Attachment saved to:', result);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to download attachment:', err);
+      alert('Erro ao baixar anexo: ' + err.message);
+    }
+  }
+
+  async function openAttachment(att) {
+    try {
+      if (window.go?.desktop?.App) {
+        // Open with default application using email ID and part number
+        await window.go.desktop.App.OpenAttachmentByPart(email.id, att.partNumber, att.filename);
+      }
+    } catch (err) {
+      console.error('Failed to open attachment:', err);
+      alert('Erro ao abrir anexo: ' + err.message);
+    }
+  }
 </script>
 
 <div class="email-viewer">
@@ -251,13 +298,21 @@
     <!-- Attachments -->
     {#if fullEmail?.attachments && fullEmail.attachments.length > 0}
       <div class="attachments">
-        <h3>Anexos ({fullEmail.attachments.length})</h3>
+        <h3>📎 Anexos ({fullEmail.attachments.length})</h3>
         <ul>
           {#each fullEmail.attachments as att}
             <li class="attachment">
-              <span class="icon">📎</span>
+              <span class="icon">{getAttachmentIcon(att.contentType)}</span>
               <span class="name">{att.filename}</span>
-              <span class="size">({Math.round(att.size / 1024)} KB)</span>
+              <span class="size">({formatSize(att.size)})</span>
+              <div class="attachment-actions">
+                <button class="action-btn" on:click={() => openAttachment(att)} title="Abrir com aplicativo padrão">
+                  ▶️ Abrir
+                </button>
+                <button class="action-btn" on:click={() => downloadAttachment(att)} title="Salvar em...">
+                  💾 Salvar
+                </button>
+              </div>
             </li>
           {/each}
         </ul>
@@ -522,16 +577,54 @@
   .attachment {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-xs);
+    gap: var(--space-sm);
+    padding: var(--space-sm);
     font-size: var(--font-sm);
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-xs);
+  }
+
+  .attachment:hover {
+    background: var(--bg-hover);
+  }
+
+  .attachment .icon {
+    font-size: 1.2em;
   }
 
   .attachment .name {
     color: var(--accent-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .attachment .size {
     color: var(--text-muted);
+    font-size: var(--font-xs);
+  }
+
+  .attachment-actions {
+    display: flex;
+    gap: var(--space-xs);
+  }
+
+  .action-btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-xs);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .action-btn:hover {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
   }
 </style>

@@ -136,6 +136,9 @@ type SyncService interface {
 	// SyncAll syncs all folders
 	SyncAll(ctx context.Context) ([]SyncResult, error)
 
+	// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash)
+	SyncEssentialFolders(ctx context.Context) ([]SyncResult, error)
+
 	// GetConnectionStatus returns the current connection status
 	GetConnectionStatus() ConnectionStatus
 }
@@ -182,4 +185,25 @@ type AnalyticsService interface {
 
 	// GetResponseStats returns response time statistics
 	GetResponseStats(ctx context.Context) (*ResponseTimeStats, error)
+}
+
+// AttachmentService defines operations for email attachments.
+type AttachmentService interface {
+	// GetAttachments returns all attachments for an email
+	GetAttachments(ctx context.Context, emailID int64) ([]Attachment, error)
+
+	// GetAttachment returns a single attachment by ID
+	GetAttachment(ctx context.Context, id int64) (*Attachment, error)
+
+	// Download downloads an attachment and returns its content
+	Download(ctx context.Context, id int64) ([]byte, error)
+
+	// SaveToFile downloads an attachment and saves it to a file
+	SaveToFile(ctx context.Context, id int64, path string) error
+
+	// DownloadByPart downloads an attachment by email ID and MIME part number
+	DownloadByPart(ctx context.Context, emailID int64, partNumber string) ([]byte, error)
+
+	// SaveToFileByPart downloads by part number and saves to a file
+	SaveToFileByPart(ctx context.Context, emailID int64, partNumber, path string) error
 }

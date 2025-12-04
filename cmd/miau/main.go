@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/opik/miau/internal/app"
 	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/gmail"
@@ -47,13 +48,14 @@ const (
 )
 
 type model struct {
-	width      int
-	height     int
-	state      appState
-	setupModel setup.Model
-	inboxModel inbox.Model
-	cfg        *config.Config
-	debugMode  bool
+	width       int
+	height      int
+	state       appState
+	setupModel  setup.Model
+	inboxModel  inbox.Model
+	cfg         *config.Config
+	debugMode   bool
+	application *app.Application
 }
 
 func initialModel(debugMode bool) model {
@@ -65,7 +67,24 @@ func initialModel(debugMode bool) model {
 		if err == nil && cfg != nil && len(cfg.Accounts) > 0 {
 			m.state = stateInbox
 			m.cfg = cfg
-			m.inboxModel = inbox.New(&cfg.Accounts[0], debugMode)
+
+			// Create Application for centralized services
+			var application, appErr = app.New(cfg, &cfg.Accounts[0], debugMode)
+			if appErr == nil {
+				m.application = application
+				// Start the application (initializes services)
+				var startErr = application.Start()
+				if startErr == nil {
+					// Pass Application to inbox for centralized service access
+					m.inboxModel = inbox.New(&cfg.Accounts[0], debugMode, application)
+				} else {
+					// Start failed, use legacy mode
+					m.inboxModel = inbox.New(&cfg.Accounts[0], debugMode)
+				}
+			} else {
+				// Fallback: create inbox without Application (legacy mode)
+				m.inboxModel = inbox.New(&cfg.Accounts[0], debugMode)
+			}
 			return m
 		}
 	}
@@ -104,7 +123,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			config.Load() // força recarregar
 			var cfg, _ = config.Load()
 			m.cfg = cfg
-			m.inboxModel = inbox.New(&cfg.Accounts[0], m.debugMode)
+
+			// Create Application for centralized services
+			var application, appErr = app.New(cfg, &cfg.Accounts[0], m.debugMode)
+			if appErr == nil {
+				m.application = application
+				var startErr = application.Start()
+				if startErr == nil {
+					m.inboxModel = inbox.New(&cfg.Accounts[0], m.debugMode, application)
+				} else {
+					m.inboxModel = inbox.New(&cfg.Accounts[0], m.debugMode)
+				}
+			} else {
+				m.inboxModel = inbox.New(&cfg.Accounts[0], m.debugMode)
+			}
+
 			m.state = stateInbox
 			return m, m.inboxModel.Init()
 		}

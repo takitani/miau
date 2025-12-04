@@ -28,6 +28,54 @@ miau signature    # Show configured signature
 
 ## Architecture
 
+### ⚠️ CRITICAL: Single Source of Truth (NUNCA DUPLICAR LÓGICA!)
+
+**REGRA DE OURO**: TUI e Desktop NUNCA implementam lógica de negócio diretamente.
+Toda operação DEVE passar pelos Services centralizados em `internal/services/`.
+
+```
+┌─────────────┐     ┌─────────────┐
+│     TUI     │     │   Desktop   │
+│ (bubbletea) │     │  (wails)    │
+└──────┬──────┘     └──────┬──────┘
+       │                   │
+       └───────┬───────────┘
+               │
+       ┌───────▼───────┐
+       │  Application  │  ← ÚNICO PONTO DE ENTRADA
+       │ internal/app  │
+       └───────┬───────┘
+               │
+       ┌───────▼───────┐
+       │   Services    │  ← TODA LÓGICA DE NEGÓCIO AQUI
+       │   (ports.*)   │
+       └───────┬───────┘
+               │
+    ┌──────────┼──────────┐
+    │          │          │
+┌───▼───┐  ┌───▼───┐  ┌───▼───┐
+│ IMAP  │  │Storage│  │ SMTP  │
+│Adapter│  │Adapter│  │Adapter│
+└───────┘  └───────┘  └───────┘
+```
+
+**PROIBIDO** (TUI/Desktop chamando diretamente):
+- ❌ `imap.Client.FetchEmailRaw()`
+- ❌ `storage.GetEmails()` para operações complexas
+- ❌ `smtp.Send()` diretamente
+- ❌ Qualquer parsing/extração de dados duplicado
+
+**CORRETO** (via Application/Services):
+- ✅ `app.Email().GetEmail(id)` → retorna email + attachments
+- ✅ `app.Email().GetAttachments(emailID)` → retorna attachments
+- ✅ `app.Email().Send(email)` → envia via SMTP ou Gmail API
+- ✅ `app.Sync().SyncFolder(folder)` → sincroniza pasta
+
+**Por quê?**
+- Bug fix em um lugar = corrigido para TUI + Desktop
+- Testes unitários nos Services cobrem ambas interfaces
+- Evita divergência de comportamento (ex: TUI parseando anexos diferente do Desktop)
+
 ### Application Flow (cmd/miau/main.go)
 The app uses Bubble Tea as its TUI framework with a state machine pattern:
 - `stateSetup` → First-run setup wizard (internal/tui/setup)

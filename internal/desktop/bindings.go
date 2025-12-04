@@ -2,12 +2,17 @@ package desktop
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/opik/miau/internal/ports"
+	"github.com/opik/miau/internal/storage"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -315,6 +320,32 @@ func (a *App) SyncCurrentFolder() (*SyncResultDTO, error) {
 	return a.SyncFolder(folder)
 }
 
+// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash)
+func (a *App) SyncEssentialFolders() (results []SyncResultDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SyncEssentialFolders] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	log.Printf("[SyncEssentialFolders] syncing essential folders")
+	if a.application == nil {
+		return nil, nil
+	}
+	var syncResults, syncErr = a.application.Sync().SyncEssentialFolders(context.Background())
+	log.Printf("[SyncEssentialFolders] sync completed, err=%v", syncErr)
+	if syncErr != nil {
+		return nil, syncErr
+	}
+	for _, r := range syncResults {
+		results = append(results, SyncResultDTO{
+			NewEmails:     r.NewEmails,
+			DeletedEmails: r.DeletedEmails,
+		})
+	}
+	return results, nil
+}
+
 // GetConnectionStatus returns current connection status
 func (a *App) GetConnectionStatus() ConnectionStatus {
 	if a.application == nil {
@@ -590,6 +621,248 @@ func (a *App) GetAIProviders() []map[string]interface{} {
 }
 
 // ============================================================================
+// ATTACHMENTS
+// ============================================================================
+
+// GetAttachments returns all attachments for an email
+func (a *App) GetAttachments(emailID int64) (result []AttachmentDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetAttachments] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return nil, nil
+	}
+
+	var attachments, ferr = attService.GetAttachments(context.Background(), emailID)
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	for _, att := range attachments {
+		result = append(result, AttachmentDTO{
+			ID:          att.ID,
+			Filename:    att.Filename,
+			ContentType: att.ContentType,
+			ContentID:   att.ContentID,
+			Size:        att.Size,
+			IsInline:    att.IsInline,
+		})
+	}
+	return result, nil
+}
+
+// DownloadAttachment downloads an attachment and returns base64-encoded content
+func (a *App) DownloadAttachment(attachmentID int64) (result string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[DownloadAttachment] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return "", fmt.Errorf("application not initialized")
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return "", fmt.Errorf("attachment service not available")
+	}
+
+	var data, ferr = attService.Download(context.Background(), attachmentID)
+	if ferr != nil {
+		return "", ferr
+	}
+
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// SaveAttachment saves an attachment to a file
+func (a *App) SaveAttachment(attachmentID int64, path string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SaveAttachment] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return fmt.Errorf("attachment service not available")
+	}
+
+	return attService.SaveToFile(context.Background(), attachmentID, path)
+}
+
+// SaveAttachmentDialog opens a file dialog and saves attachment to selected location
+func (a *App) SaveAttachmentDialog(attachmentID int64, filename string) (path string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SaveAttachmentDialog] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	// Import runtime for dialog
+	var savePath, dialogErr = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: filename,
+		Title:           "Salvar anexo",
+	})
+	if dialogErr != nil {
+		return "", dialogErr
+	}
+	if savePath == "" {
+		return "", nil // User cancelled
+	}
+
+	// Save the attachment
+	if err := a.SaveAttachment(attachmentID, savePath); err != nil {
+		return "", err
+	}
+
+	return savePath, nil
+}
+
+// OpenAttachment downloads attachment to temp and opens with default app
+func (a *App) OpenAttachment(attachmentID int64, filename string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[OpenAttachment] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return fmt.Errorf("attachment service not available")
+	}
+
+	// Download to temp file
+	var tempDir = os.TempDir()
+	var tempPath = fmt.Sprintf("%s/miau-%d-%s", tempDir, attachmentID, filename)
+
+	if err := attService.SaveToFile(context.Background(), attachmentID, tempPath); err != nil {
+		return fmt.Errorf("failed to download: %w", err)
+	}
+
+	// Open with default application
+	var cmd *exec.Cmd
+	switch goos := strings.ToLower(os.Getenv("GOOS")); {
+	case goos == "darwin" || (goos == "" && fileExists("/usr/bin/open")):
+		cmd = exec.Command("open", tempPath)
+	case goos == "windows" || (goos == "" && fileExists("C:\\Windows\\System32\\cmd.exe")):
+		cmd = exec.Command("cmd", "/c", "start", "", tempPath)
+	default:
+		cmd = exec.Command("xdg-open", tempPath)
+	}
+
+	return cmd.Start()
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// SaveAttachmentByPart downloads attachment by email ID + part number and saves to user-selected location
+func (a *App) SaveAttachmentByPart(emailID int64, partNumber string, filename string) (path string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SaveAttachmentByPart] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	if a.application == nil {
+		return "", fmt.Errorf("application not initialized")
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return "", fmt.Errorf("attachment service not available")
+	}
+
+	// Open save dialog
+	var savePath, dialogErr = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: filename,
+		Title:           "Salvar anexo",
+	})
+	if dialogErr != nil {
+		return "", dialogErr
+	}
+	if savePath == "" {
+		return "", nil // User cancelled
+	}
+
+	// Download and save
+	if err := attService.SaveToFileByPart(context.Background(), emailID, partNumber, savePath); err != nil {
+		return "", err
+	}
+
+	return savePath, nil
+}
+
+// OpenAttachmentByPart downloads attachment by email ID + part number and opens with default app
+func (a *App) OpenAttachmentByPart(emailID int64, partNumber string, filename string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[OpenAttachmentByPart] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var attService = a.application.Attachment()
+	if attService == nil {
+		return fmt.Errorf("attachment service not available")
+	}
+
+	// Download content
+	var data, downloadErr = attService.DownloadByPart(context.Background(), emailID, partNumber)
+	if downloadErr != nil {
+		return fmt.Errorf("failed to download: %w", downloadErr)
+	}
+
+	// Save to temp file
+	var tempDir = os.TempDir()
+	var tempPath = fmt.Sprintf("%s/miau-%d-%s-%s", tempDir, emailID, partNumber, filename)
+
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	// Open with default application
+	var cmd *exec.Cmd
+	switch goos := strings.ToLower(os.Getenv("GOOS")); {
+	case goos == "darwin" || (goos == "" && fileExists("/usr/bin/open")):
+		cmd = exec.Command("open", tempPath)
+	case goos == "windows" || (goos == "" && fileExists("C:\\Windows\\System32\\cmd.exe")):
+		cmd = exec.Command("cmd", "/c", "start", "", tempPath)
+	default:
+		cmd = exec.Command("xdg-open", tempPath)
+	}
+
+	return cmd.Start()
+}
+
+// ============================================================================
 // ACCOUNTS
 // ============================================================================
 
@@ -760,6 +1033,144 @@ func (a *App) analyticsResultToDTO(result *ports.AnalyticsResult) *AnalyticsResu
 		Period:      result.Period,
 		GeneratedAt: result.GeneratedAt,
 	}
+}
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+
+// GetSettings returns all application settings
+func (a *App) GetSettings() (*SettingsDTO, error) {
+	if a.account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	// Get account ID from database
+	var dbAccount, accountErr = storage.GetOrCreateAccount(a.account.Email, a.account.Name)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+
+	var settings, err = storage.GetAllSettings(dbAccount.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse sync folders from JSON
+	var syncFolders []string
+	if foldersJSON, ok := settings["sync_folders"]; ok && foldersJSON != "" {
+		json.Unmarshal([]byte(foldersJSON), &syncFolders)
+	}
+	if len(syncFolders) == 0 {
+		// Default to essential folders
+		syncFolders = []string{"INBOX", "[Gmail]/Sent Mail", "[Gmail]/Trash"}
+	}
+
+	// Parse other settings with defaults
+	var uiTheme = settings["ui_theme"]
+	if uiTheme == "" {
+		uiTheme = "dark"
+	}
+
+	var uiShowPreview = true
+	if val, ok := settings["ui_show_preview"]; ok {
+		uiShowPreview = val == "true"
+	}
+
+	var uiPageSize = 50
+	if val, ok := settings["ui_page_size"]; ok {
+		fmt.Sscanf(val, "%d", &uiPageSize)
+	}
+
+	var composeFormat = settings["compose_format"]
+	if composeFormat == "" {
+		composeFormat = "html"
+	}
+
+	var composeSendDelay = 30
+	if val, ok := settings["compose_send_delay"]; ok {
+		fmt.Sscanf(val, "%d", &composeSendDelay)
+	}
+
+	var syncInterval = settings["sync_interval"]
+	if syncInterval == "" {
+		syncInterval = "5m"
+	}
+
+	return &SettingsDTO{
+		SyncFolders:      syncFolders,
+		UITheme:          uiTheme,
+		UIShowPreview:    uiShowPreview,
+		UIPageSize:       uiPageSize,
+		ComposeFormat:    composeFormat,
+		ComposeSendDelay: composeSendDelay,
+		SyncInterval:     syncInterval,
+	}, nil
+}
+
+// SaveSettings saves all application settings
+func (a *App) SaveSettings(settings SettingsDTO) error {
+	if a.account == nil {
+		return fmt.Errorf("no account set")
+	}
+
+	// Get account ID from database
+	var dbAccount, accountErr = storage.GetOrCreateAccount(a.account.Email, a.account.Name)
+	if accountErr != nil {
+		return accountErr
+	}
+
+	// Save sync folders as JSON
+	var foldersJSON, _ = json.Marshal(settings.SyncFolders)
+	storage.SetSetting(dbAccount.ID, "sync_folders", string(foldersJSON))
+
+	// Save other settings
+	storage.SetSetting(dbAccount.ID, "ui_theme", settings.UITheme)
+	storage.SetSetting(dbAccount.ID, "ui_show_preview", fmt.Sprintf("%v", settings.UIShowPreview))
+	storage.SetSetting(dbAccount.ID, "ui_page_size", fmt.Sprintf("%d", settings.UIPageSize))
+	storage.SetSetting(dbAccount.ID, "compose_format", settings.ComposeFormat)
+	storage.SetSetting(dbAccount.ID, "compose_send_delay", fmt.Sprintf("%d", settings.ComposeSendDelay))
+	storage.SetSetting(dbAccount.ID, "sync_interval", settings.SyncInterval)
+
+	return nil
+}
+
+// GetAvailableFolders returns all folders with their sync selection status
+func (a *App) GetAvailableFolders() ([]AvailableFolderDTO, error) {
+	if a.account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	// Get account ID from database
+	var dbAccount, accountErr = storage.GetOrCreateAccount(a.account.Email, a.account.Name)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+
+	// Get all folders from database
+	var folders, err = storage.GetFolders(dbAccount.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get currently selected folders
+	var settings, _ = a.GetSettings()
+	var selectedSet = make(map[string]bool)
+	if settings != nil {
+		for _, f := range settings.SyncFolders {
+			selectedSet[f] = true
+		}
+	}
+
+	var result []AvailableFolderDTO
+	for _, folder := range folders {
+		result = append(result, AvailableFolderDTO{
+			Name:       folder.Name,
+			IsSelected: selectedSet[folder.Name],
+		})
+	}
+
+	return result, nil
 }
 
 // ============================================================================

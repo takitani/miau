@@ -118,7 +118,7 @@ func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, er
 	// If accountID is 0, search by folderID only (folderID is unique)
 	if accountID == 0 {
 		err = db.Select(&emails, `
-			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 			FROM emails
 			WHERE folder_id = ? AND is_archived = 0 AND is_deleted = 0
 			ORDER BY date DESC
@@ -126,7 +126,7 @@ func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, er
 			folderID, limit, offset)
 	} else {
 		err = db.Select(&emails, `
-			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 			FROM emails
 			WHERE account_id = ? AND folder_id = ? AND is_archived = 0 AND is_deleted = 0
 			ORDER BY date DESC
@@ -223,6 +223,12 @@ func DeleteEmail(id int64) error {
 	return err
 }
 
+// UpdateHasAttachments updates the has_attachments flag for an email
+func UpdateHasAttachments(id int64, hasAttachments bool) error {
+	_, err := db.Exec("UPDATE emails SET has_attachments = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", hasAttachments, id)
+	return err
+}
+
 // PurgeDeletedFromServer remove emails do banco que não existem mais no servidor
 func PurgeDeletedFromServer(accountID, folderID int64, serverUIDs []uint32) (int, error) {
 	if len(serverUIDs) == 0 {
@@ -279,7 +285,7 @@ func CountEmails(accountID, folderID int64) (total int, unread int, err error) {
 func SearchEmails(accountID int64, query string, limit int) ([]EmailSummary, error) {
 	var emails []EmailSummary
 	err := db.Select(&emails, `
-		SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.snippet
+		SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.has_attachments, e.snippet
 		FROM emails e
 		JOIN emails_fts fts ON e.id = fts.rowid
 		WHERE e.account_id = ? AND e.is_archived = 0 AND e.is_deleted = 0 AND emails_fts MATCH ?
@@ -308,7 +314,7 @@ func FuzzySearchEmails(accountID int64, query string, limit int) ([]EmailSummary
 		var ftsQuery = escapeFTSQuery(query)
 
 		err = db.Select(&emails, `
-			SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.snippet
+			SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.has_attachments, e.snippet
 			FROM emails e
 			JOIN emails_fts fts ON e.id = fts.rowid
 			WHERE e.account_id = ? AND e.is_archived = 0 AND e.is_deleted = 0 AND emails_fts MATCH ?
@@ -326,7 +332,7 @@ func FuzzySearchEmails(accountID int64, query string, limit int) ([]EmailSummary
 	// Mais lento mas funciona para queries curtas e casos edge
 	var likePattern = "%" + query + "%"
 	err = db.Select(&emails, `
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 		FROM emails
 		WHERE account_id = ? AND is_archived = 0 AND is_deleted = 0
 		AND (
@@ -786,7 +792,7 @@ func PrepareBatchArchive(accountID int64, fromEmail string) (*PendingBatchOp, er
 	// Busca emails que serão afetados
 	var emails []EmailSummary
 	var err = db.Select(&emails, `
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 		FROM emails
 		WHERE account_id = ? AND from_email LIKE ? AND is_archived = 0 AND is_deleted = 0
 		ORDER BY date DESC
@@ -832,7 +838,7 @@ func PrepareBatchArchive(accountID int64, fromEmail string) (*PendingBatchOp, er
 func PrepareBatchDelete(accountID int64, fromEmail string) (*PendingBatchOp, error) {
 	var emails []EmailSummary
 	var err = db.Select(&emails, `
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 		FROM emails
 		WHERE account_id = ? AND from_email LIKE ? AND is_archived = 0 AND is_deleted = 0
 		ORDER BY date DESC
@@ -898,7 +904,7 @@ func GetEmailsByIDs(emailIDs []int64) ([]EmailSummary, error) {
 	}
 
 	var query = fmt.Sprintf(`
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 		FROM emails
 		WHERE id IN (%s)
 		ORDER BY date DESC`,
@@ -913,7 +919,7 @@ func GetEmailsByIDs(emailIDs []int64) ([]EmailSummary, error) {
 func GetEmailsFiltered(accountID, folderID int64, fromEmailFilter string, limit int) ([]EmailSummary, error) {
 	var emails []EmailSummary
 	err := db.Select(&emails, `
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
 		FROM emails
 		WHERE account_id = ? AND folder_id = ? AND from_email LIKE ? AND is_archived = 0 AND is_deleted = 0
 		ORDER BY date DESC
@@ -1423,4 +1429,268 @@ func LogSyncComplete(syncID int64, newEmails, deletedEmails int, syncError error
 		WHERE id = ?
 	`, time.Now(), newEmails, deletedEmails, errStr, syncID)
 	return err
+}
+
+// === ATTACHMENTS ===
+
+// UpsertAttachment insere ou atualiza um anexo
+func UpsertAttachment(a *Attachment) (int64, error) {
+	var result, err = db.Exec(`
+		INSERT INTO attachments (
+			email_id, account_id, filename, content_type, content_id,
+			content_disposition, part_number, size, checksum, encoding,
+			charset, is_inline, is_downloaded, is_cached, cache_path, cached_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(email_id, filename) DO UPDATE SET
+			content_type = excluded.content_type,
+			content_id = excluded.content_id,
+			content_disposition = excluded.content_disposition,
+			part_number = excluded.part_number,
+			size = excluded.size,
+			checksum = excluded.checksum,
+			encoding = excluded.encoding,
+			charset = excluded.charset,
+			is_inline = excluded.is_inline`,
+		a.EmailID, a.AccountID, a.Filename, a.ContentType, a.ContentID,
+		a.ContentDisposition, a.PartNumber, a.Size, a.Checksum, a.Encoding,
+		a.Charset, a.IsInline, a.IsDownloaded, a.IsCached, a.CachePath, a.CachedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// GetAttachmentsByEmail retorna todos os anexos de um email
+func GetAttachmentsByEmail(emailID int64) ([]Attachment, error) {
+	var attachments []Attachment
+	err := db.Select(&attachments, `
+		SELECT * FROM attachments
+		WHERE email_id = ?
+		ORDER BY is_inline ASC, filename ASC`,
+		emailID)
+	return attachments, err
+}
+
+// GetAttachmentSummariesByEmail retorna resumo dos anexos de um email
+func GetAttachmentSummariesByEmail(emailID int64) ([]AttachmentSummary, error) {
+	var attachments []AttachmentSummary
+	err := db.Select(&attachments, `
+		SELECT id, email_id, filename, content_type, size, is_inline, is_cached, COALESCE(part_number, '') as part_number
+		FROM attachments
+		WHERE email_id = ?
+		ORDER BY is_inline ASC, filename ASC`,
+		emailID)
+	return attachments, err
+}
+
+// GetAttachmentByID retorna um anexo por ID
+func GetAttachmentByID(id int64) (*Attachment, error) {
+	var attachment Attachment
+	err := db.Get(&attachment, "SELECT * FROM attachments WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	return &attachment, nil
+}
+
+// GetAttachmentByEmailAndFilename retorna um anexo por email e nome do arquivo
+func GetAttachmentByEmailAndFilename(emailID int64, filename string) (*Attachment, error) {
+	var attachment Attachment
+	err := db.Get(&attachment, `
+		SELECT * FROM attachments
+		WHERE email_id = ? AND filename = ?`,
+		emailID, filename)
+	if err != nil {
+		return nil, err
+	}
+	return &attachment, nil
+}
+
+// CountAttachmentsByEmail conta anexos de um email
+func CountAttachmentsByEmail(emailID int64) (int, error) {
+	var count int
+	err := db.Get(&count, "SELECT COUNT(*) FROM attachments WHERE email_id = ?", emailID)
+	return count, err
+}
+
+// HasAttachments verifica se um email tem anexos
+func HasAttachments(emailID int64) (bool, error) {
+	var count, err = CountAttachmentsByEmail(emailID)
+	return count > 0, err
+}
+
+// MarkAttachmentDownloaded marca um anexo como baixado
+func MarkAttachmentDownloaded(id int64) error {
+	_, err := db.Exec(`
+		UPDATE attachments SET is_downloaded = 1
+		WHERE id = ?`, id)
+	return err
+}
+
+// MarkAttachmentCached marca um anexo como cacheado
+func MarkAttachmentCached(id int64, cachePath string) error {
+	_, err := db.Exec(`
+		UPDATE attachments SET
+			is_cached = 1,
+			cache_path = ?,
+			cached_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, cachePath, id)
+	return err
+}
+
+// ClearAttachmentCache limpa o cache de um anexo
+func ClearAttachmentCache(id int64) error {
+	_, err := db.Exec(`
+		UPDATE attachments SET
+			is_cached = 0,
+			cache_path = NULL,
+			cached_at = NULL
+		WHERE id = ?`, id)
+	return err
+}
+
+// DeleteAttachmentsByEmail remove todos os anexos de um email
+func DeleteAttachmentsByEmail(emailID int64) error {
+	_, err := db.Exec("DELETE FROM attachments WHERE email_id = ?", emailID)
+	return err
+}
+
+// GetInlineAttachmentsByEmail retorna anexos inline (imagens no corpo) de um email
+func GetInlineAttachmentsByEmail(emailID int64) ([]Attachment, error) {
+	var attachments []Attachment
+	err := db.Select(&attachments, `
+		SELECT * FROM attachments
+		WHERE email_id = ? AND is_inline = 1
+		ORDER BY filename ASC`,
+		emailID)
+	return attachments, err
+}
+
+// GetRegularAttachmentsByEmail retorna anexos regulares (não inline) de um email
+func GetRegularAttachmentsByEmail(emailID int64) ([]Attachment, error) {
+	var attachments []Attachment
+	err := db.Select(&attachments, `
+		SELECT * FROM attachments
+		WHERE email_id = ? AND is_inline = 0
+		ORDER BY filename ASC`,
+		emailID)
+	return attachments, err
+}
+
+// === ATTACHMENT CACHE (binary content) ===
+
+// CacheAttachmentContent salva o conteúdo binário de um anexo no cache
+func CacheAttachmentContent(attachmentID int64, data []byte, compressed bool) error {
+	_, err := db.Exec(`
+		INSERT INTO attachment_cache (attachment_id, data, compressed)
+		VALUES (?, ?, ?)
+		ON CONFLICT(attachment_id) DO UPDATE SET
+			data = excluded.data,
+			compressed = excluded.compressed,
+			last_accessed = CURRENT_TIMESTAMP`,
+		attachmentID, data, compressed)
+	if err != nil {
+		return err
+	}
+
+	// Marca o anexo como cacheado
+	_, err = db.Exec(`
+		UPDATE attachments SET is_cached = 1, cached_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, attachmentID)
+	return err
+}
+
+// GetCachedAttachmentContent retorna o conteúdo binário de um anexo cacheado
+func GetCachedAttachmentContent(attachmentID int64) ([]byte, bool, error) {
+	var cache struct {
+		Data       []byte `db:"data"`
+		Compressed bool   `db:"compressed"`
+	}
+
+	err := db.Get(&cache, `
+		SELECT data, compressed FROM attachment_cache
+		WHERE attachment_id = ?`, attachmentID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Atualiza last_accessed
+	db.Exec(`UPDATE attachment_cache SET last_accessed = CURRENT_TIMESTAMP WHERE attachment_id = ?`, attachmentID)
+
+	return cache.Data, cache.Compressed, nil
+}
+
+// DeleteCachedAttachmentContent remove o conteúdo cacheado de um anexo
+func DeleteCachedAttachmentContent(attachmentID int64) error {
+	_, err := db.Exec("DELETE FROM attachment_cache WHERE attachment_id = ?", attachmentID)
+	if err != nil {
+		return err
+	}
+
+	// Marca o anexo como não cacheado
+	_, err = db.Exec(`
+		UPDATE attachments SET is_cached = 0, cached_at = NULL
+		WHERE id = ?`, attachmentID)
+	return err
+}
+
+// CleanupOldCache remove cache antigo (não acessado há N dias)
+func CleanupOldCache(olderThanDays int) (int64, error) {
+	// Primeiro pega os IDs dos anexos afetados
+	var attachmentIDs []int64
+	err := db.Select(&attachmentIDs, `
+		SELECT attachment_id FROM attachment_cache
+		WHERE last_accessed < datetime('now', '-' || ? || ' days')`,
+		olderThanDays)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(attachmentIDs) == 0 {
+		return 0, nil
+	}
+
+	// Remove do cache
+	var result, err2 = db.Exec(`
+		DELETE FROM attachment_cache
+		WHERE last_accessed < datetime('now', '-' || ? || ' days')`,
+		olderThanDays)
+	if err2 != nil {
+		return 0, err2
+	}
+
+	// Atualiza os anexos para não cacheados
+	for _, id := range attachmentIDs {
+		db.Exec(`UPDATE attachments SET is_cached = 0, cached_at = NULL WHERE id = ?`, id)
+	}
+
+	return result.RowsAffected()
+}
+
+// GetCacheSize retorna o tamanho total do cache em bytes
+func GetCacheSize() (int64, error) {
+	var size int64
+	err := db.Get(&size, "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM attachment_cache")
+	return size, err
+}
+
+// CountCachedAttachments conta o número de anexos cacheados
+func CountCachedAttachments() (int, error) {
+	var count int
+	err := db.Get(&count, "SELECT COUNT(*) FROM attachment_cache")
+	return count, err
+}
+
+// GetUncachedInlineAttachments retorna anexos inline que ainda não estão no cache
+// Útil para auto-cache de imagens inline
+func GetUncachedInlineAttachments(accountID int64, maxSize int64, limit int) ([]Attachment, error) {
+	var attachments []Attachment
+	err := db.Select(&attachments, `
+		SELECT a.* FROM attachments a
+		LEFT JOIN attachment_cache c ON a.id = c.attachment_id
+		WHERE a.account_id = ? AND a.is_inline = 1 AND a.size <= ? AND c.id IS NULL
+		ORDER BY a.created_at DESC
+		LIMIT ?`,
+		accountID, maxSize, limit)
+	return attachments, err
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/opik/miau/internal/adapters"
 	"github.com/opik/miau/internal/config"
+	"github.com/opik/miau/internal/imap"
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/storage"
@@ -31,15 +32,16 @@ type Application struct {
 	gmailAdapter   *adapters.GmailAPIAdapter
 
 	// Services
-	eventBus         ports.EventBus
-	syncService      *services.SyncService
-	emailService     *services.EmailService
-	sendService      *services.SendService
-	draftService     *services.DraftService
-	searchService    *services.SearchService
-	batchService     *services.BatchService
-	notifyService    *services.NotificationService
-	analyticsService *services.AnalyticsService
+	eventBus          ports.EventBus
+	syncService       *services.SyncService
+	emailService      *services.EmailService
+	sendService       *services.SendService
+	draftService      *services.DraftService
+	searchService     *services.SearchService
+	batchService      *services.BatchService
+	notifyService     *services.NotificationService
+	analyticsService  *services.AnalyticsService
+	attachmentService *services.AttachmentServicePort
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -148,6 +150,9 @@ func (a *Application) Start() error {
 	a.analyticsService = services.NewAnalyticsService(a.storageAdapter, a.eventBus)
 	a.analyticsService.SetAccount(accountInfo)
 
+	a.attachmentService = services.NewAttachmentServicePort(a.storageAdapter, a.imapAdapter)
+	a.attachmentService.SetAccount(accountInfo)
+
 	a.started = true
 	return nil
 }
@@ -215,6 +220,11 @@ func (a *Application) Analytics() ports.AnalyticsService {
 	return a.analyticsService
 }
 
+// Attachment returns the attachment service
+func (a *Application) Attachment() ports.AttachmentService {
+	return a.attachmentService
+}
+
 // Events returns the event bus
 func (a *Application) Events() ports.EventBus {
 	return a.eventBus
@@ -253,6 +263,19 @@ func (a *Application) GetIMAPAdapter() *adapters.IMAPAdapter {
 // GetStorageAdapter returns the storage adapter for direct access (backward compatibility)
 func (a *Application) GetStorageAdapter() *adapters.StorageAdapter {
 	return a.storageAdapter
+}
+
+// SetIMAPClient sets an external IMAP client (for TUI to share connection with services)
+// This allows the TUI's IMAP connection to be shared with AttachmentService and others.
+func (a *Application) SetIMAPClient(client interface{}) {
+	var imapClient, ok = client.(*imap.Client)
+	if !ok {
+		return
+	}
+	if a.imapAdapter == nil {
+		return
+	}
+	a.imapAdapter.SetClient(imapClient)
 }
 
 // Connect connects to the IMAP server

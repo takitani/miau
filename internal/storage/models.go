@@ -101,17 +101,18 @@ type Email struct {
 
 // EmailSummary é uma versão resumida para listagem
 type EmailSummary struct {
-	ID        int64          `db:"id"`
-	UID       uint32         `db:"uid"`
-	MessageID sql.NullString `db:"message_id"`
-	Subject   string         `db:"subject"`
-	FromName  string         `db:"from_name"`
-	FromEmail string         `db:"from_email"`
-	Date      SQLiteTime     `db:"date"`
-	IsRead    bool           `db:"is_read"`
-	IsStarred bool           `db:"is_starred"`
-	IsReplied bool           `db:"is_replied"`
-	Snippet   string         `db:"snippet"`
+	ID             int64          `db:"id"`
+	UID            uint32         `db:"uid"`
+	MessageID      sql.NullString `db:"message_id"`
+	Subject        string         `db:"subject"`
+	FromName       string         `db:"from_name"`
+	FromEmail      string         `db:"from_email"`
+	Date           SQLiteTime     `db:"date"`
+	IsRead         bool           `db:"is_read"`
+	IsStarred      bool           `db:"is_starred"`
+	IsReplied      bool           `db:"is_replied"`
+	HasAttachments bool           `db:"has_attachments"`
+	Snippet        string         `db:"snippet"`
 }
 
 // DraftStatus representa o estado de um draft
@@ -284,3 +285,39 @@ const (
 	IndexStatusCompleted = "completed"
 	IndexStatusError     = "error"
 )
+
+// === ATTACHMENTS ===
+
+// Attachment representa um anexo de email
+type Attachment struct {
+	ID                 int64          `db:"id"`
+	EmailID            int64          `db:"email_id"`
+	AccountID          int64          `db:"account_id"`
+	Filename           string         `db:"filename"`
+	ContentType        string         `db:"content_type"`
+	ContentID          sql.NullString `db:"content_id"`
+	ContentDisposition sql.NullString `db:"content_disposition"`
+	PartNumber         sql.NullString `db:"part_number"`
+	Size               int64          `db:"size"`
+	Checksum           sql.NullString `db:"checksum"`
+	Encoding           sql.NullString `db:"encoding"`
+	Charset            sql.NullString `db:"charset"`
+	IsInline           bool           `db:"is_inline"`
+	IsDownloaded       bool           `db:"is_downloaded"`
+	IsCached           bool           `db:"is_cached"`
+	CachePath          sql.NullString `db:"cache_path"`
+	CachedAt           sql.NullTime   `db:"cached_at"`
+	CreatedAt          SQLiteTime     `db:"created_at"`
+}
+
+// AttachmentSummary versão resumida para listagem
+type AttachmentSummary struct {
+	ID          int64  `db:"id"`
+	EmailID     int64  `db:"email_id"`
+	Filename    string `db:"filename"`
+	ContentType string `db:"content_type"`
+	Size        int64  `db:"size"`
+	IsInline    bool   `db:"is_inline"`
+	IsCached    bool   `db:"is_cached"`
+	PartNumber  string `db:"part_number"`
+}

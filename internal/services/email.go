@@ -102,16 +102,46 @@ func (s *EmailService) GetEmail(ctx context.Context, id int64) (*ports.EmailCont
 		return nil, err
 	}
 
-	// If body is empty, fetch from IMAP
-	if email.BodyText == "" && email.BodyHTML == "" {
-		// Select the correct folder in IMAP before fetching
-		if email.FolderName != "" {
-			if _, err := s.imap.SelectMailbox(ctx, email.FolderName); err != nil {
-				// Log but continue - the mailbox might already be selected
-				log.Printf("[GetEmail] Failed to select mailbox %s: %v", email.FolderName, err)
+	// Load attachments from database
+	var attachments, attErr = s.storage.GetAttachmentsByEmail(ctx, id)
+	if attErr == nil && len(attachments) > 0 {
+		email.Attachments = attachments
+		email.HasAttachments = true
+	}
+
+	// Select the correct folder in IMAP before fetching
+	if email.FolderName != "" {
+		if _, err := s.imap.SelectMailbox(ctx, email.FolderName); err != nil {
+			// Log but continue - the mailbox might already be selected
+			log.Printf("[GetEmail] Failed to select mailbox %s: %v", email.FolderName, err)
+		}
+	}
+
+	// If no attachments from DB but has_attachments flag is set, fetch from IMAP
+	if len(email.Attachments) == 0 && email.HasAttachments {
+		var imapAtts, hasAtts, attErr = s.imap.FetchAttachmentMetadata(ctx, email.UID)
+		if attErr == nil && hasAtts {
+			for _, att := range imapAtts {
+				var contentID = att.ContentID
+				if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
+					contentID = contentID[1 : len(contentID)-1]
+				}
+				email.Attachments = append(email.Attachments, ports.Attachment{
+					EmailID:     id,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					ContentID:   contentID,
+					Size:        att.Size,
+					IsInline:    att.IsInline,
+					PartNumber:  att.PartNumber,
+					Encoding:    att.Encoding,
+				})
 			}
 		}
+	}
 
+	// If body is empty, fetch from IMAP
+	if email.BodyText == "" && email.BodyHTML == "" {
 		var rawData, fetchErr = s.imap.FetchEmailRaw(ctx, email.UID)
 		if fetchErr != nil {
 			log.Printf("[GetEmail] Failed to fetch email body: %v", fetchErr)
@@ -123,19 +153,6 @@ func (s *EmailService) GetEmail(ctx context.Context, id int64) (*ports.EmailCont
 		if parsed != nil {
 			email.BodyText = parsed.TextBody
 			email.BodyHTML = parsed.HTMLBody
-
-			// Convert attachments
-			for _, att := range parsed.Attachments {
-				email.Attachments = append(email.Attachments, ports.Attachment{
-					Filename:    att.Filename,
-					ContentType: att.ContentType,
-					ContentID:   att.ContentID,
-					Size:        att.Size,
-					Data:        att.Data,
-					IsInline:    att.IsInline,
-				})
-			}
-			email.HasAttachments = len(email.Attachments) > 0
 		}
 	}
 

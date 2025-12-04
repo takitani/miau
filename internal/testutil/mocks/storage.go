@@ -278,5 +278,89 @@ func (m *StoragePort) SetSetting(ctx context.Context, accountID int64, key, valu
 	return args.Error(0)
 }
 
+// Analytics
+func (m *StoragePort) GetAnalyticsOverview(ctx context.Context, accountID int64) (*ports.AnalyticsOverview, error) {
+	var args = m.Called(ctx, accountID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ports.AnalyticsOverview), args.Error(1)
+}
+
+func (m *StoragePort) GetTopSenders(ctx context.Context, accountID int64, limit int, sinceDays int) ([]ports.SenderStats, error) {
+	var args = m.Called(ctx, accountID, limit, sinceDays)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.SenderStats), args.Error(1)
+}
+
+func (m *StoragePort) GetEmailCountByHour(ctx context.Context, accountID int64, sinceDays int) ([]ports.HourlyStats, error) {
+	var args = m.Called(ctx, accountID, sinceDays)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.HourlyStats), args.Error(1)
+}
+
+func (m *StoragePort) GetEmailCountByDay(ctx context.Context, accountID int64, sinceDays int) ([]ports.DailyStats, error) {
+	var args = m.Called(ctx, accountID, sinceDays)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.DailyStats), args.Error(1)
+}
+
+func (m *StoragePort) GetEmailCountByWeekday(ctx context.Context, accountID int64, sinceDays int) ([]ports.WeekdayStats, error) {
+	var args = m.Called(ctx, accountID, sinceDays)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.WeekdayStats), args.Error(1)
+}
+
+func (m *StoragePort) GetResponseStats(ctx context.Context, accountID int64) (*ports.ResponseTimeStats, error) {
+	var args = m.Called(ctx, accountID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ports.ResponseTimeStats), args.Error(1)
+}
+
+// Attachments
+func (m *StoragePort) GetAttachmentsByEmail(ctx context.Context, emailID int64) ([]ports.Attachment, error) {
+	var args = m.Called(ctx, emailID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.Attachment), args.Error(1)
+}
+
+func (m *StoragePort) GetAttachment(ctx context.Context, id int64) (*ports.Attachment, error) {
+	var args = m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ports.Attachment), args.Error(1)
+}
+
+func (m *StoragePort) GetAttachmentContent(ctx context.Context, id int64) ([]byte, error) {
+	var args = m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]byte), args.Error(1)
+}
+
+func (m *StoragePort) CacheAttachmentContent(ctx context.Context, id int64, content []byte) error {
+	var args = m.Called(ctx, id, content)
+	return args.Error(0)
+}
+
+func (m *StoragePort) UpsertAttachment(ctx context.Context, attachment *ports.Attachment) (int64, error) {
+	var args = m.Called(ctx, attachment)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // Ensure StoragePort implements ports.StoragePort
 var _ ports.StoragePort = (*StoragePort)(nil)

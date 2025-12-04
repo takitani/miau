@@ -115,5 +115,22 @@ func (m *IMAPPort) GetTrashFolder() string {
 	return args.String(0)
 }
 
+// Attachments
+func (m *IMAPPort) FetchAttachmentMetadata(ctx context.Context, uid uint32) ([]ports.AttachmentInfo, bool, error) {
+	var args = m.Called(ctx, uid)
+	if args.Get(0) == nil {
+		return nil, args.Bool(1), args.Error(2)
+	}
+	return args.Get(0).([]ports.AttachmentInfo), args.Bool(1), args.Error(2)
+}
+
+func (m *IMAPPort) FetchAttachmentPart(ctx context.Context, uid uint32, partNumber string) ([]byte, error) {
+	var args = m.Called(ctx, uid, partNumber)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]byte), args.Error(1)
+}
+
 // Ensure IMAPPort implements ports.IMAPPort
 var _ ports.IMAPPort = (*IMAPPort)(nil)

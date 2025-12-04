@@ -2,12 +2,20 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/storage"
 )
+
+// EssentialFolders are folders that should always be synced
+var EssentialFolders = []string{
+	"INBOX",
+	"[Gmail]/Sent Mail",
+	"[Gmail]/Trash",
+}
 
 // SyncService implements ports.SyncService
 type SyncService struct {
@@ -158,6 +166,9 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 
 	// Store new emails
 	for _, email := range newEmails {
+		// Fetch attachment metadata first
+		var attachments, hasAttachments, _ = s.imap.FetchAttachmentMetadata(ctx, email.UID)
+
 		var content = &ports.EmailContent{
 			EmailMetadata: ports.EmailMetadata{
 				UID:       email.UID,
@@ -171,11 +182,40 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 				IsStarred: email.Flagged,
 				Size:      email.Size,
 			},
-			BodyText: email.BodyText,
+			BodyText:       email.BodyText,
+			HasAttachments: hasAttachments,
 		}
 
 		if err := s.storage.UpsertEmail(ctx, account.ID, folder.ID, content); err != nil {
 			result.Errors = append(result.Errors, err)
+		}
+
+		// Store attachments if any
+		if hasAttachments && len(attachments) > 0 {
+			// Get the email ID from storage
+			var storedEmail, emailErr = s.storage.GetEmailByUID(ctx, folder.ID, email.UID)
+			if emailErr == nil && storedEmail != nil {
+				for _, att := range attachments {
+					// Handle ContentID (remove angle brackets if present)
+					var contentID = att.ContentID
+					if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
+						contentID = contentID[1 : len(contentID)-1]
+					}
+
+					var attachment = &ports.Attachment{
+						EmailID:     storedEmail.ID,
+						Filename:    att.Filename,
+						ContentType: att.ContentType,
+						ContentID:   contentID,
+						Size:        att.Size,
+						IsInline:    att.IsInline,
+						PartNumber:  att.PartNumber,
+						Encoding:    att.Encoding,
+					}
+
+					s.storage.UpsertAttachment(ctx, attachment)
+				}
+			}
 		}
 
 		if email.UID > result.LatestUID {
@@ -195,6 +235,9 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 		result.DeletedEmails = deletedCount
 	}
 
+	// NOTE: Attachment backfill removed from sync to avoid slowdown
+	// Call SyncAttachmentsForFolder manually if needed for existing emails
+
 	// Conta novos emails desde o último sync (baseado em created_at no DB)
 	var newCount, _ = storage.CountNewEmailsSinceLastSync(account.ID, folder.ID)
 	result.NewEmails = newCount
@@ -212,7 +255,20 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 }
 
 // purgeDeleted marks emails as deleted that were removed from server
+// NOTE: This is expensive for large mailboxes, so we skip if too many local emails
 func (s *SyncService) purgeDeleted(ctx context.Context, folderID int64) (int, error) {
+	// Get local email count first
+	var localUIDs, err2 = s.storage.GetAllUIDs(ctx, folderID)
+	if err2 != nil {
+		return 0, err2
+	}
+
+	// Skip purge check for very large mailboxes (> 10k emails) to avoid slowdown
+	// User can manually trigger full purge if needed
+	if len(localUIDs) > 10000 {
+		return 0, nil
+	}
+
 	// Get all UIDs from server
 	var serverUIDs, err = s.imap.GetAllUIDs(ctx)
 	if err != nil {
@@ -223,12 +279,6 @@ func (s *SyncService) purgeDeleted(ctx context.Context, folderID int64) (int, er
 	var serverUIDSet = make(map[uint32]bool)
 	for _, uid := range serverUIDs {
 		serverUIDSet[uid] = true
-	}
-
-	// Get all UIDs from storage
-	var localUIDs, err2 = s.storage.GetAllUIDs(ctx, folderID)
-	if err2 != nil {
-		return 0, err2
 	}
 
 	// Find UIDs that exist locally but not on server
@@ -279,6 +329,54 @@ func (s *SyncService) SyncAll(ctx context.Context) ([]ports.SyncResult, error) {
 	return results, nil
 }
 
+// GetConfiguredFolders returns the folders configured for sync from app_settings
+// Falls back to EssentialFolders if not configured
+func GetConfiguredFolders(accountID int64) []string {
+	var foldersJSON, err = storage.GetSetting(accountID, "sync_folders")
+	if err != nil || foldersJSON == "" {
+		return EssentialFolders
+	}
+
+	var folders []string
+	if err := json.Unmarshal([]byte(foldersJSON), &folders); err != nil {
+		return EssentialFolders
+	}
+
+	if len(folders) == 0 {
+		return EssentialFolders
+	}
+
+	return folders
+}
+
+// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash) or configured folders
+func (s *SyncService) SyncEssentialFolders(ctx context.Context) ([]ports.SyncResult, error) {
+	s.mu.RLock()
+	var account = s.account
+	s.mu.RUnlock()
+
+	if account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	// Get folders to sync from settings, or use defaults
+	var foldersToSync = GetConfiguredFolders(account.ID)
+
+	var results []ports.SyncResult
+	for _, folderName := range foldersToSync {
+		var result, err = s.SyncFolder(ctx, folderName)
+		if err != nil {
+			// Skip folders that don't exist (e.g., non-Gmail accounts)
+			continue
+		}
+		if result != nil {
+			results = append(results, *result)
+		}
+	}
+
+	return results, nil
+}
+
 // LoadFolders loads folders from IMAP and stores them
 func (s *SyncService) LoadFolders(ctx context.Context) ([]ports.Folder, error) {
 	s.mu.RLock()
@@ -316,4 +414,75 @@ func (s *SyncService) LoadFolders(ctx context.Context) ([]ports.Folder, error) {
 	}
 
 	return folders, nil
+}
+
+// SyncAttachmentsForFolder syncs attachment metadata for existing emails in a folder
+// This is useful for backfilling attachments for emails that were synced before attachment support
+func (s *SyncService) SyncAttachmentsForFolder(ctx context.Context, folderName string, limit int) (int, error) {
+	s.mu.RLock()
+	var account = s.account
+	s.mu.RUnlock()
+
+	if account == nil {
+		return 0, fmt.Errorf("no account set")
+	}
+
+	// Get folder
+	var folder, err = s.storage.GetFolderByName(ctx, account.ID, folderName)
+	if err != nil {
+		return 0, err
+	}
+
+	// Select mailbox
+	if _, err := s.imap.SelectMailbox(ctx, folderName); err != nil {
+		return 0, err
+	}
+
+	// Get emails that don't have attachments checked yet
+	var emails, err2 = s.storage.GetEmails(ctx, folder.ID, limit)
+	if err2 != nil {
+		return 0, err2
+	}
+
+	var synced = 0
+	for _, email := range emails {
+		// Check if already has attachments in DB
+		var existing, _ = s.storage.GetAttachmentsByEmail(ctx, email.ID)
+		if len(existing) > 0 {
+			continue // Already has attachments
+		}
+
+		// Fetch attachment metadata from IMAP
+		var attachments, hasAttachments, fetchErr = s.imap.FetchAttachmentMetadata(ctx, email.UID)
+		if fetchErr != nil {
+			continue
+		}
+
+		if hasAttachments && len(attachments) > 0 {
+			for _, att := range attachments {
+				var contentID = att.ContentID
+				if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
+					contentID = contentID[1 : len(contentID)-1]
+				}
+
+				var attachment = &ports.Attachment{
+					EmailID:     email.ID,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					ContentID:   contentID,
+					Size:        att.Size,
+					IsInline:    att.IsInline,
+					PartNumber:  att.PartNumber,
+					Encoding:    att.Encoding,
+				}
+
+				s.storage.UpsertAttachment(ctx, attachment)
+			}
+			// Update has_attachments flag on the email
+			storage.UpdateHasAttachments(email.ID, true)
+			synced++
+		}
+	}
+
+	return synced, nil
 }

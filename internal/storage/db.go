@@ -284,6 +284,48 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_logs_account_folder ON sync_logs(account_id, folder_id, completed_at DESC);
+
+-- Tabela de metadados de anexos
+CREATE TABLE IF NOT EXISTS attachments (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	email_id INTEGER NOT NULL,
+	account_id INTEGER NOT NULL,
+	filename TEXT NOT NULL,
+	content_type TEXT NOT NULL,
+	content_id TEXT,
+	content_disposition TEXT,
+	part_number TEXT,
+	size INTEGER NOT NULL DEFAULT 0,
+	checksum TEXT,
+	encoding TEXT,
+	charset TEXT,
+	is_inline BOOLEAN DEFAULT 0,
+	is_downloaded BOOLEAN DEFAULT 0,
+	is_cached BOOLEAN DEFAULT 0,
+	cache_path TEXT,
+	cached_at DATETIME,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	UNIQUE(email_id, filename)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_email ON attachments(email_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_account ON attachments(account_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_inline ON attachments(is_inline);
+
+-- Tabela de cache de conteúdo binário de anexos
+CREATE TABLE IF NOT EXISTS attachment_cache (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	attachment_id INTEGER NOT NULL UNIQUE,
+	data BLOB NOT NULL,
+	compressed BOOLEAN DEFAULT 0,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachment_cache_last_accessed ON attachment_cache(last_accessed);
 `
 
 func Init(dbPath string) error {

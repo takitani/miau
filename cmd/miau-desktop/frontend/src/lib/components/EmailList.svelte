@@ -67,6 +67,7 @@
   .list-content {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
   }
 
   .loading, .empty {

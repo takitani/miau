@@ -578,6 +578,94 @@ func convertStorageEmail(e *storage.Email) *ports.EmailContent {
 	}
 }
 
+// === ATTACHMENTS ===
+
+// GetAttachmentsByEmail returns all attachments for an email
+func (a *StorageAdapter) GetAttachmentsByEmail(ctx context.Context, emailID int64) ([]ports.Attachment, error) {
+	var attachments, err = storage.GetAttachmentsByEmail(emailID)
+	if err != nil {
+		return nil, err
+	}
+
+	var result = make([]ports.Attachment, len(attachments))
+	for i, att := range attachments {
+		result[i] = ports.Attachment{
+			ID:          att.ID,
+			EmailID:     att.EmailID,
+			Filename:    att.Filename,
+			ContentType: att.ContentType,
+			Size:        att.Size,
+			ContentID:   att.ContentID.String,
+			IsInline:    att.IsInline,
+			PartNumber:  att.PartNumber.String,
+			Encoding:    att.Encoding.String,
+			IsCached:    att.IsCached,
+		}
+	}
+	return result, nil
+}
+
+// GetAttachment returns a single attachment by ID
+func (a *StorageAdapter) GetAttachment(ctx context.Context, id int64) (*ports.Attachment, error) {
+	var att, err = storage.GetAttachmentByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ports.Attachment{
+		ID:          att.ID,
+		EmailID:     att.EmailID,
+		Filename:    att.Filename,
+		ContentType: att.ContentType,
+		Size:        att.Size,
+		ContentID:   att.ContentID.String,
+		IsInline:    att.IsInline,
+		PartNumber:  att.PartNumber.String,
+		Encoding:    att.Encoding.String,
+		IsCached:    att.IsCached,
+	}, nil
+}
+
+// GetAttachmentContent returns cached attachment content
+func (a *StorageAdapter) GetAttachmentContent(ctx context.Context, id int64) ([]byte, error) {
+	var data, _, err = storage.GetCachedAttachmentContent(id)
+	return data, err
+}
+
+// CacheAttachmentContent stores attachment content in cache
+func (a *StorageAdapter) CacheAttachmentContent(ctx context.Context, id int64, content []byte) error {
+	return storage.CacheAttachmentContent(id, content, false)
+}
+
+// UpsertAttachment creates or updates an attachment
+func (a *StorageAdapter) UpsertAttachment(ctx context.Context, attachment *ports.Attachment) (int64, error) {
+	var att = &storage.Attachment{
+		EmailID:     attachment.EmailID,
+		AccountID:   0, // Will be filled from the email
+		Filename:    attachment.Filename,
+		ContentType: attachment.ContentType,
+		Size:        attachment.Size,
+		IsInline:    attachment.IsInline,
+	}
+
+	if attachment.ContentID != "" {
+		att.ContentID = sql.NullString{String: attachment.ContentID, Valid: true}
+	}
+	if attachment.PartNumber != "" {
+		att.PartNumber = sql.NullString{String: attachment.PartNumber, Valid: true}
+	}
+	if attachment.Encoding != "" {
+		att.Encoding = sql.NullString{String: attachment.Encoding, Valid: true}
+	}
+	if attachment.IsInline {
+		att.ContentDisposition = sql.NullString{String: "inline", Valid: true}
+	} else {
+		att.ContentDisposition = sql.NullString{String: "attachment", Valid: true}
+	}
+
+	return storage.UpsertAttachment(att)
+}
+
 // convertStorageDraft converts storage.Draft to ports.Draft
 func convertStorageDraft(d *storage.Draft) *ports.Draft {
 	var draft = &ports.Draft{

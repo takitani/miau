@@ -1,20 +1,12 @@
 package inbox
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime"
-	"mime/multipart"
-	"mime/quotedprintable"
-	"net/mail"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -24,415 +16,20 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/gmail"
 	"github.com/opik/miau/internal/image"
 	"github.com/opik/miau/internal/imap"
+	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/smtp"
 	"github.com/opik/miau/internal/storage"
-	"golang.org/x/net/html"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/htmlindex"
 )
 
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FF6B6B"))
-
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
-
-	selectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#FF6B6B")).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true)
-
-	unreadStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true)
-
-	readStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF6B6B"))
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#73D216"))
-
-	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4ECDC4"))
-
-	boxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#FF6B6B")).
-			Padding(0, 1)
-
-	headerStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#333333")).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Padding(0, 1)
-
-	folderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4ECDC4"))
-
-	folderSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#4ECDC4")).
-				Foreground(lipgloss.Color("#000000"))
-
-	inputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF6B6B"))
-
-	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888")).
-			Italic(true)
-)
-
-type state int
-
-const (
-	stateInitDB state = iota
-	stateConnecting
-	stateLoadingFolders
-	stateSyncing
-	stateLoadingEmails
-	stateReady
-	stateError
-	stateNeedsAppPassword
-)
-
-type Model struct {
-	width           int
-	height          int
-	state           state
-	err             error
-	account         *config.Account
-	dbAccount       *storage.Account
-	dbFolder        *storage.Folder
-	client          *imap.Client
-	mailboxes       []imap.Mailbox
-	emails          []storage.EmailSummary
-	selectedEmail   int
-	selectedBox     int
-	currentBox      string
-	showFolders     bool
-	passwordInput   textinput.Model
-	retrying        bool
-	syncStatus      string
-	totalEmails     int
-	syncedEmails    int
-	// AI panel
-	showAI           bool
-	aiInput          textinput.Model
-	aiResponse       string
-	aiLastQuestion   string
-	aiLoading        bool
-	aiScrollOffset   int
-	aiEmailContext   *storage.EmailSummary // Email selecionado para contexto (quando usa Shift+A)
-	aiEmailBody      string                // Corpo do email para contexto
-	// Spinner
-	spinner         spinner.Model
-	// Email viewer
-	showViewer      bool
-	viewerViewport  viewport.Model
-	viewerEmail     *storage.EmailSummary
-	viewerLoading   bool
-	// Compose
-	showCompose           bool
-	composeTo             textinput.Model
-	composeSubject        textinput.Model
-	composeBody           viewport.Model
-	composeBodyText       string
-	composeFocus          int // 0=To, 1=Subject, 2=Body, 3=Classification
-	composeSending        bool
-	composeReplyTo        *storage.EmailSummary
-	composeClassification int // índice em smtp.Classifications
-	// Debug
-	debugMode       bool
-	debugLogs       []string
-	debugScroll     int
-	// Bounce monitoring
-	sentEmails      []SentEmailTracker
-	alerts          []Alert
-	showAlert       bool
-	// Drafts
-	showDrafts       bool
-	drafts           []storage.Draft
-	selectedDraft    int
-	editingDraftID   *int64           // Se estamos editando um draft existente
-	scheduledDraft   *storage.Draft   // Draft atualmente agendado (para overlay de undo)
-	showUndoOverlay  bool
-	// Batch operation filter mode
-	filterActive      bool                   // Modo de filtro ativo (preview de batch op)
-	filterDescription string                 // "Arquivar 15 emails de zaqueu@..."
-	pendingBatchOp    *storage.PendingBatchOp // Operação pendente
-	originalEmails    []storage.EmailSummary  // Emails originais antes do filtro
-	// Fuzzy search
-	searchMode    bool                    // Modo de busca ativo
-	searchInput   textinput.Model         // Input de busca
-	searchResults []storage.EmailSummary  // Resultados da busca
-	searchQuery   string                  // Query atual (para highlight)
-	// Settings
-	showSettings       bool                       // Menu de configurações aberto
-	settingsSelection  int                        // Item selecionado no menu
-	indexState         *storage.ContentIndexState // Estado do indexador
-	indexerRunning     bool                       // Se o indexador está ativo nesta sessão
-	// Image preview
-	showImagePreview  bool                // Overlay de preview de imagem
-	imageAttachments  []Attachment        // Imagens extraídas do email atual
-	selectedImage     int                 // Índice da imagem selecionada
-	imageRenderOutput string              // Output renderizado para display
-	imageCapabilities *image.Capabilities // Capabilities detectadas
-	imageLoading      bool                // Se está carregando/renderizando
-	// Analytics
-	showAnalytics      bool                      // Painel de analytics visível
-	analyticsData      *AnalyticsData            // Dados de analytics
-	analyticsPeriod    string                    // Período atual: "7d", "30d", "90d", "all"
-	analyticsLoading   bool                      // Se está carregando
-	// Auto-refresh
-	autoRefreshInterval time.Duration // Intervalo de auto-refresh (default 5min)
-	autoRefreshStart    time.Time     // Quando começou o timer atual
-	autoRefreshEnabled  bool          // Se o auto-refresh está habilitado
-	// New email notification
-	newEmailCount    int       // Quantidade de novos emails no último sync
-	newEmailShowTime time.Time // Quando mostrar até (para fade out)
-}
-
-// AnalyticsData contém todos os dados de analytics para o TUI
-type AnalyticsData struct {
-	Overview     *storage.AnalyticsOverviewResult
-	TopSenders   []storage.SenderStatsResult
-	Hourly       []storage.HourlyStatsResult
-	Weekday      []storage.WeekdayStatsResult
-	ResponseTime *storage.ResponseStatsResult
-}
-
-// SentEmailTracker rastreia emails enviados para detectar bounces
-type SentEmailTracker struct {
-	MessageID    string
-	To           string
-	Subject      string
-	SentAt       time.Time
-	MonitorUntil time.Time
-}
-
-// Alert representa um alerta para o usuário
-type Alert struct {
-	Type      string // "bounce", "error", "warning"
-	Title     string
-	Message   string
-	Timestamp time.Time
-	EmailTo   string
-	Dismissed bool
-}
-
-// Attachment representa um anexo de email
-type Attachment struct {
-	Filename    string
-	ContentType string
-	ContentID   string // Para imagens inline (cid:xxx)
-	Size        int64
-	Data        []byte
-	IsInline    bool
-}
-
-// Messages
-type dbInitMsg struct{}
-
-type connectedMsg struct {
-	client *imap.Client
-}
-
-type foldersLoadedMsg struct {
-	mailboxes []imap.Mailbox
-}
-
-type syncProgressMsg struct {
-	status string
-	synced int
-	total  int
-}
-
-type syncDoneMsg struct {
-	synced   int
-	total    int
-	purged   int
-	archived int // emails movidos para arquivo permanente
-}
-
-type emailsLoadedMsg struct {
-	emails []storage.EmailSummary
-}
-
-type errMsg struct {
-	err error
-}
-
-type configSavedMsg struct{}
-
-type aiResponseMsg struct {
-	response string
-	err      error
-}
-
-type htmlOpenedMsg struct {
-	err error
-}
-
-type emailContentMsg struct {
-	content string
-	err     error
-}
-
-type aiEmailContextMsg struct {
-	email   *storage.EmailSummary
-	content string
-	err     error
-}
-
-type emailSentMsg struct {
-	err     error
-	host    string
-	port    int
-	to      string
-	msgID   string
-	backend string // "smtp" ou "gmail_api"
-}
-
-type markReadMsg struct {
-	emailID int64
-	uid     uint32
-}
-
-type debugLogMsg struct {
-	msg string
-}
-
-type bounceCheckTickMsg struct{}
-
-type bounceFoundMsg struct {
-	originalTo      string
-	originalSubject string
-	bounceReason    string
-	bounceFrom      string
-	bounceSubject   string
-}
-
-// Draft messages
-type draftCreatedMsg struct {
-	draft *storage.Draft
-	err   error
-}
-
-type draftScheduledMsg struct {
-	draft   *storage.Draft
-	sendAt  time.Time
-	err     error
-}
-
-type draftSentMsg struct {
-	draftID int64
-	to      string
-	backend string
-	err     error
-}
-
-type draftSendTickMsg struct{}
-
-// Auto-refresh messages
-type autoRefreshTickMsg struct{}
-
-const autoRefreshInterval = 60 * time.Second // 1 minuto
-
-type draftsLoadedMsg struct {
-	drafts    []storage.Draft
-	err       error
-	accountID int64
-}
-
-// Archive/Delete messages
-type emailArchivedMsg struct {
-	emailID int64
-	err     error
-}
-
-type emailDeletedMsg struct {
-	emailID int64
-	err     error
-}
-
-// Batch operation filter messages
-type batchFilterAppliedMsg struct {
-	op     *storage.PendingBatchOp
-	emails []storage.EmailSummary
-	err    error
-}
-
-type batchOpExecutedMsg struct {
-	count int
-	err   error
-}
-
-type checkPendingBatchOpsMsg struct {
-	op  *storage.PendingBatchOp
-	err error
-}
-
-// Search messages
-type searchResultsMsg struct {
-	results []storage.EmailSummary
-	query   string
-	err     error
-}
-
-// Analytics messages
-type analyticsLoadedMsg struct {
-	data *AnalyticsData
-	err  error
-}
-
-type searchDebounceMsg struct {
-	query string
-}
-
-// Settings and Indexer messages
-type indexStateLoadedMsg struct {
-	state *storage.ContentIndexState
-	err   error
-}
-
-type indexerTickMsg struct{}
-
-type indexBatchDoneMsg struct {
-	indexed int
-	lastUID int64
-	err     error
-}
-
-// Image preview messages
-type imageAttachmentsMsg struct {
-	attachments []Attachment
-	err         error
-}
-
-type imageRenderedMsg struct {
-	output string
-	err    error
-}
-
-type imageSavedMsg struct {
-	path string
-	err  error
-}
-
-type desktopLaunchedMsg struct {
-	success bool
-	err     error
-}
-
-func New(account *config.Account, debug bool) Model {
+// New creates a new inbox Model
+// app is optional - if nil, attachments will be loaded via direct IMAP (legacy mode)
+func New(account *config.Account, debug bool, app ...ports.App) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
 	input.CharLimit = 20
@@ -477,6 +74,12 @@ func New(account *config.Account, debug bool) Model {
 	// Detect image rendering capabilities
 	var imgCaps = image.DetectCapabilities()
 
+	// Get app if provided (for centralized services)
+	var application ports.App
+	if len(app) > 0 {
+		application = app[0]
+	}
+
 	return Model{
 		account:           account,
 		state:             stateInitDB,
@@ -492,6 +95,7 @@ func New(account *config.Account, debug bool) Model {
 		debugLogs:         debugLogs,
 		imageCapabilities: &imgCaps,
 		imageAttachments:  []Attachment{},
+		app:               application,
 	}
 }
 
@@ -686,6 +290,58 @@ func (m Model) loadIndexState() tea.Cmd {
 		state.TotalEmails = toIndex + indexed
 		state.IndexedEmails = indexed
 		return indexStateLoadedMsg{state: state}
+	}
+}
+
+func (m Model) loadSettingsFolders() tea.Cmd {
+	var accountID = m.dbAccount.ID
+	var mailboxes = m.mailboxes
+	return func() tea.Msg {
+		// Get configured folders from app_settings
+		var allSettings, _ = storage.GetAllSettings(accountID)
+		var syncFolders []string
+		if val, ok := allSettings["sync_folders"]; ok && val != "" {
+			json.Unmarshal([]byte(val), &syncFolders)
+		}
+		if len(syncFolders) == 0 {
+			// Default to essential folders
+			syncFolders = []string{"INBOX", "[Gmail]/Sent Mail", "[Gmail]/Trash"}
+		}
+
+		// Build folder list with selection state
+		var folders []SettingsFolder
+		for _, mb := range mailboxes {
+			var selected = false
+			for _, sf := range syncFolders {
+				if sf == mb.Name {
+					selected = true
+					break
+				}
+			}
+			folders = append(folders, SettingsFolder{
+				Name:     mb.Name,
+				Selected: selected,
+			})
+		}
+		return settingsFoldersLoadedMsg{folders: folders}
+	}
+}
+
+func (m Model) saveSettingsFolders() tea.Cmd {
+	var accountID = m.dbAccount.ID
+	var folders = m.settingsFolders
+	return func() tea.Msg {
+		// Collect selected folders
+		var selected []string
+		for _, f := range folders {
+			if f.Selected {
+				selected = append(selected, f.Name)
+			}
+		}
+		// Save to app_settings
+		var data, _ = json.Marshal(selected)
+		var err = storage.SetSetting(accountID, "sync_folders", string(data))
+		return settingsSavedMsg{err: err}
 	}
 }
 
@@ -1733,23 +1389,34 @@ func (m Model) openEmailHTML() tea.Cmd {
 
 // loadImageAttachments extrai imagens do email selecionado
 func (m Model) loadImageAttachments() tea.Cmd {
-	return func() tea.Msg {
-		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
+	// Captura valores antes de retornar a closure
+	var uid uint32
+	if m.viewerEmail != nil {
+		uid = m.viewerEmail.UID
+	} else if len(m.emails) > 0 && m.selectedEmail < len(m.emails) {
+		uid = m.emails[m.selectedEmail].UID
+	} else {
+		return func() tea.Msg {
 			return imageAttachmentsMsg{err: fmt.Errorf("nenhum email selecionado")}
 		}
+	}
 
-		var email = m.emails[m.selectedEmail]
-
-		if m.client == nil {
+	if m.client == nil {
+		return func() tea.Msg {
 			return imageAttachmentsMsg{err: fmt.Errorf("não conectado ao servidor")}
 		}
+	}
 
+	var client = m.client
+	var currentBox = m.currentBox
+
+	return func() tea.Msg {
 		// Seleciona a mailbox antes de buscar
-		if _, err := m.client.SelectMailbox(m.currentBox); err != nil {
+		if _, err := client.SelectMailbox(currentBox); err != nil {
 			return imageAttachmentsMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
 
-		var rawData, err = m.client.FetchEmailRaw(email.UID)
+		var rawData, err = client.FetchEmailRaw(uid)
 		if err != nil {
 			return imageAttachmentsMsg{err: err}
 		}
@@ -1765,6 +1432,86 @@ func (m Model) loadImageAttachments() tea.Cmd {
 		}
 
 		return imageAttachmentsMsg{attachments: images}
+	}
+}
+
+// loadAllAttachments extrai todos os anexos do email selecionado
+func (m Model) loadAllAttachments() tea.Cmd {
+	// Get UID from current email
+	var uid uint32
+	if m.viewerEmail != nil {
+		uid = m.viewerEmail.UID
+	} else if len(m.emails) > 0 && m.selectedEmail < len(m.emails) {
+		uid = m.emails[m.selectedEmail].UID
+	} else {
+		return func() tea.Msg {
+			return allAttachmentsMsg{err: fmt.Errorf("nenhum email selecionado")}
+		}
+	}
+
+	if m.client == nil {
+		return func() tea.Msg {
+			return allAttachmentsMsg{err: fmt.Errorf("não conectado ao servidor IMAP")}
+		}
+	}
+
+	var client = m.client
+	var currentBox = m.currentBox
+
+	return func() tea.Msg {
+		// Seleciona a mailbox antes de buscar
+		if _, err := client.SelectMailbox(currentBox); err != nil {
+			return allAttachmentsMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
+		}
+
+		var rawData, err = client.FetchEmailRaw(uid)
+		if err != nil {
+			return allAttachmentsMsg{err: err}
+		}
+
+		var attachments = extractAllAttachments(rawData)
+		return allAttachmentsMsg{attachments: attachments}
+	}
+}
+
+// saveCurrentAttachment salva o anexo selecionado no disco
+func (m Model) saveCurrentAttachment() tea.Cmd {
+	if len(m.viewerAttachments) == 0 || m.selectedAttachment >= len(m.viewerAttachments) {
+		return nil
+	}
+
+	var att = m.viewerAttachments[m.selectedAttachment]
+
+	return func() tea.Msg {
+		// Determina o diretório de downloads
+		var homeDir, _ = os.UserHomeDir()
+		var downloadDir = filepath.Join(homeDir, "Downloads")
+
+		// Cria o diretório se não existir
+		os.MkdirAll(downloadDir, 0755)
+
+		// Gera um nome único para evitar sobrescrita
+		var filename = att.Filename
+		var fullPath = filepath.Join(downloadDir, filename)
+
+		// Se arquivo já existe, adiciona sufixo numérico
+		var counter = 1
+		for {
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				break
+			}
+			var ext = filepath.Ext(filename)
+			var base = strings.TrimSuffix(filename, ext)
+			fullPath = filepath.Join(downloadDir, fmt.Sprintf("%s_%d%s", base, counter, ext))
+			counter++
+		}
+
+		// Salva o arquivo
+		if err := os.WriteFile(fullPath, att.Data, 0644); err != nil {
+			return attachmentSavedMsg{err: err}
+		}
+
+		return attachmentSavedMsg{path: fullPath}
 	}
 }
 
@@ -1938,466 +1685,16 @@ func (m Model) loadEmailContent() tea.Cmd {
 			return emailContentMsg{err: fmt.Errorf("email sem conteúdo de texto")}
 		}
 
+		// Extract attachments and append to content if any
+		if email.HasAttachments {
+			var attachments = extractAllAttachments(rawData)
+			if len(attachments) > 0 {
+				textContent += "\n\n" + renderAttachmentList(attachments)
+			}
+		}
+
 		return emailContentMsg{content: textContent}
 	}
-}
-
-// extractText extrai conteúdo text/plain de um email MIME
-func extractText(rawData []byte) string {
-	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
-	if err != nil {
-		return ""
-	}
-
-	var contentType = msg.Header.Get("Content-Type")
-	var mediaType, params, _ = mime.ParseMediaType(contentType)
-
-	// Se for texto direto
-	if strings.HasPrefix(mediaType, "text/plain") {
-		var body, _ = io.ReadAll(msg.Body)
-		return decodeBody(body, msg.Header.Get("Content-Transfer-Encoding"))
-	}
-
-	// Se for multipart, procura a parte text/plain
-	if strings.HasPrefix(mediaType, "multipart/") {
-		var boundary = params["boundary"]
-		if boundary != "" {
-			return findTextPart(msg.Body, boundary)
-		}
-	}
-
-	return ""
-}
-
-func findTextPart(r io.Reader, boundary string) string {
-	var mr = multipart.NewReader(r, boundary)
-	for {
-		var part, err = mr.NextPart()
-		if err != nil {
-			break
-		}
-
-		var contentType = part.Header.Get("Content-Type")
-		var mediaType, params, _ = mime.ParseMediaType(contentType)
-
-		if strings.HasPrefix(mediaType, "text/plain") {
-			var body, _ = io.ReadAll(part)
-			return decodeBody(body, part.Header.Get("Content-Transfer-Encoding"))
-		}
-
-		// Multipart aninhado
-		if strings.HasPrefix(mediaType, "multipart/") {
-			var boundary = params["boundary"]
-			if boundary != "" {
-				if text := findTextPart(part, boundary); text != "" {
-					return text
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// extractHTML extrai conteúdo HTML de um email MIME
-func extractHTML(rawData []byte) string {
-	var htmlContent, cidMap = extractHTMLWithCID(rawData)
-
-	// Substitui referências cid: por data URIs
-	if len(cidMap) > 0 {
-		htmlContent = replaceCIDReferences(htmlContent, cidMap)
-	}
-
-	return htmlContent
-}
-
-// extractHTMLWithCID extrai HTML e mapa de imagens CID
-func extractHTMLWithCID(rawData []byte) (string, map[string]string) {
-	var cidMap = make(map[string]string)
-
-	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
-	if err != nil {
-		return "", cidMap
-	}
-
-	var contentType = msg.Header.Get("Content-Type")
-	var mediaType, params, _ = mime.ParseMediaType(contentType)
-
-	// Se for HTML direto
-	if strings.HasPrefix(mediaType, "text/html") {
-		var body, _ = io.ReadAll(msg.Body)
-		var charset = params["charset"]
-		return decodeBodyWithCharset(body, msg.Header.Get("Content-Transfer-Encoding"), charset), cidMap
-	}
-
-	// Se for multipart, procura a parte HTML e imagens
-	if strings.HasPrefix(mediaType, "multipart/") {
-		var boundary = params["boundary"]
-		if boundary != "" {
-			return findHTMLAndImages(msg.Body, boundary, cidMap)
-		}
-	}
-
-	return "", cidMap
-}
-
-// findHTMLAndImages procura HTML e extrai imagens embutidas
-func findHTMLAndImages(r io.Reader, boundary string, cidMap map[string]string) (string, map[string]string) {
-	var htmlContent string
-	var mr = multipart.NewReader(r, boundary)
-
-	// Primeira passagem: coleta todas as partes
-	type mimePart struct {
-		contentType string
-		contentID   string
-		encoding    string
-		body        []byte
-	}
-	var parts []mimePart
-
-	for {
-		var part, err = mr.NextPart()
-		if err != nil {
-			break
-		}
-
-		var body, _ = io.ReadAll(part)
-		parts = append(parts, mimePart{
-			contentType: part.Header.Get("Content-Type"),
-			contentID:   part.Header.Get("Content-Id"),
-			encoding:    part.Header.Get("Content-Transfer-Encoding"),
-			body:        body,
-		})
-	}
-
-	// Processa as partes
-	for _, part := range parts {
-		var mediaType, params, _ = mime.ParseMediaType(part.contentType)
-
-		// HTML
-		if strings.HasPrefix(mediaType, "text/html") && htmlContent == "" {
-			var charset = params["charset"]
-			htmlContent = decodeBodyWithCharset(part.body, part.encoding, charset)
-		}
-
-		// Imagens com Content-ID
-		var contentID = part.contentID
-		if contentID != "" && strings.HasPrefix(mediaType, "image/") {
-			// Remove < > do Content-ID
-			contentID = strings.Trim(contentID, "<>")
-
-			// Decodifica o body da imagem
-			var imageData = decodeImageBody(part.body, part.encoding)
-
-			// Cria data URI
-			var dataURI = fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(imageData))
-			cidMap[contentID] = dataURI
-		}
-
-		// Multipart aninhado
-		if strings.HasPrefix(mediaType, "multipart/") {
-			var nestedBoundary = params["boundary"]
-			if nestedBoundary != "" {
-				var nestedHTML, nestedCID = findHTMLAndImages(bytes.NewReader(part.body), nestedBoundary, cidMap)
-				if nestedHTML != "" && htmlContent == "" {
-					htmlContent = nestedHTML
-				}
-				for k, v := range nestedCID {
-					cidMap[k] = v
-				}
-			}
-		}
-	}
-
-	return htmlContent, cidMap
-}
-
-// decodeImageBody decodifica o corpo de uma imagem
-func decodeImageBody(body []byte, encoding string) []byte {
-	switch strings.ToLower(encoding) {
-	case "base64":
-		var decoded, err = base64.StdEncoding.DecodeString(string(body))
-		if err != nil {
-			// Tenta remover espaços/newlines
-			var cleaned = strings.ReplaceAll(string(body), "\n", "")
-			cleaned = strings.ReplaceAll(cleaned, "\r", "")
-			cleaned = strings.ReplaceAll(cleaned, " ", "")
-			decoded, _ = base64.StdEncoding.DecodeString(cleaned)
-		}
-		return decoded
-	case "quoted-printable":
-		var decoded, _ = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
-		return decoded
-	default:
-		return body
-	}
-}
-
-// extractAttachments extrai todos os anexos de imagem de um email
-func extractAttachments(rawData []byte) []Attachment {
-	var attachments []Attachment
-
-	var msg, err = mail.ReadMessage(bytes.NewReader(rawData))
-	if err != nil {
-		return attachments
-	}
-
-	var contentType = msg.Header.Get("Content-Type")
-	var mediaType, params, _ = mime.ParseMediaType(contentType)
-
-	// Se for multipart, procura anexos e imagens
-	if strings.HasPrefix(mediaType, "multipart/") {
-		var boundary = params["boundary"]
-		if boundary != "" {
-			attachments = findImageAttachments(msg.Body, boundary)
-		}
-	}
-
-	return attachments
-}
-
-// findImageAttachments procura imagens (inline e anexos) no email
-func findImageAttachments(r io.Reader, boundary string) []Attachment {
-	var attachments []Attachment
-	var mr = multipart.NewReader(r, boundary)
-
-	for {
-		var part, err = mr.NextPart()
-		if err != nil {
-			break
-		}
-
-		var body, _ = io.ReadAll(part)
-		var contentType = part.Header.Get("Content-Type")
-		var mediaType, params, _ = mime.ParseMediaType(contentType)
-		var disposition = part.Header.Get("Content-Disposition")
-		var contentID = strings.Trim(part.Header.Get("Content-Id"), "<>")
-		var encoding = part.Header.Get("Content-Transfer-Encoding")
-
-		// Verifica se é uma imagem (inline ou anexo)
-		if strings.HasPrefix(mediaType, "image/") {
-			var decoded = decodeImageBody(body, encoding)
-
-			// Tenta obter o filename
-			var filename = params["name"]
-			if filename == "" {
-				var _, dispParams, _ = mime.ParseMediaType(disposition)
-				filename = dispParams["filename"]
-			}
-			if filename == "" && contentID != "" {
-				filename = contentID
-			}
-			if filename == "" {
-				// Gera nome baseado no tipo
-				var ext = "img"
-				switch mediaType {
-				case "image/jpeg":
-					ext = "jpg"
-				case "image/png":
-					ext = "png"
-				case "image/gif":
-					ext = "gif"
-				case "image/webp":
-					ext = "webp"
-				}
-				filename = fmt.Sprintf("image.%s", ext)
-			}
-
-			var isInline = contentID != "" || strings.HasPrefix(disposition, "inline")
-
-			attachments = append(attachments, Attachment{
-				Filename:    filename,
-				ContentType: mediaType,
-				ContentID:   contentID,
-				Size:        int64(len(decoded)),
-				Data:        decoded,
-				IsInline:    isInline,
-			})
-		}
-
-		// Multipart aninhado (comum em emails com alternative + related)
-		if strings.HasPrefix(mediaType, "multipart/") {
-			var nestedBoundary = params["boundary"]
-			if nestedBoundary != "" {
-				var nested = findImageAttachments(bytes.NewReader(body), nestedBoundary)
-				attachments = append(attachments, nested...)
-			}
-		}
-	}
-
-	return attachments
-}
-
-// replaceCIDReferences substitui cid:xxx por data URIs
-func replaceCIDReferences(html string, cidMap map[string]string) string {
-	// Padrão: src="cid:xxx" ou src='cid:xxx'
-	var cidRegex = regexp.MustCompile(`(src=["'])cid:([^"']+)(["'])`)
-
-	return cidRegex.ReplaceAllStringFunc(html, func(match string) string {
-		var submatches = cidRegex.FindStringSubmatch(match)
-		if len(submatches) >= 4 {
-			var cid = submatches[2]
-			if dataURI, ok := cidMap[cid]; ok {
-				return submatches[1] + dataURI + submatches[3]
-			}
-		}
-		return match
-	})
-}
-
-func findHTMLPart(r io.Reader, boundary string) string {
-	var mr = multipart.NewReader(r, boundary)
-	for {
-		var part, err = mr.NextPart()
-		if err != nil {
-			break
-		}
-
-		var contentType = part.Header.Get("Content-Type")
-		var mediaType, params, _ = mime.ParseMediaType(contentType)
-
-		if strings.HasPrefix(mediaType, "text/html") {
-			var body, _ = io.ReadAll(part)
-			return decodeBody(body, part.Header.Get("Content-Transfer-Encoding"))
-		}
-
-		// Multipart aninhado
-		if strings.HasPrefix(mediaType, "multipart/") {
-			var boundary = params["boundary"]
-			if boundary != "" {
-				if html := findHTMLPart(part, boundary); html != "" {
-					return html
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func decodeBody(body []byte, encoding string) string {
-	return decodeBodyWithCharset(body, encoding, "")
-}
-
-func decodeBodyWithCharset(body []byte, encoding string, charset string) string {
-	var decoded []byte
-
-	switch strings.ToLower(encoding) {
-	case "quoted-printable":
-		var d, err = io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
-		if err != nil {
-			decoded = body
-		} else {
-			decoded = d
-		}
-	case "base64":
-		var d, err = base64.StdEncoding.DecodeString(string(body))
-		if err != nil {
-			// Tenta limpar
-			var cleaned = strings.ReplaceAll(string(body), "\n", "")
-			cleaned = strings.ReplaceAll(cleaned, "\r", "")
-			d, _ = base64.StdEncoding.DecodeString(cleaned)
-		}
-		decoded = d
-	default:
-		decoded = body
-	}
-
-	// Converte charset se necessário
-	if charset != "" && !strings.EqualFold(charset, "utf-8") && !strings.EqualFold(charset, "us-ascii") {
-		var converted = convertCharset(decoded, charset)
-		if converted != "" {
-			return converted
-		}
-	}
-
-	return string(decoded)
-}
-
-// convertCharset converte de um charset para UTF-8
-func convertCharset(data []byte, charset string) string {
-	// Tenta usar htmlindex primeiro
-	var enc, err = htmlindex.Get(charset)
-	if err == nil {
-		var decoder = enc.NewDecoder()
-		var result, err2 = decoder.Bytes(data)
-		if err2 == nil {
-			return string(result)
-		}
-	}
-
-	// Fallback para charsets comuns
-	charset = strings.ToLower(charset)
-	switch {
-	case strings.Contains(charset, "iso-8859-1"), strings.Contains(charset, "latin1"):
-		var decoder = charmap.ISO8859_1.NewDecoder()
-		var result, _ = decoder.Bytes(data)
-		return string(result)
-	case strings.Contains(charset, "iso-8859-15"), strings.Contains(charset, "latin9"):
-		var decoder = charmap.ISO8859_15.NewDecoder()
-		var result, _ = decoder.Bytes(data)
-		return string(result)
-	case strings.Contains(charset, "windows-1252"):
-		var decoder = charmap.Windows1252.NewDecoder()
-		var result, _ = decoder.Bytes(data)
-		return string(result)
-	}
-
-	return ""
-}
-
-// htmlToText converte HTML para texto legível
-func htmlToText(htmlContent string) string {
-	var doc, err = html.Parse(strings.NewReader(htmlContent))
-	if err != nil {
-		return htmlContent
-	}
-
-	var buf bytes.Buffer
-	var extractTextFromNode func(*html.Node)
-	extractTextFromNode = func(n *html.Node) {
-		// Ignora scripts, styles e comments
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "script", "style", "head", "noscript":
-				return
-			case "br":
-				buf.WriteString("\n")
-				return
-			case "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6":
-				buf.WriteString("\n")
-			case "td", "th":
-				buf.WriteString("\t")
-			}
-		}
-
-		if n.Type == html.TextNode {
-			var text = strings.TrimSpace(n.Data)
-			if text != "" {
-				buf.WriteString(text)
-				buf.WriteString(" ")
-			}
-		}
-
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extractTextFromNode(c)
-		}
-
-		// Adiciona quebra de linha após elementos de bloco
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote":
-				buf.WriteString("\n")
-			}
-		}
-	}
-
-	extractTextFromNode(doc)
-
-	// Limpa múltiplas linhas em branco
-	var result = buf.String()
-	for strings.Contains(result, "\n\n\n") {
-		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
-	}
-	return strings.TrimSpace(result)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -2500,6 +1797,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
+		}
+
+		// Verifica attachments panel mode
+		if m.showAttachments {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "q", "x":
+				m.showAttachments = false
+				m.viewerAttachments = []Attachment{}
+				m.selectedAttachment = 0
+				return m, nil
+			case "up", "k":
+				if m.selectedAttachment > 0 {
+					m.selectedAttachment--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedAttachment < len(m.viewerAttachments)-1 {
+					m.selectedAttachment++
+				}
+				return m, nil
+			case "enter", "s":
+				// Salva o anexo selecionado
+				return m, m.saveCurrentAttachment()
+			}
+			return m, nil // Bloqueia outras teclas no modo attachments
 		}
 
 		// Verifica image preview mode
@@ -2609,25 +1933,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "esc", "S", "q":
+			case "esc", "q":
 				m.showSettings = false
+				m.settingsTab = 0
+				m.settingsSelection = 0
 				m.log("⚙️ Configurações fechadas")
 				return m, nil
+			case "tab", "right", "l":
+				// Next tab
+				m.settingsTab = (m.settingsTab + 1) % 4 // 4 tabs: Folders, Sync, Indexer, About
+				m.settingsSelection = 0
+				return m, nil
+			case "shift+tab", "left", "h":
+				// Previous tab
+				m.settingsTab = (m.settingsTab + 3) % 4 // +3 same as -1 mod 4
+				m.settingsSelection = 0
+				return m, nil
 			case "up", "k":
-				if m.settingsSelection > 0 {
-					m.settingsSelection--
+				if m.settingsTab == 0 { // Folders tab
+					if m.settingsSelection > 0 {
+						m.settingsSelection--
+					}
+				} else if m.settingsTab == 2 { // Indexer tab
+					if m.settingsSelection > 0 {
+						m.settingsSelection--
+					}
 				}
 				return m, nil
 			case "down", "j":
-				if m.settingsSelection < 4 { // 5 opções no menu
-					m.settingsSelection++
+				if m.settingsTab == 0 { // Folders tab
+					if m.settingsSelection < len(m.settingsFolders)-1 {
+						m.settingsSelection++
+					}
+				} else if m.settingsTab == 2 { // Indexer tab
+					if m.settingsSelection < 4 { // 5 opções no indexer
+						m.settingsSelection++
+					}
 				}
 				return m, nil
 			case "enter", " ":
-				return m, m.handleSettingsAction()
+				if m.settingsTab == 0 { // Folders tab - toggle selection
+					if m.settingsSelection < len(m.settingsFolders) {
+						m.settingsFolders[m.settingsSelection].Selected = !m.settingsFolders[m.settingsSelection].Selected
+					}
+					return m, nil
+				} else if m.settingsTab == 2 { // Indexer tab
+					return m, m.handleSettingsAction()
+				}
+				return m, nil
+			case "s":
+				// Save settings
+				if m.settingsTab == 0 { // Folders tab
+					m.log("💾 Salvando configurações de pastas...")
+					return m, m.saveSettingsFolders()
+				}
+				return m, nil
 			case "+", "=":
 				// Aumenta velocidade do indexador
-				if m.indexState != nil && m.settingsSelection == 1 {
+				if m.settingsTab == 2 && m.indexState != nil && m.settingsSelection == 1 {
 					var newSpeed = m.indexState.Speed + 50
 					if newSpeed > 500 {
 						newSpeed = 500
@@ -2639,7 +2002,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "-", "_":
 				// Diminui velocidade do indexador
-				if m.indexState != nil && m.settingsSelection == 1 {
+				if m.settingsTab == 2 && m.indexState != nil && m.settingsSelection == 1 {
 					var newSpeed = m.indexState.Speed - 50
 					if newSpeed < 10 {
 						newSpeed = 10
@@ -2804,6 +2167,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.log("📷 Tecla 'i' pressionada no viewer")
 				m.imageLoading = true
 				return m, m.loadImageAttachments()
+			case "x":
+				// Abre painel de anexos
+				m.log("📎 Tecla 'x' pressionada no viewer - abrindo anexos (app=%v)", m.app != nil)
+				m.attachmentsLoading = true
+				return m, m.loadAllAttachments()
 			}
 			// Passa eventos de scroll para o viewport
 			var cmd tea.Cmd
@@ -3050,9 +2418,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Abre menu de configurações
 			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI && !m.searchMode {
 				m.showSettings = true
+				m.settingsTab = 0
 				m.settingsSelection = 0
 				m.log("⚙️ Abrindo configurações")
-				return m, m.loadIndexState()
+				return m, tea.Batch(m.loadIndexState(), m.loadSettingsFolders())
 			}
 
 		case "p":
@@ -3104,6 +2473,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.log("✅ IMAP conectado")
 		m.client = msg.client
 		m.retrying = false
+		// Share IMAP connection with Application services
+		if m.app != nil {
+			m.app.SetIMAPClient(m.client)
+			m.log("🔗 IMAP client compartilhado com Application")
+		}
 		// Se já temos emails do cache, faz sync em background sem bloquear UI
 		if m.state == stateReady {
 			return m, m.loadFolders()
@@ -3303,6 +2677,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			m.showAlert = true
 			m.log("💾 Imagem salva: %s", msg.path)
+		}
+		return m, nil
+
+	case allAttachmentsMsg:
+		m.log("📎 allAttachmentsMsg recebida: err=%v, attachments=%d", msg.err != nil, len(msg.attachments))
+		m.attachmentsLoading = false
+		if msg.err != nil {
+			m.log("📎 Erro ao carregar anexos: %v", msg.err)
+			m.showAI = true
+			m.aiResponse = errorStyle.Render("Erro ao carregar anexos: " + msg.err.Error())
+			return m, nil
+		}
+		if len(msg.attachments) == 0 {
+			m.log("📎 Nenhum anexo encontrado")
+			m.showAI = true
+			m.aiResponse = infoStyle.Render("Este email não contém anexos.")
+			return m, nil
+		}
+		m.viewerAttachments = msg.attachments
+		m.selectedAttachment = 0
+		m.showAttachments = true
+		m.log("📎 %d anexos encontrados, showAttachments=%v", len(msg.attachments), m.showAttachments)
+		return m, nil
+
+	case attachmentSavedMsg:
+		if msg.err != nil {
+			m.alerts = append(m.alerts, Alert{
+				Type:      "error",
+				Title:     "Erro ao salvar anexo",
+				Message:   msg.err.Error(),
+				Timestamp: time.Now(),
+			})
+			m.showAlert = true
+		} else if msg.path != "" {
+			m.alerts = append(m.alerts, Alert{
+				Type:      "success",
+				Title:     "Anexo salvo",
+				Message:   "Salvo em: " + msg.path,
+				Timestamp: time.Now(),
+			})
+			m.showAlert = true
+			m.log("💾 Anexo salvo: %s", msg.path)
 		}
 		return m, nil
 
@@ -3700,6 +3116,23 @@ Verifique as configurações ou contate o administrador.`,
 		m.log("⚙️ Estado do indexador carregado: %s", msg.state.Status)
 		return m, nil
 
+	case settingsFoldersLoadedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao carregar pastas: %v", msg.err)
+			return m, nil
+		}
+		m.settingsFolders = msg.folders
+		m.log("📁 Pastas para settings carregadas: %d", len(msg.folders))
+		return m, nil
+
+	case settingsSavedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao salvar configurações: %v", msg.err)
+		} else {
+			m.log("✅ Configurações salvas com sucesso!")
+		}
+		return m, nil
+
 	case indexerTickMsg:
 		// Tick do indexador em background
 		if !m.indexerRunning || m.indexState == nil || m.indexState.Status != storage.IndexStatusRunning {
@@ -3833,6 +3266,11 @@ func (m Model) View() string {
 	// Overlay de Image Preview
 	if m.showImagePreview && len(m.imageAttachments) > 0 {
 		return m.viewImagePreview()
+	}
+
+	// Overlay de Attachments
+	if m.showAttachments && len(m.viewerAttachments) > 0 {
+		return m.viewAttachmentsPanel()
 	}
 
 	// Panel de drafts
@@ -4223,21 +3661,31 @@ func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
 	from = truncate(from, 18)
 
 	// Calcula espaço disponível para subject
-	// formato: " X from(18) │ subject │ dd/mm hh:mm "
+	// formato: " X from(18) │ [📎 ]subject │ dd/mm hh:mm "
 	// fixo: 1 + 1 + 18 + 3 + 3 + 11 + 1 = 38
 	var subjectWidth = width - 38
 	if subjectWidth < 10 {
 		subjectWidth = 10
 	}
-	var subject = truncate(email.Subject, subjectWidth)
-	var date = email.Date.Format("02/01 15:04")
 
-	// Pad subject para alinhar
-	for len(subject) < subjectWidth {
-		subject += " "
+	// Attachment indicator (📎 takes 2 columns + 1 space)
+	var attachmentIcon = "  " // 2 spaces to match emoji width
+	if email.HasAttachments {
+		attachmentIcon = "📎 "
+		subjectWidth -= 1 // Already accounted for 2 cols, just need 1 more for space
 	}
 
-	return fmt.Sprintf(" %s %-18s │ %s │ %s ", indicator, from, subject, date)
+	var subject = truncateWidth(email.Subject, subjectWidth)
+	var date = email.Date.Format("02/01 15:04")
+
+	// Pad subject to align (use visual width)
+	var currentWidth = runewidth.StringWidth(subject)
+	for currentWidth < subjectWidth {
+		subject += " "
+		currentWidth++
+	}
+
+	return fmt.Sprintf(" %s %-18s │ %s%s │ %s ", indicator, from, attachmentIcon, subject, date)
 }
 
 func truncate(s string, max int) string {
@@ -4248,6 +3696,17 @@ func truncate(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+// truncateWidth truncates a string to fit within max visual width (handles emojis/unicode)
+func truncateWidth(s string, max int) string {
+	if runewidth.StringWidth(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return runewidth.Truncate(s, max, "")
+	}
+	return runewidth.Truncate(s, max-3, "") + "..."
 }
 
 func (m Model) renderAIPanel() string {
@@ -4325,7 +3784,11 @@ func (m Model) viewEmailViewer() string {
 	// Header com info do email
 	var header string
 	if m.viewerEmail != nil {
-		header = titleStyle.Render("miau 🐱") + " - " + subtitleStyle.Render(m.viewerEmail.Subject) + "\n"
+		var attachmentIndicator = ""
+		if m.viewerEmail.HasAttachments {
+			attachmentIndicator = " 📎"
+		}
+		header = titleStyle.Render("miau 🐱") + " - " + subtitleStyle.Render(m.viewerEmail.Subject) + attachmentIndicator + "\n"
 		header += infoStyle.Render(fmt.Sprintf("De: %s <%s>", m.viewerEmail.FromName, m.viewerEmail.FromEmail)) + "\n"
 		header += subtitleStyle.Render(m.viewerEmail.Date.Time.Format("02/01/2006 15:04"))
 	}
@@ -4338,8 +3801,12 @@ func (m Model) viewEmailViewer() string {
 		content = m.viewerViewport.View()
 	}
 
-	// Footer
-	var footer = subtitleStyle.Render(" ↑↓:scroll  h:browser  i:images  q/Esc:voltar ")
+	// Footer - highlight x:attachments if email has attachments
+	var attachmentHint = "x:anexos"
+	if m.viewerEmail != nil && m.viewerEmail.HasAttachments {
+		attachmentHint = infoStyle.Render("x: 📎 anexos")
+	}
+	var footer = subtitleStyle.Render(" ↑↓:scroll  h:browser  i:images  ") + attachmentHint + subtitleStyle.Render("  q/Esc:voltar ")
 
 	// Scroll info
 	var scrollInfo = subtitleStyle.Render(fmt.Sprintf(" %d%% ", int(m.viewerViewport.ScrollPercent()*100)))
@@ -4622,91 +4089,177 @@ func (m Model) viewSettings() string {
 
 	var header = titleStyle.Render("miau 🐱") + " - " + infoStyle.Render("Configurações")
 
-	var lines []string
-
-	// Status do indexador
-	var indexStatus = "Carregando..."
-	var indexProgress = ""
-	var indexAction = "Iniciar indexação"
-
-	if m.indexState != nil {
-		switch m.indexState.Status {
-		case storage.IndexStatusIdle:
-			indexStatus = subtitleStyle.Render("Parado")
-			indexAction = "▶ Iniciar indexação"
-		case storage.IndexStatusRunning:
-			indexStatus = successStyle.Render("Executando")
-			indexAction = "⏸ Pausar indexação"
-		case storage.IndexStatusPaused:
-			indexStatus = infoStyle.Render("Pausado")
-			indexAction = "▶ Retomar indexação"
-		case storage.IndexStatusCompleted:
-			indexStatus = successStyle.Render("Completo ✓")
-			indexAction = "Já indexado"
-		case storage.IndexStatusError:
-			indexStatus = errorStyle.Render("Erro")
-			indexAction = "▶ Reiniciar indexação"
-		}
-
-		if m.indexState.TotalEmails > 0 {
-			var percent = float64(m.indexState.IndexedEmails) / float64(m.indexState.TotalEmails) * 100
-			indexProgress = fmt.Sprintf("%d/%d (%.1f%%)", m.indexState.IndexedEmails, m.indexState.TotalEmails, percent)
-
-			// Barra de progresso visual
-			var barWidth = 20
-			var filled = int(percent / 100 * float64(barWidth))
-			var bar = strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-			indexProgress += "\n    " + infoStyle.Render("["+bar+"]")
-		}
-	}
-
-	lines = append(lines, "")
-	lines = append(lines, infoStyle.Render("  📚 Indexação de Conteúdo"))
-	lines = append(lines, fmt.Sprintf("     Status: %s", indexStatus))
-	if indexProgress != "" {
-		lines = append(lines, fmt.Sprintf("     Progresso: %s", indexProgress))
-	}
-	lines = append(lines, "")
-
-	// Menu de opções
-	var options = []string{
-		indexAction,
-		fmt.Sprintf("⚡ Velocidade: %d emails/min  [+/-]", func() int {
-			if m.indexState != nil {
-				return m.indexState.Speed
-			}
-			return 100
-		}()),
-		"🛑 Cancelar indexação",
-		"← Fechar configurações",
-		"ℹ Sobre o miau",
-	}
-
-	lines = append(lines, infoStyle.Render("  Menu:"))
-	for i, opt := range options {
-		var prefix = "   "
-		if i == m.settingsSelection {
-			prefix = " ➤ "
-			lines = append(lines, selectedStyle.Render(prefix+opt))
+	// Tabs
+	var tabs = []string{"📁 Folders", "🔄 Sync", "📚 Indexer", "ℹ About"}
+	var tabLine = "  "
+	for i, tab := range tabs {
+		if i == m.settingsTab {
+			tabLine += selectedStyle.Render(" "+tab+" ")
 		} else {
-			lines = append(lines, subtitleStyle.Render(prefix+opt))
+			tabLine += subtitleStyle.Render(" "+tab+" ")
+		}
+		if i < len(tabs)-1 {
+			tabLine += " │ "
 		}
 	}
 
+	var lines []string
 	lines = append(lines, "")
-	lines = append(lines, subtitleStyle.Render("  A indexação permite busca no conteúdo completo"))
-	lines = append(lines, subtitleStyle.Render("  dos emails, não apenas assunto e remetente."))
+	lines = append(lines, tabLine)
+	lines = append(lines, "  "+strings.Repeat("─", 50))
+	lines = append(lines, "")
 
-	// Dica sobre velocidade
-	if m.settingsSelection == 1 {
+	switch m.settingsTab {
+	case 0: // Folders tab
+		lines = append(lines, infoStyle.Render("  Pastas para sincronização:"))
 		lines = append(lines, "")
-		lines = append(lines, infoStyle.Render("  Use [+] e [-] para ajustar a velocidade"))
+
+		// Calculate visible area for scrolling (max 12 folders visible)
+		var maxVisible = 12
+		var startIdx = 0
+		if m.settingsSelection >= maxVisible {
+			startIdx = m.settingsSelection - maxVisible + 1
+		}
+		var endIdx = startIdx + maxVisible
+		if endIdx > len(m.settingsFolders) {
+			endIdx = len(m.settingsFolders)
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			var f = m.settingsFolders[i]
+			var checkbox = "☐"
+			if f.Selected {
+				checkbox = "☑"
+			}
+			var line = fmt.Sprintf("  %s %s", checkbox, f.Name)
+			if i == m.settingsSelection {
+				lines = append(lines, selectedStyle.Render(" ➤"+line))
+			} else {
+				lines = append(lines, subtitleStyle.Render("   "+line))
+			}
+		}
+
+		if len(m.settingsFolders) > maxVisible {
+			lines = append(lines, "")
+			lines = append(lines, subtitleStyle.Render(fmt.Sprintf("   Mostrando %d-%d de %d pastas", startIdx+1, endIdx, len(m.settingsFolders))))
+		}
+
+		lines = append(lines, "")
+		lines = append(lines, infoStyle.Render("  Space: toggle  s: salvar  Tab: próxima aba"))
+
+	case 1: // Sync tab
+		lines = append(lines, infoStyle.Render("  Configurações de Sincronização:"))
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("   Auto-refresh: "+fmt.Sprintf("%v", m.autoRefreshEnabled)))
+		lines = append(lines, subtitleStyle.Render("   Intervalo: 1 minuto"))
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("   As pastas selecionadas na aba Folders"))
+		lines = append(lines, subtitleStyle.Render("   serão sincronizadas automaticamente."))
+		lines = append(lines, "")
+		lines = append(lines, infoStyle.Render("  Tab: próxima aba  Esc: fechar"))
+
+	case 2: // Indexer tab
+		var indexStatus = "Carregando..."
+		var indexProgress = ""
+		var indexAction = "▶ Iniciar indexação"
+
+		if m.indexState != nil {
+			switch m.indexState.Status {
+			case storage.IndexStatusIdle:
+				indexStatus = subtitleStyle.Render("Parado")
+				indexAction = "▶ Iniciar indexação"
+			case storage.IndexStatusRunning:
+				indexStatus = successStyle.Render("Executando")
+				indexAction = "⏸ Pausar indexação"
+			case storage.IndexStatusPaused:
+				indexStatus = infoStyle.Render("Pausado")
+				indexAction = "▶ Retomar indexação"
+			case storage.IndexStatusCompleted:
+				indexStatus = successStyle.Render("Completo ✓")
+				indexAction = "Já indexado"
+			case storage.IndexStatusError:
+				indexStatus = errorStyle.Render("Erro")
+				indexAction = "▶ Reiniciar indexação"
+			}
+
+			if m.indexState.TotalEmails > 0 {
+				var percent = float64(m.indexState.IndexedEmails) / float64(m.indexState.TotalEmails) * 100
+				indexProgress = fmt.Sprintf("%d/%d (%.1f%%)", m.indexState.IndexedEmails, m.indexState.TotalEmails, percent)
+				var barWidth = 20
+				var filled = int(percent / 100 * float64(barWidth))
+				var bar = strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+				indexProgress += " " + infoStyle.Render("["+bar+"]")
+			}
+		}
+
+		lines = append(lines, infoStyle.Render("  Indexação de Conteúdo"))
+		lines = append(lines, fmt.Sprintf("     Status: %s", indexStatus))
+		if indexProgress != "" {
+			lines = append(lines, fmt.Sprintf("     Progresso: %s", indexProgress))
+		}
+		lines = append(lines, "")
+
+		var options = []string{
+			indexAction,
+			fmt.Sprintf("⚡ Velocidade: %d emails/min  [+/-]", func() int {
+				if m.indexState != nil {
+					return m.indexState.Speed
+				}
+				return 100
+			}()),
+			"🛑 Cancelar indexação",
+			"← Fechar configurações",
+			"ℹ Sobre o miau",
+		}
+
+		for i, opt := range options {
+			var prefix = "   "
+			if i == m.settingsSelection {
+				prefix = " ➤ "
+				lines = append(lines, selectedStyle.Render(prefix+opt))
+			} else {
+				lines = append(lines, subtitleStyle.Render(prefix+opt))
+			}
+		}
+
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("  A indexação permite busca no conteúdo completo"))
+		lines = append(lines, subtitleStyle.Render("  dos emails, não apenas assunto e remetente."))
+
+	case 3: // About tab
+		lines = append(lines, "")
+		lines = append(lines, titleStyle.Render("  miau 🐱"))
+		lines = append(lines, infoStyle.Render("  Mail Intelligence Assistant Utility"))
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("  Versão: 1.0.0"))
+		lines = append(lines, subtitleStyle.Render("  Desenvolvido com ❤️ usando Go + Bubble Tea"))
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("  Cliente de email local com interface TUI,"))
+		lines = append(lines, subtitleStyle.Render("  integração IMAP e suporte a IA."))
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("  Funcionalidades:"))
+		lines = append(lines, subtitleStyle.Render("  • Sincronização IMAP"))
+		lines = append(lines, subtitleStyle.Render("  • Busca em texto completo (FTS5)"))
+		lines = append(lines, subtitleStyle.Render("  • Composição de emails"))
+		lines = append(lines, subtitleStyle.Render("  • Detecção de bounces"))
+		lines = append(lines, subtitleStyle.Render("  • Analytics de emails"))
+		lines = append(lines, subtitleStyle.Render("  • Preview de imagens"))
+		lines = append(lines, "")
+		lines = append(lines, infoStyle.Render("  Tab: próxima aba  Esc: fechar"))
 	}
 
 	var content = strings.Join(lines, "\n")
 
-	// Footer
-	var footer = subtitleStyle.Render(" ↑↓:navegar  Enter:selecionar  +/-:velocidade  Esc:fechar ")
+	// Footer based on current tab
+	var footer string
+	switch m.settingsTab {
+	case 0:
+		footer = subtitleStyle.Render(" ↑↓:navegar  Space:toggle  s:salvar  Tab/←→:aba  Esc:fechar ")
+	case 2:
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:selecionar  +/-:velocidade  Tab/←→:aba  Esc:fechar ")
+	default:
+		footer = subtitleStyle.Render(" Tab/←→:navegar abas  Esc:fechar ")
+	}
 
 	var box = settingsBoxStyle.Width(m.width - 4).Render(header + "\n" + content)
 
@@ -5019,6 +4572,100 @@ func (m Model) viewImagePreview() string {
 	var width = m.width - 6
 	if width < 50 {
 		width = 50
+	}
+
+	var modal = overlayStyle.Width(width).Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// viewAttachmentsPanel renderiza o painel de anexos
+func (m Model) viewAttachmentsPanel() string {
+	if len(m.viewerAttachments) == 0 {
+		return ""
+	}
+
+	// Estilo do overlay
+	var overlayStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF6B6B")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2)
+
+	// Header
+	var header = titleStyle.Render("📎 Attachments") + " " +
+		subtitleStyle.Render(fmt.Sprintf("(%d files)", len(m.viewerAttachments)))
+
+	// Lista de anexos
+	var attachmentLines []string
+	var maxVisible = 15
+	var start = 0
+	if m.selectedAttachment >= maxVisible {
+		start = m.selectedAttachment - maxVisible + 1
+	}
+
+	for i, att := range m.viewerAttachments {
+		if i < start {
+			continue
+		}
+		if i >= start+maxVisible {
+			break
+		}
+
+		var icon = getAttachmentIcon(att.ContentType)
+		var size = formatAttachmentSize(att.Size)
+		var line string
+
+		// Trunca filename se muito longo
+		var filename = att.Filename
+		if len(filename) > 40 {
+			filename = filename[:37] + "..."
+		}
+
+		if i == m.selectedAttachment {
+			var selectedItemStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#FF6B6B")).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true)
+			line = selectedItemStyle.Render(fmt.Sprintf(" ▶ %s %s (%s) ", icon, filename, size))
+		} else {
+			var typeInfo = ""
+			if att.IsInline {
+				typeInfo = " [inline]"
+			}
+			line = fmt.Sprintf("   %s %s (%s)%s", icon, filename, size, subtitleStyle.Render(typeInfo))
+		}
+		attachmentLines = append(attachmentLines, line)
+	}
+
+	// Footer com instruções
+	var footer = subtitleStyle.Render("↑↓/jk:navigate  Enter/s:save  Esc/x:close")
+
+	// Info sobre o anexo selecionado
+	var selectedInfo = ""
+	if m.selectedAttachment < len(m.viewerAttachments) {
+		var att = m.viewerAttachments[m.selectedAttachment]
+		selectedInfo = infoStyle.Render(fmt.Sprintf("Type: %s", att.ContentType))
+	}
+
+	var content = lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		strings.Join(attachmentLines, "\n"),
+		"",
+		selectedInfo,
+		"",
+		footer,
+	)
+
+	// Tamanho do overlay
+	var width = m.width - 20
+	if width < 50 {
+		width = 50
+	}
+	if width > 80 {
+		width = 80
 	}
 
 	var modal = overlayStyle.Width(width).Render(content)

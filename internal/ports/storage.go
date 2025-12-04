@@ -77,6 +77,13 @@ type StoragePort interface {
 	GetEmailCountByDay(ctx context.Context, accountID int64, sinceDays int) ([]DailyStats, error)
 	GetEmailCountByWeekday(ctx context.Context, accountID int64, sinceDays int) ([]WeekdayStats, error)
 	GetResponseStats(ctx context.Context, accountID int64) (*ResponseTimeStats, error)
+
+	// Attachments
+	GetAttachmentsByEmail(ctx context.Context, emailID int64) ([]Attachment, error)
+	GetAttachment(ctx context.Context, id int64) (*Attachment, error)
+	GetAttachmentContent(ctx context.Context, id int64) ([]byte, error)
+	CacheAttachmentContent(ctx context.Context, id int64, content []byte) error
+	UpsertAttachment(ctx context.Context, attachment *Attachment) (int64, error)
 }
 
 // SentEmailTrack represents a tracked sent email for bounce detection
@@ -85,6 +92,18 @@ type SentEmailTrack struct {
 	To        string
 	Subject   string
 	SentAt    time.Time
+}
+
+// AttachmentInfo contains attachment metadata from IMAP BODYSTRUCTURE
+type AttachmentInfo struct {
+	PartNumber  string
+	Filename    string
+	ContentType string
+	ContentID   string
+	Encoding    string
+	Size        int64
+	IsInline    bool
+	Charset     string
 }
 
 // IMAPPort defines the interface for IMAP operations.
@@ -105,6 +124,10 @@ type IMAPPort interface {
 	FetchEmailRaw(ctx context.Context, uid uint32) ([]byte, error)
 	FetchEmailBody(ctx context.Context, uid uint32) (string, error)
 	GetAllUIDs(ctx context.Context) ([]uint32, error)
+
+	// Attachments
+	FetchAttachmentMetadata(ctx context.Context, uid uint32) ([]AttachmentInfo, bool, error)
+	FetchAttachmentPart(ctx context.Context, uid uint32, partNumber string) ([]byte, error)
 
 	// Email actions
 	MarkAsRead(ctx context.Context, uid uint32) error

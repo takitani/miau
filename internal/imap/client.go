@@ -623,3 +623,216 @@ func (c *Client) GetTrashFolder() string {
 func (c *Client) Close() error {
 	return c.client.Close()
 }
+
+// AttachmentInfo represents metadata about an email attachment
+type AttachmentInfo struct {
+	PartNumber  string // e.g., "1.2", "2"
+	Filename    string
+	ContentType string
+	ContentID   string // for inline images (cid:xxx)
+	Encoding    string // base64, quoted-printable, etc.
+	Size        int64
+	IsInline    bool
+	Charset     string
+}
+
+// FetchAttachmentMetadata retrieves attachment metadata from BODYSTRUCTURE
+func (c *Client) FetchAttachmentMetadata(uid uint32) ([]AttachmentInfo, bool, error) {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	var fetchOptions = &imap.FetchOptions{
+		UID:           true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+	}
+
+	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return nil, false, fmt.Errorf("erro ao buscar BODYSTRUCTURE: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return nil, false, fmt.Errorf("email não encontrado")
+	}
+
+	var msg = messages[0]
+	if msg.BodyStructure == nil {
+		return nil, false, nil
+	}
+
+	var attachments []AttachmentInfo
+	var hasAttachments = false
+
+	// Parse the body structure recursively
+	parseBodyStructure(msg.BodyStructure, "", &attachments, &hasAttachments)
+
+	return attachments, hasAttachments, nil
+}
+
+// parseBodyStructure recursively parses BODYSTRUCTURE to find attachments
+func parseBodyStructure(bs imap.BodyStructure, partNum string, attachments *[]AttachmentInfo, hasAttachments *bool) {
+	switch body := bs.(type) {
+	case *imap.BodyStructureSinglePart:
+		var info = AttachmentInfo{
+			PartNumber:  partNum,
+			ContentType: strings.ToLower(body.Type) + "/" + strings.ToLower(body.Subtype),
+			Encoding:    strings.ToLower(body.Encoding),
+			Size:        int64(body.Size),
+		}
+
+		// Content-ID is in the ID field (for inline images cid:xxx)
+		if body.ID != "" {
+			info.ContentID = body.ID
+		}
+
+		// Check for charset in params
+		if body.Params != nil {
+			if charset, ok := body.Params["charset"]; ok {
+				info.Charset = charset
+			}
+		}
+
+		// Use helper method for filename
+		if body.Filename() != "" {
+			info.Filename = body.Filename()
+		}
+
+		// Check disposition for inline vs attachment
+		var disposition = body.Disposition()
+		if disposition != nil {
+			info.IsInline = strings.EqualFold(disposition.Value, "inline")
+			// Also check disposition params for filename if not found yet
+			if info.Filename == "" && disposition.Params != nil {
+				if filename, ok := disposition.Params["filename"]; ok {
+					info.Filename = filename
+				}
+			}
+		}
+
+		// Fallback: check params for name
+		if info.Filename == "" && body.Params != nil {
+			if name, ok := body.Params["name"]; ok {
+				info.Filename = name
+			}
+		}
+
+		// Determine if this is an attachment
+		var isTextPlain = strings.HasPrefix(info.ContentType, "text/plain")
+		var isTextHTML = strings.HasPrefix(info.ContentType, "text/html")
+		var isMainBody = (isTextPlain || isTextHTML) && info.Filename == ""
+
+		if !isMainBody {
+			// It's an attachment or embedded content
+			if info.Filename != "" || info.ContentID != "" || (!isTextPlain && !isTextHTML) {
+				*hasAttachments = true
+				// Only add if it has a filename or is an image/media type
+				if info.Filename != "" || strings.HasPrefix(info.ContentType, "image/") ||
+					strings.HasPrefix(info.ContentType, "audio/") ||
+					strings.HasPrefix(info.ContentType, "video/") ||
+					strings.HasPrefix(info.ContentType, "application/") {
+					*attachments = append(*attachments, info)
+				}
+			}
+		}
+
+	case *imap.BodyStructureMultiPart:
+		// Recursively process each part
+		for i, part := range body.Children {
+			var childPartNum string
+			if partNum == "" {
+				childPartNum = fmt.Sprintf("%d", i+1)
+			} else {
+				childPartNum = fmt.Sprintf("%s.%d", partNum, i+1)
+			}
+			parseBodyStructure(part, childPartNum, attachments, hasAttachments)
+		}
+	}
+}
+
+// FetchAttachmentPart fetches a specific body part (attachment content)
+func (c *Client) FetchAttachmentPart(uid uint32, partNumber string) ([]byte, error) {
+	var uidSet = imap.UIDSet{}
+	uidSet.AddNum(imap.UID(uid))
+
+	// Parse part number into section path
+	var part []int
+	if partNumber != "" {
+		for _, s := range strings.Split(partNumber, ".") {
+			var n int
+			fmt.Sscanf(s, "%d", &n)
+			part = append(part, n)
+		}
+	}
+
+	var bodySection = &imap.FetchItemBodySection{
+		Part: part,
+	}
+
+	var fetchOptions = &imap.FetchOptions{
+		BodySection: []*imap.FetchItemBodySection{bodySection},
+	}
+
+	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar parte do email: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("email não encontrado")
+	}
+
+	var msg = messages[0]
+	var body = msg.FindBodySection(bodySection)
+	if body == nil {
+		return nil, fmt.Errorf("parte não encontrada: %s", partNumber)
+	}
+
+	return body, nil
+}
+
+// DecodeAttachmentContent decodes attachment content based on encoding
+func DecodeAttachmentContent(data []byte, encoding string) ([]byte, error) {
+	switch strings.ToLower(encoding) {
+	case "base64":
+		var decoded = make([]byte, base64.StdEncoding.DecodedLen(len(data)))
+		var n, err = base64.StdEncoding.Decode(decoded, data)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao decodificar base64: %w", err)
+		}
+		return decoded[:n], nil
+
+	case "quoted-printable":
+		// Simple quoted-printable decode
+		var result []byte
+		for i := 0; i < len(data); i++ {
+			if data[i] == '=' && i+2 < len(data) {
+				if data[i+1] == '\r' || data[i+1] == '\n' {
+					// Soft line break
+					i++
+					if i+1 < len(data) && data[i] == '\r' && data[i+1] == '\n' {
+						i++
+					}
+					continue
+				}
+				// Hex encoded byte
+				var hex = string(data[i+1 : i+3])
+				var b byte
+				fmt.Sscanf(hex, "%02X", &b)
+				result = append(result, b)
+				i += 2
+			} else {
+				result = append(result, data[i])
+			}
+		}
+		return result, nil
+
+	case "7bit", "8bit", "binary", "":
+		return data, nil
+
+	default:
+		// Unknown encoding, return as-is
+		return data, nil
+	}
+}

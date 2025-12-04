@@ -24,6 +24,13 @@ func NewIMAPAdapter(account *config.Account) *IMAPAdapter {
 	}
 }
 
+// SetClient sets an external IMAP client (for sharing connection with TUI)
+func (a *IMAPAdapter) SetClient(client *imap.Client) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.client = client
+}
+
 // Connect establishes connection to the IMAP server
 func (a *IMAPAdapter) Connect(ctx context.Context) error {
 	a.mu.Lock()
@@ -250,6 +257,54 @@ func (a *IMAPAdapter) GetTrashFolder() string {
 	}
 
 	return client.GetTrashFolder()
+}
+
+// FetchAttachmentMetadata fetches attachment metadata for an email
+func (a *IMAPAdapter) FetchAttachmentMetadata(ctx context.Context, uid uint32) ([]ports.AttachmentInfo, bool, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, false, ErrNotConnected
+	}
+
+	var attachments, hasAttachments, err = client.FetchAttachmentMetadata(uid)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !hasAttachments || len(attachments) == 0 {
+		return nil, false, nil
+	}
+
+	var result = make([]ports.AttachmentInfo, len(attachments))
+	for i, att := range attachments {
+		result[i] = ports.AttachmentInfo{
+			PartNumber:  att.PartNumber,
+			Filename:    att.Filename,
+			ContentType: att.ContentType,
+			ContentID:   att.ContentID,
+			Encoding:    att.Encoding,
+			Size:        att.Size,
+			IsInline:    att.IsInline,
+			Charset:     att.Charset,
+		}
+	}
+	return result, true, nil
+}
+
+// FetchAttachmentPart fetches the raw content of an attachment part
+func (a *IMAPAdapter) FetchAttachmentPart(ctx context.Context, uid uint32, partNumber string) ([]byte, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	return client.FetchAttachmentPart(uid, partNumber)
 }
 
 // convertIMAPEmails converts imap.Email to ports.IMAPEmail

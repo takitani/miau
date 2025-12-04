@@ -10,9 +10,10 @@
   import AIChat from './lib/components/AIChat.svelte';
   import ComposeModal from './lib/components/ComposeModal.svelte';
   import AnalyticsPanel from './lib/components/AnalyticsPanel.svelte';
+  import SettingsModal from './lib/components/SettingsModal.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
-  import { showSearch, showHelp, showAI, showCompose, showAnalytics, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEmails } from './lib/stores/ui.js';
+  import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders } from './lib/stores/ui.js';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
 
   // Get email context for AI
@@ -33,8 +34,8 @@
     info('Loading emails from cache...');
     await loadEmails($currentFolder);
 
-    info('Starting initial sync...');
-    await syncEmails();
+    info('Starting initial sync (INBOX, Sent, Trash)...');
+    await syncEssentialFolders();
 
     info('App ready. Press ? for help, D for debug.');
   });
@@ -56,6 +57,10 @@
 
   {#if $showCompose}
     <ComposeModal />
+  {/if}
+
+  {#if $showSettings}
+    <SettingsModal />
   {/if}
 
   <div class="layout">
@@ -110,8 +115,11 @@
 
   .folders-panel {
     width: 200px;
+    min-width: 200px;
+    max-width: 200px;
     border-right: 1px solid var(--border-color);
     overflow-y: auto;
+    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
     flex-shrink: 0;
   }
 
@@ -124,6 +132,7 @@
     min-width: 300px;
     border-right: 1px solid var(--border-color);
     overflow-y: auto;
+    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
   }
 
   .emails-panel.active {
@@ -133,6 +142,7 @@
   .viewer-panel {
     flex: 1.5;
     overflow-y: auto;
+    scrollbar-gutter: stable; /* Reserve space for scrollbar to prevent layout shift */
   }
 
   .viewer-panel.active {

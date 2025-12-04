@@ -250,6 +250,90 @@ func SearchEmails(accountID int64, query string, limit int) ([]EmailSummary, err
 	return emails, err
 }
 
+// FuzzySearchEmails busca emails com fuzzy matching
+// Usa FTS5 trigram para queries com 3+ caracteres, LIKE para queries menores
+// Busca em: subject, from_name, from_email, body_text, snippet
+func FuzzySearchEmails(accountID int64, query string, limit int) ([]EmailSummary, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	var emails []EmailSummary
+	var err error
+
+	// Para queries com 3+ caracteres, usa FTS5 trigram
+	// Trigram automaticamente faz partial matching (ex: "proj" encontra "projeto")
+	if len(query) >= 3 {
+		// Escapa caracteres especiais do FTS5 e adiciona * para prefix matching
+		var ftsQuery = escapeFTSQuery(query)
+
+		err = db.Select(&emails, `
+			SELECT e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email, e.date, e.is_read, e.is_starred, e.is_replied, e.snippet
+			FROM emails e
+			JOIN emails_fts fts ON e.id = fts.rowid
+			WHERE e.account_id = ? AND e.is_archived = 0 AND e.is_deleted = 0 AND emails_fts MATCH ?
+			ORDER BY e.date DESC
+			LIMIT ?`,
+			accountID, ftsQuery, limit)
+
+		// Se FTS5 encontrou resultados, retorna
+		if err == nil && len(emails) > 0 {
+			return emails, nil
+		}
+	}
+
+	// Fallback: busca LIKE em múltiplos campos
+	// Mais lento mas funciona para queries curtas e casos edge
+	var likePattern = "%" + query + "%"
+	err = db.Select(&emails, `
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+		FROM emails
+		WHERE account_id = ? AND is_archived = 0 AND is_deleted = 0
+		AND (
+			subject LIKE ? COLLATE NOCASE OR
+			from_name LIKE ? COLLATE NOCASE OR
+			from_email LIKE ? COLLATE NOCASE OR
+			snippet LIKE ? COLLATE NOCASE
+		)
+		ORDER BY date DESC
+		LIMIT ?`,
+		accountID, likePattern, likePattern, likePattern, likePattern, limit)
+
+	return emails, err
+}
+
+// escapeFTSQuery escapa caracteres especiais do FTS5 e prepara a query
+func escapeFTSQuery(query string) string {
+	// Remove caracteres que podem quebrar a sintaxe FTS5
+	var replacer = strings.NewReplacer(
+		"\"", "",
+		"'", "",
+		"*", "",
+		"(", "",
+		")", "",
+		":", "",
+		"-", " ",
+		"OR", "or",
+		"AND", "and",
+		"NOT", "not",
+	)
+	query = replacer.Replace(query)
+
+	// Divide em palavras e junta com OR para fuzzy matching
+	var words = strings.Fields(query)
+	if len(words) == 0 {
+		return query
+	}
+
+	// Para múltiplas palavras, usa OR para match parcial
+	if len(words) > 1 {
+		return strings.Join(words, " OR ")
+	}
+
+	return query
+}
+
 // GetEmailsToSyncToServer retorna emails que precisam ser sincronizados com o servidor
 // (arquivados ou deletados localmente)
 func GetEmailsToSyncToServer(accountID, folderID int64) (archived []Email, deleted []Email, err error) {

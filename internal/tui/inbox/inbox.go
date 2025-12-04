@@ -168,6 +168,11 @@ type Model struct {
 	filterDescription string                 // "Arquivar 15 emails de zaqueu@..."
 	pendingBatchOp    *storage.PendingBatchOp // Operação pendente
 	originalEmails    []storage.EmailSummary  // Emails originais antes do filtro
+	// Fuzzy search
+	searchMode    bool                    // Modo de busca ativo
+	searchInput   textinput.Model         // Input de busca
+	searchResults []storage.EmailSummary  // Resultados da busca
+	searchQuery   string                  // Query atual (para highlight)
 }
 
 // SentEmailTracker rastreia emails enviados para detectar bounces
@@ -326,6 +331,17 @@ type checkPendingBatchOpsMsg struct {
 	err error
 }
 
+// Search messages
+type searchResultsMsg struct {
+	results []storage.EmailSummary
+	query   string
+	err     error
+}
+
+type searchDebounceMsg struct {
+	query string
+}
+
 func New(account *config.Account, debug bool) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
@@ -350,6 +366,12 @@ func New(account *config.Account, debug bool) Model {
 	composeSubject.CharLimit = 200
 	composeSubject.Width = 50
 
+	// Search input
+	var searchInput = textinput.New()
+	searchInput.Placeholder = "Buscar emails..."
+	searchInput.CharLimit = 100
+	searchInput.Width = 40
+
 	var s = spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
@@ -372,6 +394,7 @@ func New(account *config.Account, debug bool) Model {
 		spinner:        s,
 		composeTo:      composeTo,
 		composeSubject: composeSubject,
+		searchInput:    searchInput,
 		debugMode:      debug,
 		debugLogs:      debugLogs,
 	}
@@ -522,6 +545,23 @@ func (m Model) loadEmailsFromDB() tea.Cmd {
 			return errMsg{err: err}
 		}
 		return emailsLoadedMsg{emails: emails}
+	}
+}
+
+// === SEARCH COMMANDS ===
+
+func (m Model) searchDebounce() tea.Cmd {
+	var query = m.searchQuery
+	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
+		return searchDebounceMsg{query: query}
+	})
+}
+
+func (m Model) performSearch(query string) tea.Cmd {
+	var accountID = m.dbAccount.ID
+	return func() tea.Msg {
+		var results, err = storage.FuzzySearchEmails(accountID, query, 100)
+		return searchResultsMsg{results: results, query: query, err: err}
 	}
 }
 
@@ -1922,6 +1962,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Bloqueia outras teclas no modo filtro
 		}
 
+		// Search mode
+		if m.searchMode {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				// Sai do modo de busca e restaura lista original
+				m.searchMode = false
+				m.searchInput.Blur()
+				m.searchInput.SetValue("")
+				m.searchQuery = ""
+				m.searchResults = nil
+				m.emails = m.originalEmails
+				m.originalEmails = nil
+				m.selectedEmail = 0
+				m.log("🔍 Busca cancelada")
+				return m, nil
+			case "enter":
+				// Seleciona email atual e sai da busca mantendo resultados
+				if len(m.emails) > 0 {
+					m.searchMode = false
+					m.searchInput.Blur()
+					// Mantém os resultados da busca como lista atual
+					m.originalEmails = nil
+					m.log("🔍 Busca finalizada: %d resultados", len(m.emails))
+				}
+				return m, nil
+			case "up", "k":
+				if m.selectedEmail > 0 {
+					m.selectedEmail--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedEmail < len(m.emails)-1 {
+					m.selectedEmail++
+				}
+				return m, nil
+			}
+			// Atualiza input e dispara busca com debounce
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			var newQuery = m.searchInput.Value()
+			if newQuery != m.searchQuery {
+				m.searchQuery = newQuery
+				return m, tea.Batch(cmd, m.searchDebounce())
+			}
+			return m, cmd
+		}
+
 		if m.state == stateNeedsAppPassword {
 			switch msg.String() {
 			case "ctrl+c":
@@ -2242,6 +2331,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.alerts = []Alert{}
 				m.showAlert = false
 				m.log("🧹 Alertas limpos")
+			}
+
+		case "/":
+			// Ativa modo de busca
+			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI {
+				m.searchMode = true
+				m.searchInput.Focus()
+				m.searchInput.SetValue("")
+				m.searchQuery = ""
+				m.originalEmails = m.emails
+				m.selectedEmail = 0
+				m.log("🔍 Modo de busca ativado")
+				return m, textinput.Blink
 			}
 		}
 
@@ -2732,6 +2834,40 @@ Verifique as configurações ou contate o administrador.`,
 
 		return m, nil
 
+	// === SEARCH HANDLERS ===
+
+	case searchDebounceMsg:
+		// Se a query mudou enquanto esperava, ignora
+		if msg.query != m.searchQuery {
+			return m, nil
+		}
+		// Dispara busca real
+		if m.searchMode && m.dbAccount != nil {
+			return m, m.performSearch(msg.query)
+		}
+		return m, nil
+
+	case searchResultsMsg:
+		if msg.err != nil {
+			m.log("❌ Erro na busca: %v", msg.err)
+			return m, nil
+		}
+		// Atualiza resultados se ainda em modo busca e query ainda é a mesma
+		if m.searchMode && msg.query == m.searchQuery {
+			if len(msg.results) > 0 {
+				m.emails = msg.results
+				m.selectedEmail = 0
+			} else if msg.query == "" {
+				// Se query vazia, restaura lista original
+				m.emails = m.originalEmails
+			} else {
+				// Mostra lista vazia para indicar "sem resultados"
+				m.emails = nil
+			}
+			m.log("🔍 Busca '%s': %d resultados", msg.query, len(msg.results))
+		}
+		return m, nil
+
 	case errMsg:
 		m.log("❌ Erro: %v", msg.err)
 		m.err = msg.err
@@ -2934,6 +3070,25 @@ func (m Model) viewInbox() string {
 		stats,
 	)) + draftIndicator + monitorIndicator + alertIndicator
 
+	// Search banner (quando em modo de busca)
+	var searchBanner = ""
+	if m.searchMode {
+		var searchBoxStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#FFD93D")).
+			Foreground(lipgloss.Color("#000000")).
+			Bold(true).
+			Padding(0, 1)
+		var resultInfo = ""
+		if m.searchQuery != "" {
+			if len(m.emails) > 0 {
+				resultInfo = fmt.Sprintf("  (%d resultados)", len(m.emails))
+			} else {
+				resultInfo = "  (sem resultados)"
+			}
+		}
+		searchBanner = searchBoxStyle.Render(fmt.Sprintf("🔍 Buscar: %s%s", m.searchInput.View(), resultInfo))
+	}
+
 	// Filter banner (quando em modo de preview de operação em lote)
 	var filterBanner = ""
 	if m.filterActive && m.pendingBatchOp != nil {
@@ -2957,7 +3112,9 @@ func (m Model) viewInbox() string {
 
 	// Footer
 	var footer string
-	if m.filterActive {
+	if m.searchMode {
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:selecionar  Esc:cancelar  /:buscar ")
+	} else if m.filterActive {
 		footer = subtitleStyle.Render(" y:CONFIRMAR operação  n/Esc:CANCELAR e voltar  ↑↓:navegar preview ")
 	} else if m.showAI {
 		var contextHint = ""
@@ -2968,7 +3125,7 @@ func (m Model) viewInbox() string {
 	} else if activeAlerts > 0 {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else {
-		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  d:drafts  Tab:pastas  a:AI  q:sair ")
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  d:drafts  Tab:pastas  /:buscar  a:AI  q:sair ")
 	}
 
 	// Layout
@@ -2992,7 +3149,14 @@ func (m Model) viewInbox() string {
 	}
 
 	var view string
-	if filterBanner != "" {
+	if searchBanner != "" {
+		view = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			searchBanner,
+			content,
+			footer,
+		)
+	} else if filterBanner != "" {
 		view = lipgloss.JoinVertical(lipgloss.Left,
 			header,
 			filterBanner,
@@ -3038,6 +3202,9 @@ func (m Model) renderFolders() string {
 
 func (m Model) renderEmailList() string {
 	if len(m.emails) == 0 {
+		if m.searchMode && m.searchQuery != "" {
+			return boxStyle.Render(subtitleStyle.Render(fmt.Sprintf("Nenhum email encontrado para '%s'\nTente outros termos ou pressione Esc para cancelar.", m.searchQuery)))
+		}
 		return boxStyle.Render(subtitleStyle.Render("Nenhum email encontrado.\nPressione 'r' para sincronizar."))
 	}
 
@@ -3104,6 +3271,11 @@ func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
 	}
 	if email.IsReplied {
 		indicator = "↩"
+	}
+
+	// Em modo de busca, mostra indicador de match
+	if m.searchMode && m.searchQuery != "" {
+		indicator = "➤"
 	}
 
 	var from = email.FromName

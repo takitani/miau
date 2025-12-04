@@ -88,7 +88,7 @@ func (a *Application) Start() error {
 	}
 
 	// Initialize database
-	if err := storage.InitDB(); err != nil {
+	if err := storage.Init(a.cfg.Storage.Database); err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 

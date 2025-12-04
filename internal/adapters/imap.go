@@ -99,7 +99,7 @@ func (a *IMAPAdapter) SelectMailbox(ctx context.Context, name string) (*ports.Ma
 	return &ports.MailboxStatus{
 		Name:        name,
 		NumMessages: data.NumMessages,
-		UIDNext:     data.UIDNext,
+		UIDNext:     uint32(data.UIDNext),
 		UIDValidity: data.UIDValidity,
 	}, nil
 }

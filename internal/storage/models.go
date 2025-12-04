@@ -247,3 +247,39 @@ type EmailPreview struct {
 	FromEmail string `json:"from_email"`
 	Date      string `json:"date"`
 }
+
+// ContentIndexState estado do indexador de conteúdo em background
+type ContentIndexState struct {
+	ID             int64          `db:"id"`
+	AccountID      int64          `db:"account_id"`
+	Status         string         `db:"status"` // idle, running, paused, completed, error
+	TotalEmails    int            `db:"total_emails"`
+	IndexedEmails  int            `db:"indexed_emails"`
+	LastIndexedUID int64          `db:"last_indexed_uid"`
+	Speed          int            `db:"speed"` // emails por minuto
+	LastError      sql.NullString `db:"last_error"`
+	StartedAt      sql.NullTime   `db:"started_at"`
+	PausedAt       sql.NullTime   `db:"paused_at"`
+	CompletedAt    sql.NullTime   `db:"completed_at"`
+	CreatedAt      SQLiteTime     `db:"created_at"`
+	UpdatedAt      SQLiteTime     `db:"updated_at"`
+}
+
+// AppSetting configuração do app por conta
+type AppSetting struct {
+	ID        int64      `db:"id"`
+	AccountID int64      `db:"account_id"`
+	Key       string     `db:"key"`
+	Value     string     `db:"value"`
+	CreatedAt SQLiteTime `db:"created_at"`
+	UpdatedAt SQLiteTime `db:"updated_at"`
+}
+
+// IndexStatus constantes de status do indexador
+const (
+	IndexStatusIdle      = "idle"
+	IndexStatusRunning   = "running"
+	IndexStatusPaused    = "paused"
+	IndexStatusCompleted = "completed"
+	IndexStatusError     = "error"
+)

@@ -173,6 +173,11 @@ type Model struct {
 	searchInput   textinput.Model         // Input de busca
 	searchResults []storage.EmailSummary  // Resultados da busca
 	searchQuery   string                  // Query atual (para highlight)
+	// Settings
+	showSettings       bool                       // Menu de configurações aberto
+	settingsSelection  int                        // Item selecionado no menu
+	indexState         *storage.ContentIndexState // Estado do indexador
+	indexerRunning     bool                       // Se o indexador está ativo nesta sessão
 }
 
 // SentEmailTracker rastreia emails enviados para detectar bounces
@@ -340,6 +345,20 @@ type searchResultsMsg struct {
 
 type searchDebounceMsg struct {
 	query string
+}
+
+// Settings and Indexer messages
+type indexStateLoadedMsg struct {
+	state *storage.ContentIndexState
+	err   error
+}
+
+type indexerTickMsg struct{}
+
+type indexBatchDoneMsg struct {
+	indexed int
+	lastUID int64
+	err     error
 }
 
 func New(account *config.Account, debug bool) Model {
@@ -562,6 +581,143 @@ func (m Model) performSearch(query string) tea.Cmd {
 	return func() tea.Msg {
 		var results, err = storage.FuzzySearchEmails(accountID, query, 100)
 		return searchResultsMsg{results: results, query: query, err: err}
+	}
+}
+
+// === SETTINGS & INDEXER COMMANDS ===
+
+func (m Model) loadIndexState() tea.Cmd {
+	var accountID = m.dbAccount.ID
+	return func() tea.Msg {
+		var state, err = storage.GetOrCreateIndexState(accountID)
+		if err != nil {
+			return indexStateLoadedMsg{err: err}
+		}
+		// Atualiza contagem de emails a indexar
+		var toIndex, _ = storage.CountEmailsToIndex(accountID)
+		var indexed, _ = storage.CountIndexedEmails(accountID)
+		state.TotalEmails = toIndex + indexed
+		state.IndexedEmails = indexed
+		return indexStateLoadedMsg{state: state}
+	}
+}
+
+func (m Model) handleSettingsAction() tea.Cmd {
+	if m.indexState == nil || m.dbAccount == nil {
+		return nil
+	}
+
+	switch m.settingsSelection {
+	case 0: // Iniciar/Parar indexação
+		if m.indexState.Status == storage.IndexStatusRunning {
+			// Pausar
+			storage.PauseIndexer(m.dbAccount.ID)
+			m.indexState.Status = storage.IndexStatusPaused
+			m.indexerRunning = false
+			m.log("⏸️ Indexador pausado")
+		} else if m.indexState.Status == storage.IndexStatusPaused {
+			// Retomar
+			storage.ResumeIndexer(m.dbAccount.ID)
+			m.indexState.Status = storage.IndexStatusRunning
+			m.indexerRunning = true
+			m.log("▶️ Indexador retomado")
+			return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+				return indexerTickMsg{}
+			})
+		} else {
+			// Iniciar
+			var toIndex, _ = storage.CountEmailsToIndex(m.dbAccount.ID)
+			if toIndex == 0 {
+				m.log("✅ Todos os emails já foram indexados!")
+				return nil
+			}
+			storage.StartIndexer(m.dbAccount.ID, toIndex+m.indexState.IndexedEmails)
+			m.indexState.Status = storage.IndexStatusRunning
+			m.indexState.TotalEmails = toIndex + m.indexState.IndexedEmails
+			m.indexerRunning = true
+			m.log("▶️ Indexador iniciado: %d emails para processar", toIndex)
+			return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+				return indexerTickMsg{}
+			})
+		}
+
+	case 1: // Velocidade (usa +/- para ajustar)
+		// Nada aqui, ação tratada pelo +/-
+
+	case 2: // Cancelar indexação
+		if m.indexState.Status == storage.IndexStatusRunning || m.indexState.Status == storage.IndexStatusPaused {
+			storage.UpdateIndexState(m.dbAccount.ID, storage.IndexStatusIdle, m.indexState.IndexedEmails, m.indexState.LastIndexedUID, "")
+			m.indexState.Status = storage.IndexStatusIdle
+			m.indexerRunning = false
+			m.log("🛑 Indexação cancelada")
+		}
+
+	case 3: // Fechar menu
+		m.showSettings = false
+
+	case 4: // Sobre
+		// Nada aqui, apenas info
+	}
+
+	return nil
+}
+
+func (m Model) indexNextBatch() tea.Cmd {
+	if m.client == nil || m.dbAccount == nil {
+		return nil
+	}
+
+	var accountID = m.dbAccount.ID
+	var client = m.client
+	var currentBox = m.currentBox
+
+	return func() tea.Msg {
+		// Busca emails para indexar (em lote pequeno para não travar)
+		var emails, err = storage.GetEmailsToIndex(accountID, 5)
+		if err != nil {
+			return indexBatchDoneMsg{err: err}
+		}
+
+		if len(emails) == 0 {
+			return indexBatchDoneMsg{indexed: 0}
+		}
+
+		// Seleciona mailbox
+		if _, err := client.SelectMailbox(currentBox); err != nil {
+			return indexBatchDoneMsg{err: fmt.Errorf("erro ao selecionar mailbox: %w", err)}
+		}
+
+		var indexed = 0
+		var lastUID int64 = 0
+
+		for _, email := range emails {
+			// Busca corpo do email
+			var rawData, err = client.FetchEmailRaw(email.UID)
+			if err != nil {
+				// Marca como indexado mesmo com erro para não travar
+				storage.MarkEmailIndexed(email.ID, "")
+				continue
+			}
+
+			// Extrai texto
+			var textContent = extractText(rawData)
+			if textContent == "" {
+				var htmlContent = extractHTML(rawData)
+				if htmlContent != "" {
+					textContent = htmlToText(htmlContent)
+				}
+			}
+
+			// Salva
+			if err := storage.MarkEmailIndexed(email.ID, textContent); err != nil {
+				continue
+			}
+
+			indexed++
+			lastUID = int64(email.UID)
+		}
+
+		return indexBatchDoneMsg{indexed: indexed, lastUID: lastUID}
 	}
 }
 
@@ -1962,6 +2118,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Bloqueia outras teclas no modo filtro
 		}
 
+		// Settings mode
+		if m.showSettings {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "S", "q":
+				m.showSettings = false
+				m.log("⚙️ Configurações fechadas")
+				return m, nil
+			case "up", "k":
+				if m.settingsSelection > 0 {
+					m.settingsSelection--
+				}
+				return m, nil
+			case "down", "j":
+				if m.settingsSelection < 4 { // 5 opções no menu
+					m.settingsSelection++
+				}
+				return m, nil
+			case "enter", " ":
+				return m, m.handleSettingsAction()
+			case "+", "=":
+				// Aumenta velocidade do indexador
+				if m.indexState != nil && m.settingsSelection == 1 {
+					var newSpeed = m.indexState.Speed + 50
+					if newSpeed > 500 {
+						newSpeed = 500
+					}
+					storage.SetIndexerSpeed(m.dbAccount.ID, newSpeed)
+					m.indexState.Speed = newSpeed
+					m.log("⚡ Velocidade: %d emails/min", newSpeed)
+				}
+				return m, nil
+			case "-", "_":
+				// Diminui velocidade do indexador
+				if m.indexState != nil && m.settingsSelection == 1 {
+					var newSpeed = m.indexState.Speed - 50
+					if newSpeed < 10 {
+						newSpeed = 10
+					}
+					storage.SetIndexerSpeed(m.dbAccount.ID, newSpeed)
+					m.indexState.Speed = newSpeed
+					m.log("⚡ Velocidade: %d emails/min", newSpeed)
+				}
+				return m, nil
+			}
+			return m, nil // Bloqueia outras teclas no settings
+		}
+
 		// Search mode
 		if m.searchMode {
 			switch msg.String() {
@@ -2344,6 +2549,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedEmail = 0
 				m.log("🔍 Modo de busca ativado")
 				return m, textinput.Blink
+			}
+
+		case "S":
+			// Abre menu de configurações
+			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI && !m.searchMode {
+				m.showSettings = true
+				m.settingsSelection = 0
+				m.log("⚙️ Abrindo configurações")
+				return m, m.loadIndexState()
 			}
 		}
 
@@ -2868,6 +3082,59 @@ Verifique as configurações ou contate o administrador.`,
 		}
 		return m, nil
 
+	// === SETTINGS & INDEXER HANDLERS ===
+
+	case indexStateLoadedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao carregar estado do indexador: %v", msg.err)
+			return m, nil
+		}
+		m.indexState = msg.state
+		m.log("⚙️ Estado do indexador carregado: %s", msg.state.Status)
+		return m, nil
+
+	case indexerTickMsg:
+		// Tick do indexador em background
+		if !m.indexerRunning || m.indexState == nil || m.indexState.Status != storage.IndexStatusRunning {
+			return m, nil
+		}
+		// Processa próximo lote
+		return m, m.indexNextBatch()
+
+	case indexBatchDoneMsg:
+		if msg.err != nil {
+			m.log("❌ Erro no indexador: %v", msg.err)
+			storage.UpdateIndexState(m.dbAccount.ID, storage.IndexStatusError, m.indexState.IndexedEmails, msg.lastUID, msg.err.Error())
+			m.indexState.Status = storage.IndexStatusError
+			m.indexerRunning = false
+			return m, nil
+		}
+
+		// Atualiza estado
+		m.indexState.IndexedEmails += msg.indexed
+		m.indexState.LastIndexedUID = msg.lastUID
+		storage.UpdateIndexState(m.dbAccount.ID, storage.IndexStatusRunning, m.indexState.IndexedEmails, msg.lastUID, "")
+
+		// Verifica se terminou
+		if m.indexState.IndexedEmails >= m.indexState.TotalEmails || msg.indexed == 0 {
+			storage.CompleteIndexer(m.dbAccount.ID)
+			m.indexState.Status = storage.IndexStatusCompleted
+			m.indexerRunning = false
+			m.log("✅ Indexação completa: %d emails", m.indexState.IndexedEmails)
+			return m, nil
+		}
+
+		m.log("📊 Indexados: %d/%d", m.indexState.IndexedEmails, m.indexState.TotalEmails)
+
+		// Agenda próximo tick baseado na velocidade
+		var interval = time.Minute / time.Duration(m.indexState.Speed)
+		if interval < 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+		}
+		return m, tea.Tick(interval, func(time.Time) tea.Msg {
+			return indexerTickMsg{}
+		})
+
 	case errMsg:
 		m.log("❌ Erro: %v", msg.err)
 		m.err = msg.err
@@ -2937,6 +3204,8 @@ func (m Model) View() string {
 			baseView = m.viewCompose()
 		} else if m.showViewer {
 			baseView = m.viewEmailViewer()
+		} else if m.showSettings {
+			baseView = m.viewSettings()
 		} else {
 			baseView = m.viewInbox()
 		}
@@ -3457,6 +3726,109 @@ func (m Model) viewDebugPanel() string {
 	)
 
 	return debugBoxStyle.Width(width).Height(height).Render(content)
+}
+
+func (m Model) viewSettings() string {
+	var settingsBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FFD93D")).
+		Padding(1, 2)
+
+	var header = titleStyle.Render("miau 🐱") + " - " + infoStyle.Render("Configurações")
+
+	var lines []string
+
+	// Status do indexador
+	var indexStatus = "Carregando..."
+	var indexProgress = ""
+	var indexAction = "Iniciar indexação"
+
+	if m.indexState != nil {
+		switch m.indexState.Status {
+		case storage.IndexStatusIdle:
+			indexStatus = subtitleStyle.Render("Parado")
+			indexAction = "▶ Iniciar indexação"
+		case storage.IndexStatusRunning:
+			indexStatus = successStyle.Render("Executando")
+			indexAction = "⏸ Pausar indexação"
+		case storage.IndexStatusPaused:
+			indexStatus = infoStyle.Render("Pausado")
+			indexAction = "▶ Retomar indexação"
+		case storage.IndexStatusCompleted:
+			indexStatus = successStyle.Render("Completo ✓")
+			indexAction = "Já indexado"
+		case storage.IndexStatusError:
+			indexStatus = errorStyle.Render("Erro")
+			indexAction = "▶ Reiniciar indexação"
+		}
+
+		if m.indexState.TotalEmails > 0 {
+			var percent = float64(m.indexState.IndexedEmails) / float64(m.indexState.TotalEmails) * 100
+			indexProgress = fmt.Sprintf("%d/%d (%.1f%%)", m.indexState.IndexedEmails, m.indexState.TotalEmails, percent)
+
+			// Barra de progresso visual
+			var barWidth = 20
+			var filled = int(percent / 100 * float64(barWidth))
+			var bar = strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			indexProgress += "\n    " + infoStyle.Render("["+bar+"]")
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, infoStyle.Render("  📚 Indexação de Conteúdo"))
+	lines = append(lines, fmt.Sprintf("     Status: %s", indexStatus))
+	if indexProgress != "" {
+		lines = append(lines, fmt.Sprintf("     Progresso: %s", indexProgress))
+	}
+	lines = append(lines, "")
+
+	// Menu de opções
+	var options = []string{
+		indexAction,
+		fmt.Sprintf("⚡ Velocidade: %d emails/min  [+/-]", func() int {
+			if m.indexState != nil {
+				return m.indexState.Speed
+			}
+			return 100
+		}()),
+		"🛑 Cancelar indexação",
+		"← Fechar configurações",
+		"ℹ Sobre o miau",
+	}
+
+	lines = append(lines, infoStyle.Render("  Menu:"))
+	for i, opt := range options {
+		var prefix = "   "
+		if i == m.settingsSelection {
+			prefix = " ➤ "
+			lines = append(lines, selectedStyle.Render(prefix+opt))
+		} else {
+			lines = append(lines, subtitleStyle.Render(prefix+opt))
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, subtitleStyle.Render("  A indexação permite busca no conteúdo completo"))
+	lines = append(lines, subtitleStyle.Render("  dos emails, não apenas assunto e remetente."))
+
+	// Dica sobre velocidade
+	if m.settingsSelection == 1 {
+		lines = append(lines, "")
+		lines = append(lines, infoStyle.Render("  Use [+] e [-] para ajustar a velocidade"))
+	}
+
+	var content = strings.Join(lines, "\n")
+
+	// Footer
+	var footer = subtitleStyle.Render(" ↑↓:navegar  Enter:selecionar  +/-:velocidade  Esc:fechar ")
+
+	var box = settingsBoxStyle.Width(m.width - 4).Render(header + "\n" + content)
+
+	if m.width > 0 && m.height > 0 {
+		var centered = lipgloss.Place(m.width, m.height-2, lipgloss.Center, lipgloss.Center, box)
+		return lipgloss.JoinVertical(lipgloss.Left, centered, footer)
+	}
+	return box + "\n" + footer
 }
 
 func (m Model) viewCompose() string {

@@ -1,95 +1,113 @@
 # miau
 
-**M**ail **I**ntelligence **A**ssistant **U**tility - Seu gerenciador de emails local com IA.
+**M**ail **I**ntelligence **A**ssistant **U**tility - Your local-first email client with AI integration.
 
-> "miau" - tem **IA** no meio, sacou? 🐱
+> A terminal-based email client powered by Claude AI for intelligent email management, search, and automation.
 
-## O que é?
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Claude](https://img.shields.io/badge/AI-Claude-orange?style=flat)](https://claude.ai/code)
 
-**miau** é uma ferramenta CLI/TUI para baixar, armazenar e gerenciar seus emails localmente via IMAP, com integração ao Claude Code para ajudar a responder, organizar e analisar suas mensagens.
+## What is miau?
 
-## Por que "miau"?
+**miau** is a privacy-focused, local-first email client that runs entirely in your terminal. It combines the power of IMAP email synchronization with **Claude AI** to create an intelligent email management experience. All your emails are stored locally in SQLite, giving you full control over your data.
 
-- É curto e fácil de digitar no terminal
-- Tem "**IA**" escondido no meio (m-**ia**-u)
-- É brasileiro e divertido
-- Soa como um gato pedindo atenção... assim como seus emails não lidos
+### Key Features
+
+- **AI-Powered Email Management** - Natural language queries, AI-generated responses, and intelligent batch operations via Claude Code
+- **Local-First Architecture** - All emails stored in SQLite, works offline, your data stays on your machine
+- **Fuzzy Search** - Fast trigram-based full-text search across all emails
+- **Terminal UI** - Beautiful TUI built with Bubble Tea, vim-style keybindings
+- **Multi-Account** - Support for Gmail, Google Workspace, and any IMAP provider
+- **Gmail Integration** - OAuth2 authentication, Gmail API for sending (bypasses DLP)
+
+## Why "miau"?
+
+- It's short and easy to type in the terminal
+- It has "**AI**" hidden in the middle (m-**ia**-u)
+- It sounds like a cat asking for attention... just like your unread emails
 
 ## Screenshots
 
 ```
-┌─ miau 🐱  demo@exemplo.com  [INBOX] (15 emails) ─────────────────────────────┐
-│ ★ miau Team          │ Bem-vindo ao miau! 🐱                    │ 03/12 14:30 │
-│ ● Maria Silva        │ Re: Proposta comercial Q4 2025           │ 03/12 13:30 │
-│ ● João Santos        │ Reunião amanhã às 14h confirmada         │ 03/12 12:30 │
-│   Financeiro         │ Fatura #12345 - Dezembro/2025            │ 03/12 11:30 │
-│   Tech Weekly        │ Newsletter: Novidades em IA              │ 03/12 10:30 │
-│ ★ Segurança          │ Alerta: Login detectado em novo dispo... │ 03/12 09:30 │
-│   Loja Online        │ Seu pedido foi enviado!                  │ 02/12 14:30 │
-│ ● DevConf            │ Convite: Webinar sobre Go e TUI          │ 02/12 14:30 │
+┌─ miau   demo@example.com  [INBOX] (15 emails) ───────────────────────────────┐
+│ ★ miau Team          │ Welcome to miau!                         │ 12/03 14:30 │
+│ ● Maria Silva        │ Re: Q4 2025 Commercial Proposal           │ 12/03 13:30 │
+│ ● John Santos        │ Meeting tomorrow at 2pm confirmed         │ 12/03 12:30 │
+│   Finance            │ Invoice #12345 - December/2025            │ 12/03 11:30 │
+│   Tech Weekly        │ Newsletter: AI News                       │ 12/03 10:30 │
+│ ★ Security           │ Alert: Login detected from new device...  │ 12/03 09:30 │
 ├─ AI ─────────────────────────────────────────────────────────────────────────┤
-│ 🤖 AI: quantos emails não lidos?                                             │
-│ > quantos emails não lidos?                                                  │
+│  AI: how many unread emails?                                                │
+│ > how many unread emails?                                                    │
 │                                                                              │
-│ Você tem 5 emails não lidos na sua caixa de entrada.                         │
+│ You have 5 unread emails in your inbox.                                      │
 └──────────────────────────────────────────────────────────────────────────────┘
- ↑↓:navegar  Tab:pastas  r:sync  a:AI  c:compor  q:sair
+ ↑↓:navigate  Tab:folders  r:sync  /:search  a:AI  c:compose  S:settings  q:quit
 ```
 
-## Funcionalidades
+## Features
 
-### Core
-- [x] Conexão IMAP com múltiplas contas
-- [x] Download e armazenamento local de emails (SQLite)
-- [x] Sincronização configurável (últimos X dias ou todos)
-- [x] Busca full-text com FTS5 trigram (busca parcial)
-- [x] Detecção de emails deletados no servidor
-- [x] Arquivamento Gmail-style (e: arquivar, x: lixeira)
-- [x] Retenção permanente de dados (nunca deleta nada)
+### Email Client
+- [x] IMAP connection with multiple accounts
+- [x] Local email storage in SQLite
+- [x] Configurable sync (last X days or all)
+- [x] Full-text fuzzy search with FTS5 trigram
+- [x] Server deletion detection
+- [x] Gmail-style archive (e: archive, x: trash)
+- [x] Permanent data retention (never deletes anything)
 
-### Envio de Emails
-- [x] Envio via SMTP com autenticação
-- [x] Envio via Gmail API (bypass DLP/classificação)
-- [x] Assinaturas HTML e texto configuráveis
-- [x] Classificação de emails (Google Workspace)
-- [x] Detecção de bounce após envio
+### Email Composition
+- [x] Send via SMTP with authentication
+- [x] Send via Gmail API (bypasses DLP/classification)
+- [x] Configurable HTML and text signatures
+- [x] Email classification (Google Workspace)
+- [x] Bounce detection after sending
 
-### TUI (Terminal User Interface)
-- [x] Navegação por pastas/labels
-- [x] Lista de emails com indicadores (lido/não lido/favorito)
-- [x] Atalhos de teclado estilo vim (j/k)
-- [x] Visualização de corpo do email (HTML no browser)
-- [x] Composição de emails e respostas
-- [x] Painel de AI integrado
+### Terminal UI (TUI)
+- [x] Folder/label navigation
+- [x] Email list with indicators (read/unread/starred)
+- [x] Vim-style keyboard shortcuts (j/k)
+- [x] Email body viewer (HTML opens in browser)
+- [x] Email composition and replies
+- [x] Integrated AI panel
+- [x] Settings menu with indexer controls
 
-### Autenticação
-- [x] Login com senha/App Password
-- [x] OAuth2 para Gmail/Google Workspace
-- [x] Comando `miau auth` para gerenciar tokens
+### Authentication
+- [x] Login with password/App Password
+- [x] OAuth2 for Gmail/Google Workspace
+- [x] `miau auth` command for token management
 
-### Integração com IA (via Claude Code)
-- [x] Chat integrado na TUI (tecla `a`)
-- [x] Queries no banco de emails via linguagem natural
-- [x] Criação de drafts via IA (responder emails)
-- [x] Operações em lote com preview (arquivar/deletar múltiplos)
-- [ ] Resumo de emails longos
-- [ ] Categorização automática
+### AI Integration (via Claude Code)
+- [x] Integrated chat in TUI (press `a`)
+- [x] Natural language database queries
+- [x] AI-generated draft responses
+- [x] Batch operations with preview (archive/delete multiple)
+- [ ] Email summarization
+- [ ] Automatic categorization
 
-## Stack Tecnológico
+## Documentation
 
-- **Linguagem**: Go
+- [System Architecture](docs/architecture.md) - Component diagrams and data flow
+- [Database Schema](docs/database.md) - ERD and table descriptions
+
+## Technology Stack
+
+- **Language**: Go
 - **TUI**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) + [Lip Gloss](https://github.com/charmbracelet/lipgloss) (Charm.sh)
-- **Armazenamento**: SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite))
+- **Database**: SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite))
+- **Search**: FTS5 with trigram tokenizer
 - **IMAP**: [go-imap/v2](https://github.com/emersion/go-imap)
-- **SMTP**: net/smtp + PLAIN/LOGIN auth
-- **Gmail API**: REST API para envio (bypass DLP)
-- **Config**: [Viper](https://github.com/spf13/viper) para configuração
+- **SMTP**: net/smtp with PLAIN/LOGIN auth
+- **Gmail API**: REST API for sending (DLP bypass)
+- **Config**: [Viper](https://github.com/spf13/viper)
+- **AI**: [Claude Code](https://claude.ai/code) integration
 
-## Dependências
+## Requirements
 
 - **Go** 1.21+
-- **Claude Code** - CLI do Claude para integração com IA ([instalar](https://claude.ai/code))
-- **sqlite3** - Driver do SQLite para queries via CLI
+- **Claude Code** - Claude CLI for AI integration ([install](https://claude.ai/code))
+- **sqlite3** - SQLite driver for CLI queries
 
 ```bash
 # Fedora/RHEL
@@ -108,7 +126,7 @@ winget install SQLite.SQLite
 choco install sqlite
 ```
 
-## Instalação
+## Installation
 
 ```bash
 git clone https://github.com/takitani/miau.git
@@ -117,50 +135,52 @@ go build ./cmd/miau/
 ./miau
 ```
 
-## Uso
+## Usage
 
 ```bash
-# Executar TUI principal
+# Run main TUI
 miau
 
-# Executar em modo debug
+# Run in debug mode
 miau --debug
 
-# Autenticação OAuth2 (para Gmail API)
+# OAuth2 authentication (for Gmail API)
 miau auth
 
-# Ver assinatura configurada
+# Show configured signature
 miau signature
 ```
 
-### Atalhos de Teclado
+### Keyboard Shortcuts
 
-| Tecla | Ação |
-|-------|------|
-| `j/k` ou `↑/↓` | Navegar na lista |
-| `Enter` | Abrir email no browser |
-| `Tab` | Alternar painel de pastas |
-| `c` | Compor novo email |
-| `r` | Sincronizar emails |
-| `a` | Abrir painel de AI |
-| `d` | Ver drafts pendentes |
-| `e` | Arquivar email |
-| `x` ou `#` | Mover para lixeira |
-| `q` | Sair |
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate list |
+| `Enter` | Open email in browser |
+| `Tab` | Toggle folder panel |
+| `/` | Fuzzy search |
+| `c` | Compose new email |
+| `r` | Sync emails |
+| `a` | Open AI panel |
+| `d` | View pending drafts |
+| `e` | Archive email |
+| `x` or `#` | Move to trash |
+| `S` | Open settings |
+| `q` | Quit |
 
-### Configuração
+### Configuration
 
-O arquivo de configuração fica em `~/.config/miau/config.yaml`:
+Configuration file is at `~/.config/miau/config.yaml`:
 
 ```yaml
 accounts:
-  - name: minha-conta
-    email: usuario@exemplo.com
-    auth_type: oauth2  # ou "password"
+  - name: my-account
+    email: user@example.com
+    auth_type: oauth2  # or "password"
     oauth2:
-      client_id: "seu-client-id.apps.googleusercontent.com"
-      client_secret: "seu-client-secret"
-    send_method: gmail_api  # ou "smtp"
+      client_id: "your-client-id.apps.googleusercontent.com"
+      client_secret: "your-client-secret"
+    send_method: gmail_api  # or "smtp"
     imap:
       host: imap.gmail.com
       port: 993
@@ -168,10 +188,10 @@ accounts:
     signature:
       enabled: true
       html: |
-        <p>Atenciosamente,<br>Seu Nome</p>
+        <p>Best regards,<br>Your Name</p>
       text: |
-        Atenciosamente,
-        Seu Nome
+        Best regards,
+        Your Name
 sync:
   interval: 5m
   initial_days: 30
@@ -184,19 +204,49 @@ compose:
 
 ## Gmail API vs SMTP
 
-O miau suporta dois métodos de envio:
+miau supports two sending methods:
 
-| Método | Vantagens | Desvantagens |
-|--------|-----------|--------------|
-| **SMTP** | Funciona com qualquer provedor | Pode ter problemas com DLP/classificação |
-| **Gmail API** | Bypass de DLP, melhor integração | Requer OAuth2, só funciona com Google |
+| Method | Advantages | Disadvantages |
+|--------|------------|---------------|
+| **SMTP** | Works with any provider | May have DLP/classification issues |
+| **Gmail API** | DLP bypass, better integration | Requires OAuth2, Google only |
 
-Para usar Gmail API, configure `send_method: gmail_api` e execute `miau auth` para autenticar.
+To use Gmail API, set `send_method: gmail_api` and run `miau auth` to authenticate.
 
-## Licença
+## AI Commands
+
+When the AI panel is open (press `a`), you can ask natural language questions about your emails:
+
+```
+> how many unread emails do I have?
+> show me emails from newsletter@example.com
+> archive all promotional emails older than 30 days
+> draft a reply to the last email from John
+> summarize my inbox by sender
+```
+
+The AI has direct access to your local SQLite database and can perform complex queries and batch operations with preview before execution.
+
+## Privacy & Security
+
+- **Local-first**: All emails stored locally in SQLite
+- **No cloud sync**: Your data never leaves your machine
+- **OAuth2**: Secure token-based authentication for Gmail
+- **Permanent retention**: Deleted emails are archived, never truly deleted
+- **AI integration**: Claude Code runs locally, queries your local database
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
 
 MIT
 
 ---
 
-*Projeto criado para uso pessoal, gerenciado com Claude Code.*
+*Built for developers who want control over their email with AI assistance.*
+
+## Keywords
+
+email client, terminal email, TUI email, AI email assistant, Claude email, email automation, IMAP client, Gmail client, local email, privacy email, email agent, AI email management, Claude Code integration, intelligent email, email search, fuzzy search email

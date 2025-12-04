@@ -237,6 +237,37 @@ CREATE TABLE IF NOT EXISTS pending_batch_ops (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_batch_ops_status ON pending_batch_ops(account_id, status);
+
+-- Tabela de estado do indexador de conteúdo (background sync)
+CREATE TABLE IF NOT EXISTS content_index_state (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL UNIQUE,
+	status TEXT NOT NULL DEFAULT 'idle', -- idle, running, paused, completed, error
+	total_emails INTEGER DEFAULT 0,
+	indexed_emails INTEGER DEFAULT 0,
+	last_indexed_uid INTEGER DEFAULT 0,
+	speed INTEGER DEFAULT 100, -- emails por minuto
+	last_error TEXT,
+	started_at DATETIME,
+	paused_at DATETIME,
+	completed_at DATETIME,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+-- Tabela de configurações do app
+CREATE TABLE IF NOT EXISTS app_settings (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	key TEXT NOT NULL,
+	value TEXT,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(account_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_settings_account_key ON app_settings(account_id, key);
 `
 
 func Init(dbPath string) error {
@@ -271,6 +302,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração is_archived: %w", err)
 	}
 
+	// Migração: adiciona coluna body_indexed
+	if err := migrateAddBodyIndexed(); err != nil {
+		return fmt.Errorf("erro na migração body_indexed: %w", err)
+	}
+
 	return nil
 }
 
@@ -291,6 +327,17 @@ func migrateAddIsArchived() error {
 	}
 	// Adiciona índice para is_archived
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_is_archived ON emails(is_archived)")
+	return nil
+}
+
+// migrateAddBodyIndexed adiciona coluna body_indexed para tracking do indexador
+func migrateAddBodyIndexed() error {
+	var _, err = db.Exec("ALTER TABLE emails ADD COLUMN body_indexed BOOLEAN DEFAULT 0")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	// Adiciona índice para body_indexed
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_body_indexed ON emails(body_indexed)")
 	return nil
 }
 

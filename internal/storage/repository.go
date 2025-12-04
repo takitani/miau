@@ -882,3 +882,195 @@ func GetEmailsFiltered(accountID, folderID int64, fromEmailFilter string, limit 
 		accountID, folderID, "%"+fromEmailFilter+"%", limit)
 	return emails, err
 }
+
+// === CONTENT INDEXER ===
+
+// GetOrCreateIndexState obtém ou cria estado do indexador para uma conta
+func GetOrCreateIndexState(accountID int64) (*ContentIndexState, error) {
+	var state ContentIndexState
+	err := db.Get(&state, "SELECT * FROM content_index_state WHERE account_id = ?", accountID)
+	if err == nil {
+		return &state, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Cria novo estado
+	_, err = db.Exec(`
+		INSERT INTO content_index_state (account_id, status, speed)
+		VALUES (?, 'idle', 100)`,
+		accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return GetOrCreateIndexState(accountID) // Recursão segura
+}
+
+// UpdateIndexState atualiza o estado do indexador
+func UpdateIndexState(accountID int64, status string, indexed int, lastUID int64, lastError string) error {
+	var query = `
+		UPDATE content_index_state SET
+			status = ?,
+			indexed_emails = ?,
+			last_indexed_uid = ?,
+			last_error = NULLIF(?, ''),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`
+
+	_, err := db.Exec(query, status, indexed, lastUID, lastError, accountID)
+	return err
+}
+
+// StartIndexer inicia o indexador
+func StartIndexer(accountID int64, totalEmails int) error {
+	_, err := db.Exec(`
+		UPDATE content_index_state SET
+			status = 'running',
+			total_emails = ?,
+			started_at = CURRENT_TIMESTAMP,
+			paused_at = NULL,
+			completed_at = NULL,
+			last_error = NULL,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`,
+		totalEmails, accountID)
+	return err
+}
+
+// PauseIndexer pausa o indexador
+func PauseIndexer(accountID int64) error {
+	_, err := db.Exec(`
+		UPDATE content_index_state SET
+			status = 'paused',
+			paused_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`,
+		accountID)
+	return err
+}
+
+// ResumeIndexer retoma o indexador
+func ResumeIndexer(accountID int64) error {
+	_, err := db.Exec(`
+		UPDATE content_index_state SET
+			status = 'running',
+			paused_at = NULL,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`,
+		accountID)
+	return err
+}
+
+// CompleteIndexer marca o indexador como completo
+func CompleteIndexer(accountID int64) error {
+	_, err := db.Exec(`
+		UPDATE content_index_state SET
+			status = 'completed',
+			completed_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`,
+		accountID)
+	return err
+}
+
+// SetIndexerSpeed define a velocidade do indexador
+func SetIndexerSpeed(accountID int64, speed int) error {
+	_, err := db.Exec(`
+		UPDATE content_index_state SET
+			speed = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ?`,
+		speed, accountID)
+	return err
+}
+
+// GetEmailsToIndex retorna emails que ainda não foram indexados
+func GetEmailsToIndex(accountID int64, limit int) ([]Email, error) {
+	var emails []Email
+	err := db.Select(&emails, `
+		SELECT * FROM emails
+		WHERE account_id = ? AND body_indexed = 0 AND is_deleted = 0
+		ORDER BY date DESC
+		LIMIT ?`,
+		accountID, limit)
+	return emails, err
+}
+
+// MarkEmailIndexed marca um email como indexado
+func MarkEmailIndexed(emailID int64, bodyText string) error {
+	_, err := db.Exec(`
+		UPDATE emails SET
+			body_text = ?,
+			body_indexed = 1,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		bodyText, emailID)
+	return err
+}
+
+// CountEmailsToIndex conta emails não indexados
+func CountEmailsToIndex(accountID int64) (int, error) {
+	var count int
+	err := db.Get(&count, `
+		SELECT COUNT(*) FROM emails
+		WHERE account_id = ? AND body_indexed = 0 AND is_deleted = 0`,
+		accountID)
+	return count, err
+}
+
+// CountIndexedEmails conta emails já indexados
+func CountIndexedEmails(accountID int64) (int, error) {
+	var count int
+	err := db.Get(&count, `
+		SELECT COUNT(*) FROM emails
+		WHERE account_id = ? AND body_indexed = 1`,
+		accountID)
+	return count, err
+}
+
+// === APP SETTINGS ===
+
+// GetSetting obtém uma configuração
+func GetSetting(accountID int64, key string) (string, error) {
+	var value string
+	err := db.Get(&value, `
+		SELECT value FROM app_settings
+		WHERE account_id = ? AND key = ?`,
+		accountID, key)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+// SetSetting define uma configuração
+func SetSetting(accountID int64, key, value string) error {
+	_, err := db.Exec(`
+		INSERT INTO app_settings (account_id, key, value)
+		VALUES (?, ?, ?)
+		ON CONFLICT(account_id, key) DO UPDATE SET
+			value = excluded.value,
+			updated_at = CURRENT_TIMESTAMP`,
+		accountID, key, value)
+	return err
+}
+
+// GetAllSettings obtém todas as configurações de uma conta
+func GetAllSettings(accountID int64) (map[string]string, error) {
+	var settings []AppSetting
+	err := db.Select(&settings, `
+		SELECT * FROM app_settings WHERE account_id = ?`,
+		accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var result = make(map[string]string)
+	for _, s := range settings {
+		result[s.Key] = s.Value
+	}
+	return result, nil
+}

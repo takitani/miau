@@ -395,6 +395,11 @@ type imageSavedMsg struct {
 	err  error
 }
 
+type desktopLaunchedMsg struct {
+	success bool
+	err     error
+}
+
 func New(account *config.Account, debug bool) Model {
 	var input = textinput.New()
 	input.Placeholder = "xxxx xxxx xxxx xxxx"
@@ -1772,6 +1777,38 @@ func (m Model) saveImage() tea.Cmd {
 	}
 }
 
+// switchToDesktop launches the desktop GUI version of miau
+func (m Model) switchToDesktop() tea.Cmd {
+	return func() tea.Msg {
+		m.log("🖥️ Abrindo versão desktop...")
+
+		// Try to find miau-desktop binary
+		var paths = []string{
+			"miau-desktop",
+			"./miau-desktop",
+			"./build/bin/miau-desktop",
+			"~/.local/bin/miau-desktop",
+			"/usr/local/bin/miau-desktop",
+		}
+
+		for _, p := range paths {
+			// Expand ~ to home dir
+			if strings.HasPrefix(p, "~") {
+				if home, err := os.UserHomeDir(); err == nil {
+					p = filepath.Join(home, p[1:])
+				}
+			}
+
+			var cmd = exec.Command(p)
+			if err := cmd.Start(); err == nil {
+				return desktopLaunchedMsg{success: true}
+			}
+		}
+
+		return desktopLaunchedMsg{success: false, err: fmt.Errorf("miau-desktop não encontrado")}
+	}
+}
+
 func (m Model) loadEmailContent() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.emails) == 0 || m.selectedEmail >= len(m.emails) {
@@ -2811,6 +2848,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedDraft = 0
 			return m, m.loadDrafts()
 
+		case "G":
+			// Switch to Desktop GUI
+			return m, m.switchToDesktop()
+
 		case "R":
 			// Reply
 			if !m.showFolders && len(m.emails) > 0 {
@@ -3119,6 +3160,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			m.showAlert = true
 			m.log("💾 Imagem salva: %s", msg.path)
+		}
+		return m, nil
+
+	case desktopLaunchedMsg:
+		if msg.err != nil {
+			m.alerts = append(m.alerts, Alert{
+				Type:      "error",
+				Title:     "Desktop GUI",
+				Message:   "Não foi possível abrir: " + msg.err.Error(),
+				Timestamp: time.Now(),
+			})
+			m.showAlert = true
+		} else if msg.success {
+			m.log("🖥️ Desktop GUI iniciado")
 		}
 		return m, nil
 

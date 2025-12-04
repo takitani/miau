@@ -113,13 +113,26 @@ func UpsertEmail(e *Email) error {
 
 func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
 	var emails []EmailSummary
-	err := db.Select(&emails, `
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
-		FROM emails
-		WHERE account_id = ? AND folder_id = ? AND is_archived = 0 AND is_deleted = 0
-		ORDER BY date DESC
-		LIMIT ? OFFSET ?`,
-		accountID, folderID, limit, offset)
+	var err error
+
+	// If accountID is 0, search by folderID only (folderID is unique)
+	if accountID == 0 {
+		err = db.Select(&emails, `
+			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+			FROM emails
+			WHERE folder_id = ? AND is_archived = 0 AND is_deleted = 0
+			ORDER BY date DESC
+			LIMIT ? OFFSET ?`,
+			folderID, limit, offset)
+	} else {
+		err = db.Select(&emails, `
+			SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, snippet
+			FROM emails
+			WHERE account_id = ? AND folder_id = ? AND is_archived = 0 AND is_deleted = 0
+			ORDER BY date DESC
+			LIMIT ? OFFSET ?`,
+			accountID, folderID, limit, offset)
+	}
 	return emails, err
 }
 

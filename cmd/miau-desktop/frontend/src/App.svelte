@@ -9,9 +9,10 @@
   import HelpOverlay from './lib/components/HelpOverlay.svelte';
   import AIChat from './lib/components/AIChat.svelte';
   import ComposeModal from './lib/components/ComposeModal.svelte';
+  import AnalyticsPanel from './lib/components/AnalyticsPanel.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
-  import { showSearch, showHelp, showAI, showCompose, aiWithContext, activePanel, setupKeyboardShortcuts, connect } from './lib/stores/ui.js';
+  import { showSearch, showHelp, showAI, showCompose, showAnalytics, aiWithContext, activePanel, setupKeyboardShortcuts, connect } from './lib/stores/ui.js';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
 
   // Get email context for AI
@@ -65,14 +66,16 @@
       <EmailList />
     </section>
 
-    <!-- Email Viewer Panel -->
+    <!-- Email Viewer Panel / Analytics Panel -->
     <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
-      {#if $selectedEmail}
+      {#if $showAnalytics}
+        <AnalyticsPanel />
+      {:else if $selectedEmail}
         <EmailViewer email={$selectedEmail} />
       {:else}
         <div class="empty-state">
           <p>Selecione um email para visualizar</p>
-          <p class="hint">Use j/k para navegar, Enter para abrir</p>
+          <p class="hint">Use j/k para navegar, Enter para abrir, p para analytics</p>
         </div>
       {/if}
     </section>

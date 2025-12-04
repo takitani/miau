@@ -16,6 +16,7 @@ type App interface {
 	Notification() NotificationService
 	Sync() SyncService
 	AI() AIService
+	Analytics() AnalyticsService
 
 	// Events
 	Events() EventBus

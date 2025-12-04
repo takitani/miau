@@ -215,6 +215,73 @@ type BounceInfo struct {
 	BouncedAt         time.Time
 }
 
+// ============================================================================
+// ANALYTICS TYPES
+// ============================================================================
+
+// AnalyticsOverview contains general email statistics
+type AnalyticsOverview struct {
+	TotalEmails    int     `json:"totalEmails"`
+	UnreadEmails   int     `json:"unreadEmails"`
+	StarredEmails  int     `json:"starredEmails"`
+	ArchivedEmails int     `json:"archivedEmails"`
+	SentEmails     int     `json:"sentEmails"`
+	DraftCount     int     `json:"draftCount"`
+	StorageUsedMB  float64 `json:"storageUsedMb"`
+}
+
+// SenderStats contains statistics for a sender
+type SenderStats struct {
+	Email      string  `json:"email"`
+	Name       string  `json:"name"`
+	Count      int     `json:"count"`
+	UnreadCount int    `json:"unreadCount"`
+	Percentage float64 `json:"percentage"`
+}
+
+// HourlyStats contains email count per hour
+type HourlyStats struct {
+	Hour  int `json:"hour"`
+	Count int `json:"count"`
+}
+
+// DailyStats contains email count per day
+type DailyStats struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+// WeekdayStats contains email count per weekday
+type WeekdayStats struct {
+	Weekday int    `json:"weekday"` // 0=Sunday, 6=Saturday
+	Name    string `json:"name"`
+	Count   int    `json:"count"`
+}
+
+// EmailTrends contains email volume trends over time
+type EmailTrends struct {
+	Daily   []DailyStats   `json:"daily"`
+	Hourly  []HourlyStats  `json:"hourly"`
+	Weekday []WeekdayStats `json:"weekday"`
+}
+
+// ResponseTimeStats contains response time statistics
+type ResponseTimeStats struct {
+	AvgResponseMinutes float64 `json:"avgResponseMinutes"`
+	MedianMinutes      float64 `json:"medianMinutes"`
+	ResponseRate       float64 `json:"responseRate"` // percentage of emails replied
+}
+
+// AnalyticsResult contains all analytics data
+type AnalyticsResult struct {
+	Overview     AnalyticsOverview   `json:"overview"`
+	TopSenders   []SenderStats       `json:"topSenders"`
+	Trends       EmailTrends         `json:"trends"`
+	ResponseTime ResponseTimeStats   `json:"responseTime"`
+	Period       string              `json:"period"` // "7d", "30d", "90d", "all"
+	GeneratedAt  time.Time           `json:"generatedAt"`
+}
+
 // AccountInfo contains account information
 type AccountInfo struct {
 	ID        int64

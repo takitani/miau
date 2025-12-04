@@ -449,6 +449,109 @@ func (a *StorageAdapter) SetSetting(ctx context.Context, accountID int64, key, v
 	return nil
 }
 
+// === ANALYTICS ===
+
+// GetAnalyticsOverview returns overall email statistics
+func (a *StorageAdapter) GetAnalyticsOverview(ctx context.Context, accountID int64) (*ports.AnalyticsOverview, error) {
+	var overview, err = storage.GetAnalyticsOverview(accountID)
+	if err != nil {
+		return nil, err
+	}
+	return &ports.AnalyticsOverview{
+		TotalEmails:    overview.TotalEmails,
+		UnreadEmails:   overview.UnreadEmails,
+		StarredEmails:  overview.StarredEmails,
+		ArchivedEmails: overview.ArchivedEmails,
+		SentEmails:     overview.SentEmails,
+		DraftCount:     overview.DraftCount,
+		StorageUsedMB:  overview.StorageUsedMB,
+	}, nil
+}
+
+// GetTopSenders returns top email senders
+func (a *StorageAdapter) GetTopSenders(ctx context.Context, accountID int64, limit int, sinceDays int) ([]ports.SenderStats, error) {
+	var senders, err = storage.GetTopSenders(accountID, limit, sinceDays)
+	if err != nil {
+		return nil, err
+	}
+
+	var result = make([]ports.SenderStats, len(senders))
+	for i, s := range senders {
+		result[i] = ports.SenderStats{
+			Email:       s.Email,
+			Name:        s.Name,
+			Count:       s.Count,
+			UnreadCount: s.UnreadCount,
+		}
+	}
+	return result, nil
+}
+
+// GetEmailCountByHour returns email count by hour of day
+func (a *StorageAdapter) GetEmailCountByHour(ctx context.Context, accountID int64, sinceDays int) ([]ports.HourlyStats, error) {
+	var stats, err = storage.GetEmailCountByHour(accountID, sinceDays)
+	if err != nil {
+		return nil, err
+	}
+
+	var result = make([]ports.HourlyStats, len(stats))
+	for i, s := range stats {
+		result[i] = ports.HourlyStats{
+			Hour:  s.Hour,
+			Count: s.Count,
+		}
+	}
+	return result, nil
+}
+
+// GetEmailCountByDay returns email count by day
+func (a *StorageAdapter) GetEmailCountByDay(ctx context.Context, accountID int64, sinceDays int) ([]ports.DailyStats, error) {
+	var stats, err = storage.GetEmailCountByDay(accountID, sinceDays)
+	if err != nil {
+		return nil, err
+	}
+
+	var result = make([]ports.DailyStats, len(stats))
+	for i, s := range stats {
+		result[i] = ports.DailyStats{
+			Date:  s.Date,
+			Count: s.Count,
+		}
+	}
+	return result, nil
+}
+
+// GetEmailCountByWeekday returns email count by day of week
+func (a *StorageAdapter) GetEmailCountByWeekday(ctx context.Context, accountID int64, sinceDays int) ([]ports.WeekdayStats, error) {
+	var stats, err = storage.GetEmailCountByWeekday(accountID, sinceDays)
+	if err != nil {
+		return nil, err
+	}
+
+	var weekdayNames = []string{"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"}
+	var result = make([]ports.WeekdayStats, len(stats))
+	for i, s := range stats {
+		result[i] = ports.WeekdayStats{
+			Weekday: s.Weekday,
+			Name:    weekdayNames[s.Weekday],
+			Count:   s.Count,
+		}
+	}
+	return result, nil
+}
+
+// GetResponseStats returns response time statistics
+func (a *StorageAdapter) GetResponseStats(ctx context.Context, accountID int64) (*ports.ResponseTimeStats, error) {
+	var stats, err = storage.GetResponseStats(accountID)
+	if err != nil {
+		return nil, err
+	}
+	return &ports.ResponseTimeStats{
+		AvgResponseMinutes: stats.AvgResponseMinutes,
+		ResponseRate:       stats.ResponseRate,
+	}, nil
+}
+
 // convertStorageEmail converts storage.Email to ports.EmailContent
 func convertStorageEmail(e *storage.Email) *ports.EmailContent {
 	return &ports.EmailContent{

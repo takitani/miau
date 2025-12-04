@@ -1270,22 +1270,30 @@ func (m Model) archiveEmail(emailID int64, uid uint32, messageID string) tea.Cmd
 			return emailArchivedMsg{emailID: emailID, err: err}
 		}
 
-		// 2. Arquiva no servidor
-		if m.account.AuthType == config.AuthTypeOAuth2 && m.account.SendMethod == config.SendMethodGmailAPI {
-			// Usa Gmail API
+		// 2. Arquiva no servidor (Gmail API se OAuth2, senão IMAP)
+		var serverErr error
+
+		// Gmail API se OAuth2 configurado (mais confiável, funciona com DLP)
+		if m.account.AuthType == config.AuthTypeOAuth2 {
 			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
 			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
-			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
-			if err == nil {
+			if token, err := auth.GetValidToken(oauthCfg, tokenPath); err == nil {
 				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
-				// Busca ID da mensagem no Gmail pelo Message-ID RFC822
 				if gmailMsgID, err := gmailClient.GetMessageIDByRFC822MsgID(messageID); err == nil {
-					gmailClient.ArchiveMessage(gmailMsgID)
+					serverErr = gmailClient.ArchiveMessage(gmailMsgID)
+				} else {
+					serverErr = err
 				}
+			} else {
+				serverErr = err
 			}
-		} else if m.client != nil {
-			// Usa IMAP
-			m.client.ArchiveEmail(uid)
+		}
+
+		// Fallback para IMAP se Gmail API não disponível ou falhou
+		if serverErr != nil || m.account.AuthType != config.AuthTypeOAuth2 {
+			if m.client != nil {
+				serverErr = m.client.ArchiveEmail(uid)
+			}
 		}
 
 		return emailArchivedMsg{emailID: emailID, err: nil}
@@ -1300,25 +1308,34 @@ func (m Model) deleteEmail(emailID int64, uid uint32, messageID string) tea.Cmd 
 			return emailDeletedMsg{emailID: emailID, err: err}
 		}
 
-		// 2. Move para lixeira no servidor
-		if m.account.AuthType == config.AuthTypeOAuth2 && m.account.SendMethod == config.SendMethodGmailAPI {
-			// Usa Gmail API
+		// 2. Move para lixeira no servidor (Gmail API se OAuth2, senão IMAP)
+		var serverErr error
+
+		// Gmail API se OAuth2 configurado (mais confiável, funciona com DLP)
+		if m.account.AuthType == config.AuthTypeOAuth2 {
 			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
 			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
-			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
-			if err == nil {
+			if token, err := auth.GetValidToken(oauthCfg, tokenPath); err == nil {
 				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
-				// Busca ID da mensagem no Gmail pelo Message-ID RFC822
 				if gmailMsgID, err := gmailClient.GetMessageIDByRFC822MsgID(messageID); err == nil {
-					gmailClient.TrashMessage(gmailMsgID)
+					serverErr = gmailClient.TrashMessage(gmailMsgID)
+				} else {
+					serverErr = err
 				}
+			} else {
+				serverErr = err
 			}
-		} else if m.client != nil {
-			// Usa IMAP
-			var trashFolder = m.client.GetTrashFolder()
-			m.client.TrashEmail(uid, trashFolder)
 		}
 
+		// Fallback para IMAP se Gmail API não disponível ou falhou
+		if serverErr != nil || m.account.AuthType != config.AuthTypeOAuth2 {
+			if m.client != nil {
+				var trashFolder = m.client.GetTrashFolder()
+				serverErr = m.client.TrashEmail(uid, trashFolder)
+			}
+		}
+
+		// Retorna sucesso mesmo se servidor falhou (email já marcado local)
 		return emailDeletedMsg{emailID: emailID, err: nil}
 	}
 }

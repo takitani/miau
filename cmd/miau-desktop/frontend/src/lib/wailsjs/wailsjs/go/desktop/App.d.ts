@@ -52,6 +52,8 @@ export function MarkAsStarred(arg1:number,arg2:boolean):Promise<void>;
 
 export function MoveToFolder(arg1:number,arg2:string):Promise<void>;
 
+export function NeedsOAuth2Auth():Promise<boolean>;
+
 export function NeedsSetup():Promise<boolean>;
 
 export function OpenURL(arg1:string):Promise<void>;
@@ -71,6 +73,8 @@ export function SendEmail(arg1:desktop.SendRequest):Promise<desktop.SendResult>;
 export function ShowError(arg1:string,arg2:string):Promise<void>;
 
 export function ShowInfo(arg1:string,arg2:string):Promise<void>;
+
+export function StartOAuth2Auth():Promise<void>;
 
 export function SwitchToTerminal():Promise<void>;
 

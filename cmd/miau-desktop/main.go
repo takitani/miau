@@ -15,7 +15,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// Note: The embed path is relative to this file's directory
+//go:embed build/appicon.png
+var icon []byte
 
 func main() {
 	// Create an instance of the app structure
@@ -45,7 +46,7 @@ func main() {
 		},
 		// Linux specific options
 		Linux: &linux.Options{
-			Icon:                []byte{},
+			Icon:                icon,
 			WindowIsTranslucent: false,
 			WebviewGpuPolicy:    linux.WebviewGpuPolicyAlways,
 			ProgramName:         "miau",

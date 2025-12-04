@@ -147,7 +147,12 @@
           close();
         } else {
           logError('Falha ao enviar', result.error);
-          alert(`Erro: ${result.error}`);
+          // Check if it's an OAuth2 authentication error
+          if (result.error && result.error.includes('Gmail API not configured')) {
+            await handleOAuth2Required();
+          } else {
+            alert(`Erro: ${result.error}`);
+          }
         }
       } else {
         // Mock for dev
@@ -156,9 +161,34 @@
       }
     } catch (err) {
       logError('Erro ao enviar email', err);
-      alert(`Erro: ${err.message}`);
+      // Check if it's an OAuth2 authentication error
+      if (err.message && err.message.includes('Gmail API not configured')) {
+        await handleOAuth2Required();
+      } else {
+        alert(`Erro: ${err.message}`);
+      }
     } finally {
       sending = false;
+    }
+  }
+
+  async function handleOAuth2Required() {
+    var shouldAuth = confirm(
+      'Gmail API nao esta configurado.\n\n' +
+      'Voce precisa autenticar com sua conta Google para enviar emails.\n\n' +
+      'Deseja autenticar agora? (Abrira o navegador)'
+    );
+
+    if (shouldAuth) {
+      info('Iniciando autenticacao OAuth2...');
+      try {
+        await window.go.desktop.App.StartOAuth2Auth();
+        info('Autenticacao concluida! Tente enviar novamente.');
+        alert('Autenticacao concluida com sucesso!\n\nClique em Enviar novamente.');
+      } catch (authErr) {
+        logError('Erro na autenticacao', authErr);
+        alert(`Erro na autenticacao: ${authErr.message}`);
+      }
     }
   }
 

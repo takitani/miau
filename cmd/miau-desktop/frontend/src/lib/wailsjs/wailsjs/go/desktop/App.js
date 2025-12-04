@@ -102,6 +102,10 @@ export function MoveToFolder(arg1, arg2) {
   return window['go']['desktop']['App']['MoveToFolder'](arg1, arg2);
 }
 
+export function NeedsOAuth2Auth() {
+  return window['go']['desktop']['App']['NeedsOAuth2Auth']();
+}
+
 export function NeedsSetup() {
   return window['go']['desktop']['App']['NeedsSetup']();
 }
@@ -140,6 +144,10 @@ export function ShowError(arg1, arg2) {
 
 export function ShowInfo(arg1, arg2) {
   return window['go']['desktop']['App']['ShowInfo'](arg1, arg2);
+}
+
+export function StartOAuth2Auth() {
+  return window['go']['desktop']['App']['StartOAuth2Auth']();
 }
 
 export function SwitchToTerminal() {

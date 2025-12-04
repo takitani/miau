@@ -48,6 +48,16 @@ func (s *SendService) SetSendMethod(method ports.SendMethod) {
 	s.sendMethod = method
 }
 
+// SetGmailAPI sets the Gmail API adapter (used after OAuth2 authentication)
+func (s *SendService) SetGmailAPI(gmailAPI ports.GmailAPIPort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gmailAPI = gmailAPI
+	// Clear signature cache so it gets reloaded from new adapter
+	s.signatureCache = ""
+	s.signatureCached = false
+}
+
 // Send sends an email immediately
 func (s *SendService) Send(ctx context.Context, req *ports.SendRequest) (*ports.SendResult, error) {
 	s.mu.RLock()
@@ -69,8 +79,22 @@ func (s *SendService) Send(ctx context.Context, req *ports.SendRequest) (*ports.
 
 	switch method {
 	case ports.SendMethodGmailAPI:
+		if s.gmailAPI == nil {
+			s.events.Publish(ports.BaseEvent{
+				EventType: ports.EventTypeSendError,
+				Time:      time.Now(),
+			})
+			return nil, fmt.Errorf("Gmail API not configured - check OAuth2 setup")
+		}
 		result, err = s.gmailAPI.Send(ctx, req)
 	default:
+		if s.smtp == nil {
+			s.events.Publish(ports.BaseEvent{
+				EventType: ports.EventTypeSendError,
+				Time:      time.Now(),
+			})
+			return nil, fmt.Errorf("SMTP not configured - check account settings")
+		}
 		result, err = s.smtp.Send(ctx, req)
 	}
 
@@ -156,33 +180,30 @@ func (s *SendService) GetSignature(ctx context.Context) (string, error) {
 }
 
 // LoadSignature pre-loads and caches the signature
+// Tries Gmail API first (authoritative source), falls back to empty if not available
 func (s *SendService) LoadSignature(ctx context.Context) error {
 	s.mu.RLock()
-	var method = s.sendMethod
 	var gmailAPI = s.gmailAPI
 	s.mu.RUnlock()
 
 	var sig string
 	var err error
 
-	if method == ports.SendMethodGmailAPI {
-		if gmailAPI == nil {
-			// Gmail API not configured, skip signature loading
-			log.Printf("[SendService] Gmail API not configured, skipping signature load")
-			s.mu.Lock()
-			s.signatureCache = ""
-			s.signatureCached = true
-			s.mu.Unlock()
-			return nil
-		}
+	// Try Gmail API first - it's the authoritative source for signature
+	// regardless of send method (user may send via SMTP but want Gmail signature)
+	if gmailAPI != nil {
 		sig, err = gmailAPI.GetSignature(ctx)
+		if err != nil {
+			log.Printf("[SendService] Failed to load signature from Gmail API: %v", err)
+			// Don't fail, just use empty signature
+			sig = ""
+			err = nil
+		} else {
+			log.Printf("[SendService] Loaded signature from Gmail API (%d chars)", len(sig))
+		}
 	} else {
-		// For SMTP, we don't have signature support yet
+		log.Printf("[SendService] Gmail API not available, no signature loaded")
 		sig = ""
-	}
-
-	if err != nil {
-		return err
 	}
 
 	s.mu.Lock()

@@ -27,6 +27,8 @@ type Application struct {
 	// Ports (adapters)
 	imapAdapter    *adapters.IMAPAdapter
 	storageAdapter *adapters.StorageAdapter
+	smtpAdapter    *adapters.SMTPAdapter
+	gmailAdapter   *adapters.GmailAPIAdapter
 
 	// Services
 	eventBus     ports.EventBus
@@ -95,6 +97,8 @@ func (a *Application) Start() error {
 	// Create adapters
 	a.imapAdapter = adapters.NewIMAPAdapter(a.account)
 	a.storageAdapter = adapters.NewStorageAdapter()
+	a.smtpAdapter = adapters.NewSMTPAdapter(a.account)
+	a.gmailAdapter = adapters.NewGmailAPIAdapter(a.account, config.GetConfigPath())
 
 	// Create event bus
 	a.eventBus = services.NewEventBus()
@@ -113,7 +117,18 @@ func (a *Application) Start() error {
 	a.emailService = services.NewEmailService(a.imapAdapter, a.storageAdapter, a.eventBus)
 	a.emailService.SetAccount(accountInfo)
 
-	a.sendService = services.NewSendService(nil, nil, a.storageAdapter, a.eventBus) // SMTP/Gmail adapters to be added
+	// IMPORTANT: We must explicitly check for nil before assigning to interface
+	// to avoid the "nil interface containing nil pointer" gotcha in Go.
+	// An interface is only truly nil if both type and value are nil.
+	var smtpPort ports.SMTPPort
+	if a.smtpAdapter != nil {
+		smtpPort = a.smtpAdapter
+	}
+	var gmailPort ports.GmailAPIPort
+	if a.gmailAdapter != nil {
+		gmailPort = a.gmailAdapter
+	}
+	a.sendService = services.NewSendService(smtpPort, gmailPort, a.storageAdapter, a.eventBus)
 	a.sendService.SetAccount(accountInfo)
 	a.sendService.SetSendMethod(a.appConfig.SendMethod)
 
@@ -244,4 +259,24 @@ func (a *Application) LoadFolders(ctx context.Context) ([]ports.Folder, error) {
 // SyncFolder syncs a specific folder
 func (a *Application) SyncFolder(ctx context.Context, folder string) (*ports.SyncResult, error) {
 	return a.syncService.SyncFolder(ctx, folder)
+}
+
+// ReinitializeGmailAdapter reinitializes the Gmail API adapter after OAuth2 authentication
+// This is called after the user completes the browser-based OAuth2 flow
+func (a *Application) ReinitializeGmailAdapter() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Create new Gmail adapter with fresh tokens
+	a.gmailAdapter = adapters.NewGmailAPIAdapter(a.account, config.GetConfigPath())
+	if a.gmailAdapter == nil {
+		return fmt.Errorf("failed to initialize Gmail API - token may be missing")
+	}
+
+	// Update the send service with the new adapter
+	// We need to check for nil before passing to avoid the nil interface gotcha
+	var gmailPort ports.GmailAPIPort = a.gmailAdapter
+	a.sendService.SetGmailAPI(gmailPort)
+
+	return nil
 }

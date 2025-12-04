@@ -290,26 +290,92 @@ func TestSendService_LoadSignature_GmailAPI(t *testing.T) {
 	mockGmail.AssertExpectations(t)
 }
 
-func TestSendService_LoadSignature_SMTP(t *testing.T) {
-	// Arrange
+func TestSendService_LoadSignature_NoGmailAPI(t *testing.T) {
+	// Arrange - Gmail API is nil
+	var mockSMTP = new(mocks.SMTPPort)
+	var mockStorage = new(mocks.StoragePort)
+	var mockEvents = new(mocks.EventBus)
+
+	// Create service with nil Gmail API
+	var svc = NewSendService(mockSMTP, nil, mockStorage, mockEvents)
+	svc.SetSendMethod(ports.SendMethodSMTP)
+
+	// Act
+	var err = svc.LoadSignature(context.Background())
+
+	// Assert - should succeed with empty signature
+	assert.NoError(t, err)
+	assert.True(t, svc.signatureCached)
+	assert.Equal(t, "", svc.signatureCache)
+}
+
+func TestSendService_LoadSignature_GmailAPIWithSMTPSend(t *testing.T) {
+	// Test that Gmail signature is loaded even when using SMTP for sending
 	var mockSMTP = new(mocks.SMTPPort)
 	var mockGmail = new(mocks.GmailAPIPort)
 	var mockStorage = new(mocks.StoragePort)
 	var mockEvents = new(mocks.EventBus)
 
 	var svc = NewSendService(mockSMTP, mockGmail, mockStorage, mockEvents)
-	svc.SetSendMethod(ports.SendMethodSMTP)
+	svc.SetSendMethod(ports.SendMethodSMTP) // Using SMTP, but should still get Gmail signature
+
+	var expectedSig = "-- \nGmail Signature"
+	mockGmail.On("GetSignature", mock.Anything).Return(expectedSig, nil)
 
 	// Act
 	var err = svc.LoadSignature(context.Background())
 
-	// Assert
+	// Assert - Gmail signature should be loaded even with SMTP send method
 	assert.NoError(t, err)
 	assert.True(t, svc.signatureCached)
-	assert.Equal(t, "", svc.signatureCache) // SMTP doesn't support signatures
+	assert.Equal(t, expectedSig, svc.signatureCache)
+	mockGmail.AssertExpectations(t)
+}
 
-	// Should NOT call Gmail API
-	mockGmail.AssertNotCalled(t, "GetSignature", mock.Anything)
+func TestSendService_Send_NilSMTPAdapter(t *testing.T) {
+	// Test that Send returns error when SMTP adapter is nil
+	var mockGmail = new(mocks.GmailAPIPort)
+	var mockStorage = new(mocks.StoragePort)
+	var mockEvents = new(mocks.EventBus)
+
+	// Create service with nil SMTP adapter
+	var svc = NewSendService(nil, mockGmail, mockStorage, mockEvents)
+	svc.SetAccount(testutil.TestAccount())
+	svc.SetSendMethod(ports.SendMethodSMTP)
+
+	var req = testutil.TestSendRequest()
+	mockEvents.On("Publish", mock.Anything).Return()
+
+	// Act
+	var result, err = svc.Send(context.Background(), req)
+
+	// Assert - should return error, not crash
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "SMTP not configured")
+}
+
+func TestSendService_Send_NilGmailAPIAdapter(t *testing.T) {
+	// Test that Send returns error when Gmail API adapter is nil
+	var mockSMTP = new(mocks.SMTPPort)
+	var mockStorage = new(mocks.StoragePort)
+	var mockEvents = new(mocks.EventBus)
+
+	// Create service with nil Gmail API adapter
+	var svc = NewSendService(mockSMTP, nil, mockStorage, mockEvents)
+	svc.SetAccount(testutil.TestAccount())
+	svc.SetSendMethod(ports.SendMethodGmailAPI)
+
+	var req = testutil.TestSendRequest()
+	mockEvents.On("Publish", mock.Anything).Return()
+
+	// Act
+	var result, err = svc.Send(context.Background(), req)
+
+	// Assert - should return error, not crash
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "Gmail API not configured")
 }
 
 func TestSendService_Send_TracksEmailForBounceDetection(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/opik/miau/internal/app"
+	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/ports"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -313,4 +314,70 @@ func (a *App) getError(err error) string {
 		return ""
 	}
 	return fmt.Sprintf("%v", err)
+}
+
+// NeedsOAuth2Auth returns true if OAuth2 authentication is required
+func (a *App) NeedsOAuth2Auth() bool {
+	if a.account == nil || a.account.AuthType != config.AuthTypeOAuth2 {
+		return false
+	}
+	if a.account.OAuth2 == nil {
+		return false
+	}
+	// Check if token exists
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), a.account.Email)
+	var oauth2Cfg = auth.GetOAuth2Config(a.account.OAuth2.ClientID, a.account.OAuth2.ClientSecret)
+	_, err := auth.GetValidToken(oauth2Cfg, tokenPath)
+	return err != nil
+}
+
+// StartOAuth2Auth initiates the OAuth2 authentication flow
+// Opens browser for user to authenticate and waits for callback
+func (a *App) StartOAuth2Auth() error {
+	if a.account == nil {
+		return fmt.Errorf("no account configured")
+	}
+	if a.account.OAuth2 == nil {
+		return fmt.Errorf("OAuth2 not configured for this account")
+	}
+
+	runtime.LogInfo(a.ctx, "Starting OAuth2 authentication flow...")
+
+	var oauth2Cfg = auth.GetOAuth2Config(a.account.OAuth2.ClientID, a.account.OAuth2.ClientSecret)
+
+	// This will open browser and wait for callback
+	token, err := auth.AuthenticateWithBrowser(oauth2Cfg)
+	if err != nil {
+		runtime.LogErrorf(a.ctx, "OAuth2 authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// Save token
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), a.account.Email)
+	if err := auth.SaveToken(tokenPath, token); err != nil {
+		runtime.LogErrorf(a.ctx, "Failed to save token: %v", err)
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	runtime.LogInfo(a.ctx, "OAuth2 token saved successfully")
+
+	// Reinitialize Gmail adapter in the application
+	if coreApp, ok := a.application.(*app.Application); ok {
+		if err := coreApp.ReinitializeGmailAdapter(); err != nil {
+			runtime.LogErrorf(a.ctx, "Failed to reinitialize Gmail adapter: %v", err)
+			return fmt.Errorf("failed to initialize Gmail API: %w", err)
+		}
+		runtime.LogInfo(a.ctx, "Gmail API adapter reinitialized successfully")
+
+		// Reload signature with new adapter
+		go func() {
+			if err := a.application.Send().LoadSignature(a.ctx); err != nil {
+				runtime.LogErrorf(a.ctx, "Failed to reload signature: %v", err)
+			} else {
+				runtime.LogInfo(a.ctx, "Signature reloaded successfully")
+			}
+		}()
+	}
+
+	return nil
 }

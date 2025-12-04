@@ -42,7 +42,7 @@ func main() {
 		},
 		// Enable devtools (F12 or Ctrl+Shift+I to open)
 		Debug: options.Debug{
-			OpenInspectorOnStartup: false,
+			OpenInspectorOnStartup: true,
 		},
 		// Linux specific options
 		Linux: &linux.Options{

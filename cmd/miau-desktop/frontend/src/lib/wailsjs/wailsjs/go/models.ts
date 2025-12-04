@@ -201,6 +201,7 @@ export namespace desktop {
 	    size: number;
 	    data?: string;
 	    isInline: boolean;
+	    partNumber?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AttachmentDTO(source);
@@ -215,6 +216,21 @@ export namespace desktop {
 	        this.size = source["size"];
 	        this.data = source["data"];
 	        this.isInline = source["isInline"];
+	        this.partNumber = source["partNumber"];
+	    }
+	}
+	export class AvailableFolderDTO {
+	    name: string;
+	    isSelected: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AvailableFolderDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.isSelected = source["isSelected"];
 	    }
 	}
 	export class ConnectionStatus {
@@ -483,6 +499,30 @@ export namespace desktop {
 	    }
 	}
 	
+	export class SettingsDTO {
+	    syncFolders: string[];
+	    uiTheme: string;
+	    uiShowPreview: boolean;
+	    uiPageSize: number;
+	    composeFormat: string;
+	    composeSendDelay: number;
+	    syncInterval: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SettingsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.syncFolders = source["syncFolders"];
+	        this.uiTheme = source["uiTheme"];
+	        this.uiShowPreview = source["uiShowPreview"];
+	        this.uiPageSize = source["uiPageSize"];
+	        this.composeFormat = source["composeFormat"];
+	        this.composeSendDelay = source["composeSendDelay"];
+	        this.syncInterval = source["syncInterval"];
+	    }
+	}
 	export class SyncResultDTO {
 	    newEmails: number;
 	    deletedEmails: number;

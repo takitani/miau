@@ -16,6 +16,8 @@ export function DeleteDraft(arg1:number):Promise<void>;
 
 export function Disconnect():Promise<void>;
 
+export function DownloadAttachment(arg1:number):Promise<string>;
+
 export function GetAIProviders():Promise<Array<Record<string, any>>>;
 
 export function GetAccounts():Promise<Array<desktop.AccountDTO>>;
@@ -25,6 +27,10 @@ export function GetAnalytics(arg1:string):Promise<desktop.AnalyticsResultDTO>;
 export function GetAnalyticsOverview():Promise<desktop.AnalyticsOverviewDTO>;
 
 export function GetAppInfo():Promise<Record<string, string>>;
+
+export function GetAttachments(arg1:number):Promise<Array<desktop.AttachmentDTO>>;
+
+export function GetAvailableFolders():Promise<Array<desktop.AvailableFolderDTO>>;
 
 export function GetConnectionStatus():Promise<desktop.ConnectionStatus>;
 
@@ -41,6 +47,8 @@ export function GetEmailByUID(arg1:number):Promise<desktop.EmailDetailDTO>;
 export function GetEmails(arg1:string,arg2:number):Promise<Array<desktop.EmailDTO>>;
 
 export function GetFolders():Promise<Array<desktop.FolderDTO>>;
+
+export function GetSettings():Promise<desktop.SettingsDTO>;
 
 export function GetSignature():Promise<string>;
 
@@ -62,9 +70,21 @@ export function NeedsOAuth2Auth():Promise<boolean>;
 
 export function NeedsSetup():Promise<boolean>;
 
+export function OpenAttachment(arg1:number,arg2:string):Promise<void>;
+
+export function OpenAttachmentByPart(arg1:number,arg2:string,arg3:string):Promise<void>;
+
 export function OpenURL(arg1:string):Promise<void>;
 
+export function SaveAttachment(arg1:number,arg2:string):Promise<void>;
+
+export function SaveAttachmentByPart(arg1:number,arg2:string,arg3:string):Promise<string>;
+
+export function SaveAttachmentDialog(arg1:number,arg2:string):Promise<string>;
+
 export function SaveDraft(arg1:desktop.DraftDTO):Promise<number>;
+
+export function SaveSettings(arg1:desktop.SettingsDTO):Promise<void>;
 
 export function Search(arg1:string,arg2:number):Promise<desktop.SearchResultDTO>;
 
@@ -85,5 +105,7 @@ export function StartOAuth2Auth():Promise<void>;
 export function SwitchToTerminal():Promise<void>;
 
 export function SyncCurrentFolder():Promise<desktop.SyncResultDTO>;
+
+export function SyncEssentialFolders():Promise<Array<desktop.SyncResultDTO>>;
 
 export function SyncFolder(arg1:string):Promise<desktop.SyncResultDTO>;

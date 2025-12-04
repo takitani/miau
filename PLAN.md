@@ -490,3 +490,48 @@ desktop-build-all:
 ---
 
 *Plano criado em: 2025-12-04*
+
+---
+
+# PLANO: Settings Modal Completo (Desktop + TUI)
+
+*Adicionado em: 2025-12-04*
+
+## Decisões
+- **Escopo**: Desktop e TUI simultaneamente
+- **Tabs**: Completo (Folders, UI, Compose, Sync, About)
+- **INBOX**: Opcional (usuário pode desmarcar qualquer pasta)
+
+## Contexto
+- TUI tem settings em `internal/tui/inbox/inbox.go` (linhas 4995-5096) - limitado a indexer
+- Desktop tem `showSettings` store e shortcut `S` mas **sem SettingsModal.svelte**
+- Sync de pastas é hardcoded em `EssentialFolders` (sync.go)
+- Tabela `app_settings` já existe para persistir config por conta
+
+## Objetivo
+1. Criar SettingsModal completo no desktop com 5 tabs
+2. Expandir settings do TUI para incluir mesmas opções
+3. Backend compartilhado para salvar/carregar todas as settings
+4. Sync usar pastas configuradas pelo usuário
+
+## Arquivos a Modificar/Criar
+
+### Frontend (Desktop)
+- **CRIAR**: `cmd/miau-desktop/frontend/src/lib/components/SettingsModal.svelte`
+- **EDITAR**: `cmd/miau-desktop/frontend/src/App.svelte` (importar e renderizar)
+
+### Backend (compartilhado Desktop + TUI)
+- **EDITAR**: `internal/desktop/bindings.go` (GetAllSettings, SaveSettings)
+- **EDITAR**: `internal/desktop/types.go` (SettingsDTO completo)
+- **EDITAR**: `internal/storage/repository.go` (funções para app_settings)
+- **EDITAR**: `internal/services/sync.go` (usar folders configurados)
+
+### TUI
+- **EDITAR**: `internal/tui/inbox/inbox.go` (expandir menu settings com novas opções)
+
+## Ordem de Implementação
+
+1. **Backend primeiro** - GetSettings/SaveSettings (compartilhado)
+2. **Desktop SettingsModal** - UI completa com 5 tabs
+3. **TUI Settings** - Expandir menu existente
+4. **Sync integration** - SyncConfiguredFolders usar app_settings

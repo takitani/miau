@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/testutil"
 	"github.com/opik/miau/internal/testutil/mocks"
 	"github.com/stretchr/testify/assert"
@@ -183,6 +184,8 @@ func TestEmailService_GetEmail_FromStorage(t *testing.T) {
 	email.BodyHTML = "<p>Already has HTML</p>"
 
 	mockStorage.On("GetEmail", mock.Anything, int64(1)).Return(email, nil)
+	mockStorage.On("GetAttachmentsByEmail", mock.Anything, int64(1)).Return([]ports.Attachment{}, nil)
+	mockIMAP.On("SelectMailbox", mock.Anything, mock.Anything).Return(&ports.MailboxStatus{}, nil).Maybe()
 
 	// Act
 	var result, err = svc.GetEmail(context.Background(), 1)
@@ -214,6 +217,7 @@ func TestEmailService_GetEmail_FetchFromIMAP(t *testing.T) {
 	var rawEmail = []byte("From: sender@example.com\r\nTo: test@example.com\r\nSubject: Test\r\n\r\nPlain text body")
 
 	mockStorage.On("GetEmail", mock.Anything, int64(1)).Return(email, nil)
+	mockStorage.On("GetAttachmentsByEmail", mock.Anything, int64(1)).Return([]ports.Attachment{}, nil)
 	mockIMAP.On("SelectMailbox", mock.Anything, "INBOX").Return(testutil.TestMailboxStatus(), nil)
 	mockIMAP.On("FetchEmailRaw", mock.Anything, email.UID).Return(rawEmail, nil)
 

@@ -177,12 +177,14 @@ func (a *App) emailContentToDTO(email *ports.EmailContent) *EmailDetailDTO {
 			dataStr = base64.StdEncoding.EncodeToString(att.Data)
 		}
 		attachments = append(attachments, AttachmentDTO{
+			ID:          att.ID,
 			Filename:    att.Filename,
 			ContentType: att.ContentType,
 			ContentID:   att.ContentID,
 			Size:        att.Size,
 			Data:        dataStr,
 			IsInline:    att.IsInline,
+			PartNumber:  att.PartNumber,
 		})
 	}
 	return &EmailDetailDTO{

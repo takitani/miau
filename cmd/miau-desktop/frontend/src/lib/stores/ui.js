@@ -45,9 +45,22 @@ export function setupKeyboardShortcuts() {
 
 // Handle keyboard events
 function handleKeydown(e) {
-  // Ignore if typing in an input
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+  // Ignore if typing in an input field
+  var isEditing = e.target.tagName === 'INPUT' ||
+                  e.target.tagName === 'TEXTAREA' ||
+                  e.target.isContentEditable;
+
+  if (isEditing) {
     // Allow Escape to close modals
+    if (e.key === 'Escape') {
+      closeAllModals();
+    }
+    return;
+  }
+
+  // Also check if any modal is open - let the modal handle its own keys
+  if (get(showCompose) || get(showAI) || get(showSearch)) {
+    // Only handle Escape globally
     if (e.key === 'Escape') {
       closeAllModals();
     }
@@ -261,7 +274,7 @@ function closeAllModals() {
   showAnalytics.set(false);
 }
 
-// Sync emails
+// Sync emails (current folder only)
 export async function syncEmails() {
   syncing.set(true);
   info('Starting sync...');
@@ -289,6 +302,43 @@ export async function syncEmails() {
     startAutoRefreshTimer();
   } catch (err) {
     logError('Failed to sync', err);
+  } finally {
+    syncing.set(false);
+  }
+}
+
+// Sync essential folders (INBOX, Sent, Trash)
+export async function syncEssentialFolders() {
+  syncing.set(true);
+  info('Syncing essential folders (INBOX, Sent, Trash)...');
+  try {
+    if (window.go?.desktop?.App) {
+      var results = await window.go.desktop.App.SyncEssentialFolders();
+      // Reload emails from database after sync
+      var folder = get(currentFolder);
+      await loadEmails(folder);
+
+      // Sum all new emails
+      var totalNew = 0;
+      if (results) {
+        for (var r of results) {
+          totalNew += r.newEmails || 0;
+        }
+      }
+      newEmailCount.set(totalNew);
+      newEmailShowUntil.set(Date.now() + 3000);
+      if (totalNew > 0) {
+        info(`${totalNew} novo(s) email(s)!`);
+      } else {
+        info('Nenhum email novo');
+      }
+    }
+    lastSync.set(new Date());
+    autoRefreshStart.set(Date.now());
+    autoRefreshEnabled.set(true);
+    startAutoRefreshTimer();
+  } catch (err) {
+    logError('Failed to sync essential folders', err);
   } finally {
     syncing.set(false);
   }

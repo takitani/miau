@@ -30,6 +30,10 @@ export function Disconnect() {
   return window['go']['desktop']['App']['Disconnect']();
 }
 
+export function DownloadAttachment(arg1) {
+  return window['go']['desktop']['App']['DownloadAttachment'](arg1);
+}
+
 export function GetAIProviders() {
   return window['go']['desktop']['App']['GetAIProviders']();
 }
@@ -48,6 +52,14 @@ export function GetAnalyticsOverview() {
 
 export function GetAppInfo() {
   return window['go']['desktop']['App']['GetAppInfo']();
+}
+
+export function GetAttachments(arg1) {
+  return window['go']['desktop']['App']['GetAttachments'](arg1);
+}
+
+export function GetAvailableFolders() {
+  return window['go']['desktop']['App']['GetAvailableFolders']();
 }
 
 export function GetConnectionStatus() {
@@ -80,6 +92,10 @@ export function GetEmails(arg1, arg2) {
 
 export function GetFolders() {
   return window['go']['desktop']['App']['GetFolders']();
+}
+
+export function GetSettings() {
+  return window['go']['desktop']['App']['GetSettings']();
 }
 
 export function GetSignature() {
@@ -122,12 +138,36 @@ export function NeedsSetup() {
   return window['go']['desktop']['App']['NeedsSetup']();
 }
 
+export function OpenAttachment(arg1, arg2) {
+  return window['go']['desktop']['App']['OpenAttachment'](arg1, arg2);
+}
+
+export function OpenAttachmentByPart(arg1, arg2, arg3) {
+  return window['go']['desktop']['App']['OpenAttachmentByPart'](arg1, arg2, arg3);
+}
+
 export function OpenURL(arg1) {
   return window['go']['desktop']['App']['OpenURL'](arg1);
 }
 
+export function SaveAttachment(arg1, arg2) {
+  return window['go']['desktop']['App']['SaveAttachment'](arg1, arg2);
+}
+
+export function SaveAttachmentByPart(arg1, arg2, arg3) {
+  return window['go']['desktop']['App']['SaveAttachmentByPart'](arg1, arg2, arg3);
+}
+
+export function SaveAttachmentDialog(arg1, arg2) {
+  return window['go']['desktop']['App']['SaveAttachmentDialog'](arg1, arg2);
+}
+
 export function SaveDraft(arg1) {
   return window['go']['desktop']['App']['SaveDraft'](arg1);
+}
+
+export function SaveSettings(arg1) {
+  return window['go']['desktop']['App']['SaveSettings'](arg1);
 }
 
 export function Search(arg1, arg2) {
@@ -168,6 +208,10 @@ export function SwitchToTerminal() {
 
 export function SyncCurrentFolder() {
   return window['go']['desktop']['App']['SyncCurrentFolder']();
+}
+
+export function SyncEssentialFolders() {
+  return window['go']['desktop']['App']['SyncEssentialFolders']();
 }
 
 export function SyncFolder(arg1) {

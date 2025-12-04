@@ -3394,7 +3394,7 @@ func (m Model) viewInbox() string {
 	} else if activeAlerts > 0 {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else {
-		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  c:novo  R:reply  d:drafts  Tab:pastas  /:buscar  a:AI  q:sair ")
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  e:arquivar  x:lixo  c:novo  d:drafts  /:buscar  a:AI  q:sair ")
 	}
 
 	// Layout

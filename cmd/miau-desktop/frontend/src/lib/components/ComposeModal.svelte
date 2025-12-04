@@ -37,7 +37,8 @@
 
   onMount(() => {
     // DISABLED: signature loading causes signal 11 crash due to Go 1.25/WebKit GTK conflict
-    // loadSignature();
+    // Fixed by pre-loading signature in backend
+    loadSignature();
 
     // Check for compose context (reply, forward, etc)
     if (window.composeContext) {

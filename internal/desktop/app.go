@@ -59,6 +59,16 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 
+	// Pre-load signature to avoid crash when opening compose modal
+	// This moves the API call to startup instead of UI interaction
+	go func() {
+		if err := a.application.Send().LoadSignature(ctx); err != nil {
+			runtime.LogErrorf(ctx, "Failed to load signature: %v", err)
+		} else {
+			runtime.LogInfo(ctx, "Signature loaded successfully")
+		}
+	}()
+
 	// Setup event forwarding from Go to frontend
 	a.setupEventForwarding()
 

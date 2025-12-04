@@ -36,6 +36,9 @@ type SendService interface {
 
 	// GetSignature returns the configured email signature
 	GetSignature(ctx context.Context) (string, error)
+
+	// LoadSignature pre-loads and caches the signature
+	LoadSignature(ctx context.Context) error
 }
 
 // DraftService defines operations for draft management.

@@ -8,9 +8,27 @@ run:
 build:
 	go build -o miau ./cmd/miau
 
-# Rodar testes
+# Rodar testes (unitários, rápidos)
 test:
-	go test ./...
+	go test ./... -short -v
+
+# Rodar testes com coverage
+test-coverage:
+	go test ./... -short -coverprofile=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+# Rodar testes de um pacote específico
+test-services:
+	go test ./internal/services/... -v
+
+# Rodar testes com race detector
+test-race:
+	go test ./... -short -race
+
+# Rodar testes de integração (quando implementados)
+test-integration:
+	go test ./... -tags=integration -v
 
 # Limpar binários
 clean:

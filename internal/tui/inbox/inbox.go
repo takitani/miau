@@ -2678,6 +2678,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			case "i":
 				// Abre preview de imagens
+				m.log("📷 Tecla 'i' pressionada no viewer")
 				m.imageLoading = true
 				return m, m.loadImageAttachments()
 			}
@@ -4114,13 +4115,27 @@ func (m Model) viewEmailViewer() string {
 	// Scroll info
 	var scrollInfo = subtitleStyle.Render(fmt.Sprintf(" %d%% ", int(m.viewerViewport.ScrollPercent()*100)))
 
-	var body = viewerBoxStyle.Width(m.width - 4).Height(m.height - 8).Render(content)
+	// Ajusta largura se debug mode ativo
+	var viewerWidth = m.width - 4
+	if m.debugMode {
+		viewerWidth = m.width - 48 // 44 para debug panel + margem
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	var body = viewerBoxStyle.Width(viewerWidth).Height(m.height - 8).Render(content)
+
+	var viewerContent = lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		body,
 		lipgloss.JoinHorizontal(lipgloss.Left, footer, scrollInfo),
 	)
+
+	// Debug panel sempre visível em debug mode
+	if m.debugMode {
+		var debugPanel = m.viewDebugPanel()
+		return lipgloss.JoinHorizontal(lipgloss.Top, viewerContent, debugPanel)
+	}
+
+	return viewerContent
 }
 
 func (m Model) viewDebugPanel() string {

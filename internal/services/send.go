@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -16,8 +17,10 @@ type SendService struct {
 	gmailAPI   ports.GmailAPIPort
 	storage    ports.StoragePort
 	events     ports.EventBus
-	account    *ports.AccountInfo
-	sendMethod ports.SendMethod
+	account         *ports.AccountInfo
+	sendMethod      ports.SendMethod
+	signatureCache  string
+	signatureCached bool
 }
 
 // NewSendService creates a new SendService
@@ -133,15 +136,61 @@ func (s *SendService) SendDraft(ctx context.Context, draftID int64) (*ports.Send
 // GetSignature returns the configured email signature
 func (s *SendService) GetSignature(ctx context.Context) (string, error) {
 	s.mu.RLock()
-	var method = s.sendMethod
+	cached := s.signatureCached
+	sig := s.signatureCache
 	s.mu.RUnlock()
 
-	if method == ports.SendMethodGmailAPI {
-		return s.gmailAPI.GetSignature(ctx)
+	if cached {
+		return sig, nil
 	}
 
-	// For SMTP, we don't have signature support
-	return "", nil
+	// If not cached, try to load it (this might still crash if called from UI thread,
+	// but LoadSignature should be called on startup)
+	if err := s.LoadSignature(ctx); err != nil {
+		return "", err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.signatureCache, nil
+}
+
+// LoadSignature pre-loads and caches the signature
+func (s *SendService) LoadSignature(ctx context.Context) error {
+	s.mu.RLock()
+	var method = s.sendMethod
+	var gmailAPI = s.gmailAPI
+	s.mu.RUnlock()
+
+	var sig string
+	var err error
+
+	if method == ports.SendMethodGmailAPI {
+		if gmailAPI == nil {
+			// Gmail API not configured, skip signature loading
+			log.Printf("[SendService] Gmail API not configured, skipping signature load")
+			s.mu.Lock()
+			s.signatureCache = ""
+			s.signatureCached = true
+			s.mu.Unlock()
+			return nil
+		}
+		sig, err = gmailAPI.GetSignature(ctx)
+	} else {
+		// For SMTP, we don't have signature support yet
+		sig = ""
+	}
+
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.signatureCache = sig
+	s.signatureCached = true
+	s.mu.Unlock()
+
+	return nil
 }
 
 // parseAddresses splits comma-separated addresses

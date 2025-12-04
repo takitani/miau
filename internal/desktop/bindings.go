@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 
@@ -14,17 +15,22 @@ import (
 // ============================================================================
 
 // GetFolders returns all mail folders
-func (a *App) GetFolders() ([]FolderDTO, error) {
+func (a *App) GetFolders() (result []FolderDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetFolders] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil, nil
 	}
 
-	var folders, err = a.application.Email().GetFolders(context.Background())
-	if err != nil {
-		return nil, err
+	var folders, ferr = a.application.Email().GetFolders(context.Background())
+	if ferr != nil {
+		return nil, ferr
 	}
 
-	var result []FolderDTO
 	for _, f := range folders {
 		result = append(result, a.folderToDTO(&f))
 	}
@@ -32,14 +38,20 @@ func (a *App) GetFolders() ([]FolderDTO, error) {
 }
 
 // SelectFolder selects a folder as current
-func (a *App) SelectFolder(name string) (*FolderDTO, error) {
+func (a *App) SelectFolder(name string) (result *FolderDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SelectFolder] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil, nil
 	}
 
-	var folder, err = a.application.Email().SelectFolder(context.Background(), name)
-	if err != nil {
-		return nil, err
+	var folder, ferr = a.application.Email().SelectFolder(context.Background(), name)
+	if ferr != nil {
+		return nil, ferr
 	}
 
 	a.mu.Lock()
@@ -62,7 +74,13 @@ func (a *App) GetCurrentFolder() string {
 // ============================================================================
 
 // GetEmails returns emails from a folder
-func (a *App) GetEmails(folder string, limit int) ([]EmailDTO, error) {
+func (a *App) GetEmails(folder string, limit int) (result []EmailDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetEmails] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil, nil
 	}
@@ -71,12 +89,11 @@ func (a *App) GetEmails(folder string, limit int) ([]EmailDTO, error) {
 		limit = 50
 	}
 
-	var emails, err = a.application.Email().GetEmails(context.Background(), folder, limit)
-	if err != nil {
-		return nil, err
+	var emails, ferr = a.application.Email().GetEmails(context.Background(), folder, limit)
+	if ferr != nil {
+		return nil, ferr
 	}
 
-	var result []EmailDTO
 	for _, e := range emails {
 		result = append(result, a.emailMetadataToDTO(&e))
 	}
@@ -84,14 +101,20 @@ func (a *App) GetEmails(folder string, limit int) ([]EmailDTO, error) {
 }
 
 // GetEmail returns full email details by ID
-func (a *App) GetEmail(id int64) (*EmailDetailDTO, error) {
+func (a *App) GetEmail(id int64) (result *EmailDetailDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetEmail] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil, nil
 	}
 
-	var email, err = a.application.Email().GetEmail(context.Background(), id)
-	if err != nil {
-		return nil, err
+	var email, ferr = a.application.Email().GetEmail(context.Background(), id)
+	if ferr != nil {
+		return nil, ferr
 	}
 
 	return a.emailContentToDTO(email), nil
@@ -222,7 +245,13 @@ func (a *App) SearchInFolder(folder, query string, limit int) (*SearchResultDTO,
 // ============================================================================
 
 // Connect connects to the email server
-func (a *App) Connect() error {
+func (a *App) Connect() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Connect] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil
 	}
@@ -230,7 +259,13 @@ func (a *App) Connect() error {
 }
 
 // Disconnect disconnects from the email server
-func (a *App) Disconnect() error {
+func (a *App) Disconnect() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Disconnect] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	if a.application == nil {
 		return nil
 	}
@@ -246,11 +281,19 @@ func (a *App) IsConnected() bool {
 }
 
 // SyncFolder syncs a specific folder
-func (a *App) SyncFolder(folder string) error {
+func (a *App) SyncFolder(folder string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SyncFolder] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	log.Printf("[SyncFolder] syncing folder: %s", folder)
 	if a.application == nil {
 		return nil
 	}
-	_, err := a.application.Sync().SyncFolder(context.Background(), folder)
+	_, err = a.application.Sync().SyncFolder(context.Background(), folder)
+	log.Printf("[SyncFolder] sync completed, err=%v", err)
 	return err
 }
 
@@ -318,11 +361,36 @@ func (a *App) SendEmail(req SendRequest) (*SendResult, error) {
 }
 
 // GetSignature returns the configured email signature
-func (a *App) GetSignature() (string, error) {
+func (a *App) GetSignature() (sig string, err error) {
+	// Recover from any panic to prevent crash
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetSignature] PANIC recovered: %v", r)
+			sig = ""
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	log.Printf("[GetSignature] called, application=%v", a.application != nil)
+
 	if a.application == nil {
+		log.Printf("[GetSignature] application is nil, returning empty")
 		return "", nil
 	}
-	return a.application.Send().GetSignature(context.Background())
+
+	sendService := a.application.Send()
+	log.Printf("[GetSignature] sendService=%v", sendService != nil)
+
+	if sendService == nil {
+		log.Printf("[GetSignature] sendService is nil, returning empty")
+		return "", nil
+	}
+
+	log.Printf("[GetSignature] calling GetSignature on sendService...")
+	sig, err = sendService.GetSignature(context.Background())
+	log.Printf("[GetSignature] result: sig=%d bytes, err=%v", len(sig), err)
+
+	return sig, err
 }
 
 // ============================================================================

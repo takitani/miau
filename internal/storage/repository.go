@@ -145,6 +145,26 @@ func GetEmailByID(id int64) (*Email, error) {
 	return &email, nil
 }
 
+// EmailWithFolder contains email data and folder name
+type EmailWithFolder struct {
+	Email
+	FolderName string `db:"folder_name"`
+}
+
+// GetEmailByIDWithFolder returns email with folder name (needed for IMAP fetch)
+func GetEmailByIDWithFolder(id int64) (*EmailWithFolder, error) {
+	var email EmailWithFolder
+	err := db.Get(&email, `
+		SELECT e.*, f.name as folder_name
+		FROM emails e
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	return &email, nil
+}
+
 func GetEmailByUID(accountID, folderID int64, uid uint32) (*Email, error) {
 	var email Email
 	err := db.Get(&email, "SELECT * FROM emails WHERE account_id = ? AND folder_id = ? AND uid = ?", accountID, folderID, uid)

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -160,10 +161,17 @@ func (a *App) emailContentToDTO(email *ports.EmailContent) *EmailDetailDTO {
 	}
 	var attachments []AttachmentDTO
 	for _, att := range email.Attachments {
+		var dataStr string
+		if att.IsInline && len(att.Data) > 0 {
+			dataStr = base64.StdEncoding.EncodeToString(att.Data)
+		}
 		attachments = append(attachments, AttachmentDTO{
 			Filename:    att.Filename,
 			ContentType: att.ContentType,
+			ContentID:   att.ContentID,
 			Size:        att.Size,
+			Data:        dataStr,
+			IsInline:    att.IsInline,
 		})
 	}
 	return &EmailDetailDTO{

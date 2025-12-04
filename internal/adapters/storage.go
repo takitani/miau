@@ -150,14 +150,17 @@ func (a *StorageAdapter) GetEmails(ctx context.Context, folderID int64, limit in
 	return result, nil
 }
 
-// GetEmail returns a single email by ID
+// GetEmail returns a single email by ID (includes folder name for IMAP fetch)
 func (a *StorageAdapter) GetEmail(ctx context.Context, id int64) (*ports.EmailContent, error) {
-	var email, err = storage.GetEmailByID(id)
+	var email, err = storage.GetEmailByIDWithFolder(id)
 	if err != nil {
 		return nil, err
 	}
 
-	return convertStorageEmail(email), nil
+	var result = convertStorageEmail(&email.Email)
+	result.FolderID = email.FolderID
+	result.FolderName = email.FolderName
+	return result, nil
 }
 
 // GetEmailByUID returns an email by UID

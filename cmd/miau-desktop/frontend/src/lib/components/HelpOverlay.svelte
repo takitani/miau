@@ -14,12 +14,13 @@
       { key: 'x / #', desc: 'Deletar email' },
       { key: 's', desc: 'Marcar/desmarcar estrela' },
       { key: 'u', desc: 'Marcar como nao lido' },
-      { key: 'r', desc: 'Sincronizar emails' },
     ]},
     { section: 'Composicao', items: [
       { key: 'c', desc: 'Novo email' },
-      { key: 'R', desc: 'Responder' },
-      { key: 'F', desc: 'Encaminhar' },
+      { key: 'r', desc: 'Responder (ou sync se nao selecionado)' },
+      { key: 'R', desc: 'Responder a todos' },
+      { key: 'f', desc: 'Encaminhar' },
+      { key: 'Ctrl+Enter', desc: 'Enviar (no compose)' },
     ]},
     { section: 'Busca & IA', items: [
       { key: '/', desc: 'Busca fuzzy' },

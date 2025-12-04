@@ -18,7 +18,10 @@ export namespace desktop {
 	    id: number;
 	    filename: string;
 	    contentType: string;
+	    contentId?: string;
 	    size: number;
+	    data?: string;
+	    isInline: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AttachmentDTO(source);
@@ -29,7 +32,10 @@ export namespace desktop {
 	        this.id = source["id"];
 	        this.filename = source["filename"];
 	        this.contentType = source["contentType"];
+	        this.contentId = source["contentId"];
 	        this.size = source["size"];
+	        this.data = source["data"];
+	        this.isInline = source["isInline"];
 	    }
 	}
 	export class ConnectionStatus {

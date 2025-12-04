@@ -33,7 +33,10 @@ type AttachmentDTO struct {
 	ID          int64  `json:"id"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"contentType"`
+	ContentID   string `json:"contentId,omitempty"`
 	Size        int64  `json:"size"`
+	Data        string `json:"data,omitempty"` // base64 encoded for inline images
+	IsInline    bool   `json:"isInline"`
 }
 
 // FolderDTO represents a mail folder for the frontend

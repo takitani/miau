@@ -39,7 +39,7 @@ build-windows:
 # Desktop App (Wails + Svelte)
 # ============================================================================
 
-.PHONY: desktop-install desktop-dev desktop-build desktop-build-windows desktop-build-all
+.PHONY: desktop-install desktop-dev desktop-build desktop-run desktop-build-windows desktop-build-all
 
 # Install frontend dependencies
 desktop-install:
@@ -47,12 +47,21 @@ desktop-install:
 
 # Run in development mode (hot reload)
 # Uses webkit2_41 tag for Fedora 43+ compatibility (webkit2gtk-4.1)
+# GODEBUG=asyncpreemptoff=1 prevents signal 11 crash with Go 1.24+/WebKit
 desktop-dev:
-	cd cmd/miau-desktop && wails dev -tags webkit2_41
+	cd cmd/miau-desktop && GODEBUG=asyncpreemptoff=1 wails dev -tags webkit2_41
 
 # Build desktop app for current platform
 desktop-build:
 	cd cmd/miau-desktop && wails build -tags webkit2_41
+
+# Build desktop app with devtools enabled (F12 to open inspector)
+desktop-build-debug:
+	cd cmd/miau-desktop && wails build -tags webkit2_41 -devtools
+
+# Run the built desktop app (with workaround for Go/WebKit signal conflict)
+desktop-run:
+	GODEBUG=asyncpreemptoff=1 cmd/miau-desktop/build/bin/miau-desktop
 
 # Build for Windows (no webkit tag needed)
 desktop-build-windows:

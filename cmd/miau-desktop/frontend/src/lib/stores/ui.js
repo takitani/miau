@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId } from './emails.js';
+import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 
 // UI State
@@ -176,11 +176,43 @@ function handleEmailShortcuts(e) {
       }
       break;
 
-    // Sync
+    // Reply (when email selected) or Refresh (no selection)
     case 'r':
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        syncEmails();
+        var email = get(selectedEmail);
+        if (email) {
+          // Reply to selected email
+          window.composeContext = { mode: 'reply', replyTo: email };
+          showCompose.set(true);
+        } else {
+          // No email selected, sync
+          syncEmails();
+        }
+      }
+      break;
+
+    // Reply All
+    case 'R':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        var email = get(selectedEmail);
+        if (email) {
+          window.composeContext = { mode: 'replyAll', replyTo: email };
+          showCompose.set(true);
+        }
+      }
+      break;
+
+    // Forward
+    case 'f':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        var email = get(selectedEmail);
+        if (email) {
+          window.composeContext = { mode: 'forward', forwardEmail: email };
+          showCompose.set(true);
+        }
       }
       break;
 
@@ -206,6 +238,7 @@ function closeAllModals() {
   showCompose.set(false);
   showHelp.set(false);
   showSettings.set(false);
+  showAI.set(false);
 }
 
 // Sync emails

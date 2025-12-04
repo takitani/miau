@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	emailparser "github.com/opik/miau/internal/email"
@@ -103,8 +104,17 @@ func (s *EmailService) GetEmail(ctx context.Context, id int64) (*ports.EmailCont
 
 	// If body is empty, fetch from IMAP
 	if email.BodyText == "" && email.BodyHTML == "" {
-		var rawData, err = s.imap.FetchEmailRaw(ctx, email.UID)
-		if err != nil {
+		// Select the correct folder in IMAP before fetching
+		if email.FolderName != "" {
+			if _, err := s.imap.SelectMailbox(ctx, email.FolderName); err != nil {
+				// Log but continue - the mailbox might already be selected
+				log.Printf("[GetEmail] Failed to select mailbox %s: %v", email.FolderName, err)
+			}
+		}
+
+		var rawData, fetchErr = s.imap.FetchEmailRaw(ctx, email.UID)
+		if fetchErr != nil {
+			log.Printf("[GetEmail] Failed to fetch email body: %v", fetchErr)
 			return email, nil // Return without body
 		}
 

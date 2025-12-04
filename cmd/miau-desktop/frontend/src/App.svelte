@@ -8,9 +8,10 @@
   import DebugPanel from './lib/components/DebugPanel.svelte';
   import HelpOverlay from './lib/components/HelpOverlay.svelte';
   import AIChat from './lib/components/AIChat.svelte';
+  import ComposeModal from './lib/components/ComposeModal.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
-  import { showSearch, showHelp, showAI, aiWithContext, activePanel, setupKeyboardShortcuts } from './lib/stores/ui.js';
+  import { showSearch, showHelp, showAI, showCompose, aiWithContext, activePanel, setupKeyboardShortcuts, connect } from './lib/stores/ui.js';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
 
   // Get email context for AI
@@ -21,6 +22,9 @@
     info('App initializing...');
     setupKeyboardShortcuts();
     setupDebugEvents();
+
+    info('Connecting to IMAP server...');
+    await connect();
 
     info('Loading folders...');
     await loadFolders();
@@ -44,6 +48,10 @@
 
   {#if $showAI}
     <AIChat emailContext={emailContext} />
+  {/if}
+
+  {#if $showCompose}
+    <ComposeModal />
   {/if}
 
   <div class="layout">

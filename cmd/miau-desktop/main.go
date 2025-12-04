@@ -39,6 +39,10 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		// Enable devtools (F12 or Ctrl+Shift+I to open)
+		Debug: options.Debug{
+			OpenInspectorOnStartup: false,
+		},
 		// Linux specific options
 		Linux: &linux.Options{
 			Icon:                []byte{},

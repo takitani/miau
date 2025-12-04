@@ -94,6 +94,7 @@ type Email struct {
 	BodyHTML       string         `db:"body_html"`
 	RawHeaders     string         `db:"raw_headers"`
 	Size           int64          `db:"size"`
+	BodyIndexed    bool           `db:"body_indexed"`
 	CreatedAt      SQLiteTime     `db:"created_at"`
 	UpdatedAt      SQLiteTime     `db:"updated_at"`
 }

@@ -28,6 +28,8 @@ type EmailMetadata struct {
 // EmailContent contains full email content
 type EmailContent struct {
 	EmailMetadata
+	FolderID       int64  // needed for IMAP fetch
+	FolderName     string // folder name for IMAP select
 	ToAddresses    string
 	CcAddresses    string
 	BodyText       string

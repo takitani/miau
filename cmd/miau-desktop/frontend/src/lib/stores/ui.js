@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail } from './emails.js';
+import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, currentFolder } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 
 // UI State
@@ -18,6 +18,16 @@ export const activePanel = writable('emails');
 export const connected = writable(false);
 export const lastSync = writable(null);
 export const syncing = writable(false);
+
+// Auto-refresh timer
+export const autoRefreshInterval = 60; // seconds
+export const autoRefreshStart = writable(Date.now());
+export const autoRefreshEnabled = writable(false);
+var autoRefreshTimer = null;
+
+// New email notification
+export const newEmailCount = writable(0);
+export const newEmailShowUntil = writable(0);
 
 // AI Providers - CLI based
 export const aiProviders = writable([
@@ -257,15 +267,56 @@ export async function syncEmails() {
   info('Starting sync...');
   try {
     if (window.go?.desktop?.App) {
-      await window.go.desktop.App.SyncCurrentFolder();
+      var result = await window.go.desktop.App.SyncCurrentFolder();
+      // Reload emails from database after sync
+      var folder = get(currentFolder);
+      await loadEmails(folder);
+
+      // Show notification (always, even if 0 new)
+      var count = result ? result.newEmails : 0;
+      newEmailCount.set(count);
+      newEmailShowUntil.set(Date.now() + 3000); // 3 seconds
+      if (count > 0) {
+        info(`${count} novo(s) email(s)!`);
+      } else {
+        info('Nenhum email novo');
+      }
     }
     lastSync.set(new Date());
-    info('Sync completed');
+    // Restart auto-refresh timer
+    autoRefreshStart.set(Date.now());
+    autoRefreshEnabled.set(true);
+    startAutoRefreshTimer();
   } catch (err) {
     logError('Failed to sync', err);
   } finally {
     syncing.set(false);
   }
+}
+
+// Start auto-refresh timer
+function startAutoRefreshTimer() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+
+  autoRefreshTimer = setInterval(() => {
+    if (!get(autoRefreshEnabled) || get(syncing)) return;
+
+    var elapsed = (Date.now() - get(autoRefreshStart)) / 1000;
+    // Add 1 second buffer to let progress bar complete visually
+    if (elapsed >= autoRefreshInterval + 1) {
+      info('Auto-refresh triggered');
+      syncEmails();
+    }
+  }, 500);
+}
+
+// Stop auto-refresh timer
+export function stopAutoRefreshTimer() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+  autoRefreshEnabled.set(false);
 }
 
 // Connect to server
@@ -321,9 +372,15 @@ export function setupWailsEvents() {
       syncing.set(true);
     });
 
-    window.runtime.EventsOn('sync:completed', (folder, newCount) => {
+    window.runtime.EventsOn('sync:completed', async (folder, newCount) => {
       syncing.set(false);
       lastSync.set(new Date());
+      // Reload emails if sync brought new emails
+      if (newCount > 0) {
+        var current = get(currentFolder);
+        if (folder === current)
+          await loadEmails(current);
+      }
     });
 
     window.runtime.EventsOn('sync:error', (error) => {

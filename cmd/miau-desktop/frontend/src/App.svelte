@@ -12,7 +12,7 @@
   import AnalyticsPanel from './lib/components/AnalyticsPanel.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
-  import { showSearch, showHelp, showAI, showCompose, showAnalytics, aiWithContext, activePanel, setupKeyboardShortcuts, connect } from './lib/stores/ui.js';
+  import { showSearch, showHelp, showAI, showCompose, showAnalytics, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEmails } from './lib/stores/ui.js';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
 
   // Get email context for AI
@@ -30,8 +30,11 @@
     info('Loading folders...');
     await loadFolders();
 
-    info('Loading emails from ' + $currentFolder);
+    info('Loading emails from cache...');
     await loadEmails($currentFolder);
+
+    info('Starting initial sync...');
+    await syncEmails();
 
     info('App ready. Press ? for help, D for debug.');
   });

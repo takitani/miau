@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/opik/miau/internal/ports"
+	"github.com/opik/miau/internal/storage"
 )
 
 // SyncService implements ports.SyncService
@@ -118,9 +119,13 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 		return nil, fmt.Errorf("folder not found: %w", err)
 	}
 
+	// Registra início do sync
+	var syncID, _ = storage.LogSyncStart(account.ID, folder.ID)
+
 	// Select mailbox on IMAP
 	var status, err2 = s.imap.SelectMailbox(ctx, folderName)
 	if err2 != nil {
+		storage.LogSyncComplete(syncID, 0, 0, err2)
 		s.events.Publish(ports.SyncErrorEvent{
 			BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncError),
 			Folder:    folderName,
@@ -138,6 +143,7 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 	// Fetch new emails
 	var newEmails, err3 = s.imap.FetchNewEmails(ctx, latestUID, 100)
 	if err3 != nil {
+		storage.LogSyncComplete(syncID, 0, 0, err3)
 		s.events.Publish(ports.SyncErrorEvent{
 			BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncError),
 			Folder:    folderName,
@@ -147,7 +153,6 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 	}
 
 	var result = &ports.SyncResult{
-		NewEmails: len(newEmails),
 		LatestUID: latestUID,
 	}
 
@@ -189,6 +194,13 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 	if err4 == nil {
 		result.DeletedEmails = deletedCount
 	}
+
+	// Conta novos emails desde o último sync (baseado em created_at no DB)
+	var newCount, _ = storage.CountNewEmailsSinceLastSync(account.ID, folder.ID)
+	result.NewEmails = newCount
+
+	// Registra conclusão do sync
+	storage.LogSyncComplete(syncID, newCount, deletedCount, nil)
 
 	s.events.Publish(ports.SyncCompletedEvent{
 		BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncCompleted),

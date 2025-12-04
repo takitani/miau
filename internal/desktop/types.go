@@ -90,6 +90,12 @@ type ConnectionStatus struct {
 	Error        string    `json:"error,omitempty"`
 }
 
+// SyncResultDTO represents the result of a sync operation
+type SyncResultDTO struct {
+	NewEmails     int `json:"newEmails"`
+	DeletedEmails int `json:"deletedEmails"`
+}
+
 // SearchResultDTO represents a search result
 type SearchResultDTO struct {
 	Emails     []EmailDTO `json:"emails"`

@@ -281,7 +281,7 @@ func (a *App) IsConnected() bool {
 }
 
 // SyncFolder syncs a specific folder
-func (a *App) SyncFolder(folder string) (err error) {
+func (a *App) SyncFolder(folder string) (result *SyncResultDTO, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[SyncFolder] PANIC recovered: %v", r)
@@ -290,15 +290,24 @@ func (a *App) SyncFolder(folder string) (err error) {
 	}()
 	log.Printf("[SyncFolder] syncing folder: %s", folder)
 	if a.application == nil {
-		return nil
+		return nil, nil
 	}
-	_, err = a.application.Sync().SyncFolder(context.Background(), folder)
-	log.Printf("[SyncFolder] sync completed, err=%v", err)
-	return err
+	var syncResult, syncErr = a.application.Sync().SyncFolder(context.Background(), folder)
+	log.Printf("[SyncFolder] sync completed, err=%v", syncErr)
+	if syncErr != nil {
+		return nil, syncErr
+	}
+	if syncResult != nil {
+		return &SyncResultDTO{
+			NewEmails:     syncResult.NewEmails,
+			DeletedEmails: syncResult.DeletedEmails,
+		}, nil
+	}
+	return &SyncResultDTO{}, nil
 }
 
 // SyncCurrentFolder syncs the currently selected folder
-func (a *App) SyncCurrentFolder() error {
+func (a *App) SyncCurrentFolder() (*SyncResultDTO, error) {
 	a.mu.RLock()
 	var folder = a.currentFolder
 	a.mu.RUnlock()

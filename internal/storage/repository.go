@@ -174,6 +174,12 @@ func GetEmailByUID(accountID, folderID int64, uid uint32) (*Email, error) {
 	return &email, nil
 }
 
+func EmailExistsByUID(accountID, folderID int64, uid uint32) (bool, error) {
+	var count int
+	err := db.Get(&count, "SELECT COUNT(*) FROM emails WHERE account_id = ? AND folder_id = ? AND uid = ?", accountID, folderID, uid)
+	return count > 0, err
+}
+
 func GetLatestUID(accountID, folderID int64) (uint32, error) {
 	var uid uint32
 	err := db.Get(&uid, "SELECT COALESCE(MAX(uid), 0) FROM emails WHERE account_id = ? AND folder_id = ?", accountID, folderID)
@@ -1345,4 +1351,76 @@ func GetResponseStats(accountID int64) (*ResponseStatsResult, error) {
 	}
 
 	return &stats, nil
+}
+
+// === SYNC LOGS ===
+
+// SyncLog representa um registro de sync
+type SyncLog struct {
+	ID            int64      `db:"id"`
+	AccountID     int64      `db:"account_id"`
+	FolderID      int64      `db:"folder_id"`
+	StartedAt     time.Time  `db:"started_at"`
+	CompletedAt   time.Time  `db:"completed_at"`
+	NewEmails     int        `db:"new_emails"`
+	DeletedEmails int        `db:"deleted_emails"`
+	Error         sql.NullString `db:"error"`
+}
+
+// GetLastSyncTime retorna a data do último sync bem-sucedido
+func GetLastSyncTime(accountID, folderID int64) (time.Time, error) {
+	var completedAt time.Time
+	err := db.Get(&completedAt, `
+		SELECT completed_at FROM sync_logs
+		WHERE account_id = ? AND folder_id = ? AND error IS NULL
+		ORDER BY completed_at DESC LIMIT 1
+	`, accountID, folderID)
+	return completedAt, err
+}
+
+// CountNewEmailsSinceLastSync conta emails criados desde o último sync
+func CountNewEmailsSinceLastSync(accountID, folderID int64) (int, error) {
+	var lastSync, err = GetLastSyncTime(accountID, folderID)
+	if err != nil {
+		// Sem sync anterior, retorna 0
+		return 0, nil
+	}
+
+	var count int
+	err = db.Get(&count, `
+		SELECT COUNT(*) FROM emails
+		WHERE account_id = ? AND folder_id = ? AND is_deleted = 0
+		AND created_at > ?
+	`, accountID, folderID, lastSync)
+	return count, err
+}
+
+// LogSyncStart registra o início de um sync e retorna o ID
+func LogSyncStart(accountID, folderID int64) (int64, error) {
+	// Limpa logs antigos (mais de 7 dias) para não crescer infinitamente
+	db.Exec(`DELETE FROM sync_logs WHERE completed_at < datetime('now', '-7 days')`)
+
+	var result, err = db.Exec(`
+		INSERT INTO sync_logs (account_id, folder_id, started_at)
+		VALUES (?, ?, ?)
+	`, accountID, folderID, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// LogSyncComplete finaliza um sync com os resultados
+func LogSyncComplete(syncID int64, newEmails, deletedEmails int, syncError error) error {
+	var errStr sql.NullString
+	if syncError != nil {
+		errStr = sql.NullString{String: syncError.Error(), Valid: true}
+	}
+
+	_, err := db.Exec(`
+		UPDATE sync_logs
+		SET completed_at = ?, new_emails = ?, deleted_emails = ?, error = ?
+		WHERE id = ?
+	`, time.Now(), newEmails, deletedEmails, errStr, syncID)
+	return err
 }

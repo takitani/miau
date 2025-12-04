@@ -1,6 +1,36 @@
 <script>
-  import { connected, syncing, lastSync, syncEmails, switchToTerminal } from '../stores/ui.js';
+  import { connected, syncing, lastSync, syncEmails, switchToTerminal, autoRefreshInterval, autoRefreshStart, autoRefreshEnabled, newEmailCount, newEmailShowUntil } from '../stores/ui.js';
   import { toggleDebug } from '../stores/debug.js';
+  import { onMount, onDestroy } from 'svelte';
+
+  // Timer progress state
+  let timerProgress = 0;
+  let remainingSeconds = autoRefreshInterval;
+  let updateInterval;
+  let showNewEmailBadge = false;
+
+  // Update timer progress every second
+  function updateTimer() {
+    if (!$autoRefreshEnabled) {
+      timerProgress = 0;
+      remainingSeconds = autoRefreshInterval;
+      return;
+    }
+    const elapsed = (Date.now() - $autoRefreshStart) / 1000;
+    timerProgress = Math.min(elapsed / autoRefreshInterval, 1);
+    remainingSeconds = Math.max(0, Math.floor(autoRefreshInterval - elapsed));
+
+    // Check if new email badge should be shown
+    showNewEmailBadge = $newEmailCount > 0 && Date.now() < $newEmailShowUntil;
+  }
+
+  onMount(() => {
+    updateInterval = setInterval(updateTimer, 200);
+  });
+
+  onDestroy(() => {
+    if (updateInterval) clearInterval(updateInterval);
+  });
 
   // Format last sync time
   function formatLastSync(date) {
@@ -12,6 +42,12 @@
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h atrás`;
     return date.toLocaleDateString('pt-BR');
   }
+
+  // Generate progress bar
+  $: progressBar = (() => {
+    const filled = Math.floor(timerProgress * 10);
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  })();
 </script>
 
 <footer class="status-bar">
@@ -19,6 +55,15 @@
     <span class="connection" class:connected={$connected}>
       {$connected ? '🟢 Conectado' : '🔴 Desconectado'}
     </span>
+    {#if showNewEmailBadge}
+      <span class="new-email-badge" class:has-new={$newEmailCount > 0}>
+        {#if $newEmailCount > 0}
+          📬 {$newEmailCount} {$newEmailCount === 1 ? 'NOVO!' : 'NOVOS!'}
+        {:else}
+          ✓ 0 novos
+        {/if}
+      </span>
+    {/if}
   </div>
 
   <div class="center">
@@ -31,7 +76,13 @@
       <button class="sync-btn" on:click={syncEmails} title="Sincronizar (r)">
         🔄 Sync
       </button>
-      <span class="last-sync">Último: {formatLastSync($lastSync)}</span>
+      {#if $autoRefreshEnabled}
+        <span class="timer" title="Auto-refresh em {remainingSeconds}s">
+          ⏱ <span class="progress-bar">{progressBar}</span> {remainingSeconds}s
+        </span>
+      {:else}
+        <span class="last-sync">Último: {formatLastSync($lastSync)}</span>
+      {/if}
     {/if}
   </div>
 
@@ -114,6 +165,40 @@
 
   .last-sync {
     color: var(--text-muted);
+  }
+
+  .timer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 11px;
+  }
+
+  .progress-bar {
+    color: var(--accent-primary);
+    letter-spacing: -1px;
+  }
+
+  .new-email-badge {
+    background: #666;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 11px;
+  }
+
+  .new-email-badge.has-new {
+    background: #00FF00;
+    color: #000;
+    animation: pulse 0.5s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulse {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0.8; transform: scale(1.05); }
   }
 
   .shortcuts {

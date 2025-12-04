@@ -84,6 +84,6 @@ export function StartOAuth2Auth():Promise<void>;
 
 export function SwitchToTerminal():Promise<void>;
 
-export function SyncCurrentFolder():Promise<void>;
+export function SyncCurrentFolder():Promise<desktop.SyncResultDTO>;
 
-export function SyncFolder(arg1:string):Promise<void>;
+export function SyncFolder(arg1:string):Promise<desktop.SyncResultDTO>;

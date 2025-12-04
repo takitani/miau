@@ -5,6 +5,17 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
 ## [Unreleased]
 
 ### Adicionado
+- **Auto-refresh com timer visual**: Sync automático a cada 60 segundos
+  - Barra de progresso animada no footer (TUI e Desktop)
+  - Indicador visual de novos emails após cada sync
+  - Badge verde piscando para novos emails, cinza para "0 novos"
+- **Sync logs**: Tabela de histórico de syncs para contagem precisa
+  - `sync_logs` registra cada operação de sync
+  - Contagem correta de emails novos baseada em `created_at`
+  - Auto-limpeza de logs antigos (>7 dias)
+- **Fix sync Desktop**: Botão "Sync" agora recarrega emails corretamente
+  - Chama `loadEmails()` após sync completar
+  - Sync inicial automático no startup
 - **Desktop GUI (Wails + Svelte)**: Interface gráfica nativa para Windows/Linux/macOS
   - Layout 3 painéis: folders, lista de emails, visualizador
   - Carregamento de body sob demanda via IMAP (corrigido bug de mailbox selection)

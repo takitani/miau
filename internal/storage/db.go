@@ -268,6 +268,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_settings_account_key ON app_settings(account_id, key);
+
+-- Tabela de logs de sync
+CREATE TABLE IF NOT EXISTS sync_logs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	folder_id INTEGER NOT NULL,
+	started_at DATETIME NOT NULL,
+	completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	new_emails INTEGER DEFAULT 0,
+	deleted_emails INTEGER DEFAULT 0,
+	error TEXT,
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	FOREIGN KEY (folder_id) REFERENCES folders(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_logs_account_folder ON sync_logs(account_id, folder_id, completed_at DESC);
 `
 
 func Init(dbPath string) error {

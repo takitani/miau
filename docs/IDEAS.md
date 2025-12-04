@@ -97,7 +97,9 @@ CREATE TABLE attachments (
 
 ---
 
-## Image Viewer in TUI
+## Image Viewer in TUI ✅ IMPLEMENTADO
+
+> **Status:** Implementado! Tecla `i` no viewer abre preview de imagens
 
 ### Terminal Image Protocols
 
@@ -322,7 +324,9 @@ rules:
 
 ---
 
-## Analytics & Insights
+## Analytics & Insights ✅ IMPLEMENTADO
+
+> **Status:** Implementado no TUI (tecla `A`) e Desktop
 
 ### Email Statistics
 ```

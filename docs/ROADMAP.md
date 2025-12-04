@@ -11,10 +11,11 @@ Roadmap de desenvolvimento do miau com status visual de progresso.
 ```
 Core Features     [████████████████████████] 100%
 Email Sending     [████████████████████████] 100%
-TUI Interface     [██████████████████░░░░░░] 75%
+TUI Interface     [██████████████████████░░] 90%
+Desktop App       [████████████████████░░░░] 80%
 AI Integration    [████████████████░░░░░░░░] 65%
 Modular Arch      [████████████████████████] 100%
-Advanced Features [░░░░░░░░░░░░░░░░░░░░░░░░] 0%
+Advanced Features [████████░░░░░░░░░░░░░░░░] 30%
 ```
 
 ---
@@ -44,6 +45,8 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 | ✅ Image Preview no TUI | 2024-12-04 | `7243d38` |
 | ✅ Fix delete/archive sync Gmail | 2024-12-04 | `fcb23e8` |
 | ✅ Arquitetura Modular (Ports/Adapters) | 2024-12-04 | `033e6a6` |
+| ✅ Auto-refresh com timer visual | 2024-12-04 | pending |
+| ✅ Sync logs para contagem correta | 2024-12-04 | pending |
 
 ---
 
@@ -112,22 +115,26 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 │          └─ chafa/viu para gráficos, ASCII art como fallback    │
 │          └─ Tecla i no viewer, ←→ navega, s salva               │
 │                                                                 │
-│  9.  [ ] Web Interface (Go + HTMX)                              │
+│  9.  [x] Auto-refresh com timer visual ✅                       │
+│          └─ Barra de progresso animada no footer                │
+│          └─ Indicador de novos emails após sync                 │
+│                                                                 │
+│  10. [ ] Web Interface (Go + HTMX)                              │
 │          └─ miau serve --port 8080                              │
 │          └─ Arquitetura modular já suporta ✅                   │
 │          └─ Ver: IDEAS.md#multi-platform-ui                     │
 │                                                                 │
-│  10. [ ] Offline Queue                                          │
+│  11. [ ] Offline Queue                                          │
 │          └─ Fila de ações quando offline                        │
 │          └─ Ver: IDEAS.md#offline-mode--sync                    │
 │                                                                 │
-│  11. [ ] Rules Engine                                           │
+│  12. [ ] Rules Engine                                           │
 │          └─ Filtros automáticos YAML                            │
 │          └─ Ver: IDEAS.md#smart-notifications--alerts           │
 │                                                                 │
-│  12. [ ] Analytics Dashboard                                    │
-│          └─ Estatísticas de email                               │
-│          └─ Ver: IDEAS.md#analytics--insights                   │
+│  13. [x] Analytics Dashboard ✅                                 │
+│          └─ Estatísticas de email (TUI e Desktop)               │
+│          └─ Top senders, trends, response time                  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -137,18 +144,19 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 ```
 ┌─ ICEBOX ────────────────────────────────────────────────────────┐
 │                                                                 │
-│  13. [ ] Desktop App (Wails/Fyne)                               │
-│          └─ Ver: IDEAS.md#multi-platform-ui                     │
+│  14. [x] Desktop App (Wails + Svelte) ✅                        │
+│          └─ Implementado! Layout 3 painéis                      │
+│          └─ `make desktop-build && make desktop-run`            │
 │                                                                 │
-│  14. [ ] Calendar Integration                                   │
+│  15. [ ] Calendar Integration                                   │
 │          └─ ICS, accept/decline                                 │
 │          └─ Ver: IDEAS.md#calendar-integration                  │
 │                                                                 │
-│  15. [ ] Plugin System                                          │
+│  16. [ ] Plugin System                                          │
 │          └─ CRM, Todoist, Slack integrations                    │
 │          └─ Ver: IDEAS.md#plugin-system                         │
 │                                                                 │
-│  16. [ ] Encryption (PGP/S-MIME)                                │
+│  17. [ ] Encryption (PGP/S-MIME)                                │
 │          └─ Ver: IDEAS.md#security--privacy                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘

@@ -191,6 +191,13 @@ type Model struct {
 	analyticsData      *AnalyticsData            // Dados de analytics
 	analyticsPeriod    string                    // Período atual: "7d", "30d", "90d", "all"
 	analyticsLoading   bool                      // Se está carregando
+	// Auto-refresh
+	autoRefreshInterval time.Duration // Intervalo de auto-refresh (default 5min)
+	autoRefreshStart    time.Time     // Quando começou o timer atual
+	autoRefreshEnabled  bool          // Se o auto-refresh está habilitado
+	// New email notification
+	newEmailCount    int       // Quantidade de novos emails no último sync
+	newEmailShowTime time.Time // Quando mostrar até (para fade out)
 }
 
 // AnalyticsData contém todos os dados de analytics para o TUI
@@ -333,6 +340,11 @@ type draftSentMsg struct {
 }
 
 type draftSendTickMsg struct{}
+
+// Auto-refresh messages
+type autoRefreshTickMsg struct{}
+
+const autoRefreshInterval = 60 * time.Second // 1 minuto
 
 type draftsLoadedMsg struct {
 	drafts    []storage.Draft
@@ -540,9 +552,14 @@ func (m Model) syncEmails() tea.Cmd {
 		if m.client == nil {
 			return errMsg{err: fmt.Errorf("cliente IMAP não conectado")}
 		}
+
+		// Registra início do sync
+		var syncID, _ = storage.LogSyncStart(m.dbAccount.ID, m.dbFolder.ID)
+
 		// Seleciona a mailbox
 		var selectData, err = m.client.SelectMailbox(m.currentBox)
 		if err != nil {
+			storage.LogSyncComplete(syncID, 0, 0, err)
 			return errMsg{err: fmt.Errorf("erro ao selecionar pasta: %w", err)}
 		}
 
@@ -574,6 +591,7 @@ func (m Model) syncEmails() tea.Cmd {
 		}
 
 		if err2 != nil {
+			storage.LogSyncComplete(syncID, 0, 0, err2)
 			return errMsg{err: err2}
 		}
 
@@ -599,7 +617,6 @@ func (m Model) syncEmails() tea.Cmd {
 		// Detecta emails deletados no servidor
 		var serverUIDs, errUIDs = m.client.GetAllUIDs()
 		if errUIDs != nil {
-			// Log error but continue
 			serverUIDs = nil
 		}
 		var purged, _ = storage.PurgeDeletedFromServer(m.dbAccount.ID, m.dbFolder.ID, serverUIDs)
@@ -611,13 +628,19 @@ func (m Model) syncEmails() tea.Cmd {
 		var total, unread, _ = storage.CountEmails(m.dbAccount.ID, m.dbFolder.ID)
 		storage.UpdateFolderStats(m.dbFolder.ID, total, unread)
 
+		// Conta novos emails desde o último sync (baseado em created_at no DB)
+		var newCount, _ = storage.CountNewEmailsSinceLastSync(m.dbAccount.ID, m.dbFolder.ID)
+
+		// Registra conclusão do sync
+		storage.LogSyncComplete(syncID, newCount, purged, nil)
+
 		// Retorna total da caixa para mostrar na UI
 		var totalInBox uint32
 		if selectData != nil {
 			totalInBox = selectData.NumMessages
 		}
 
-		return syncDoneMsg{synced: len(emails), total: int(totalInBox), purged: purged, archived: archived}
+		return syncDoneMsg{synced: newCount, total: int(totalInBox), purged: purged, archived: archived}
 	}
 }
 
@@ -1313,6 +1336,13 @@ func scheduleBounceCheck() tea.Cmd {
 func scheduleDraftSend() tea.Cmd {
 	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return draftSendTickMsg{}
+	})
+}
+
+// scheduleAutoRefresh agenda o próximo auto-refresh
+func scheduleAutoRefresh() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return autoRefreshTickMsg{}
 	})
 }
 
@@ -3125,11 +3155,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.log("✅ Sync: %d novos, %d removidos (total servidor: %d)", msg.synced, msg.purged, msg.total)
 		}
+		// Mostra notificação de emails por 3 segundos (inclusive 0)
+		m.newEmailCount = msg.synced
+		m.newEmailShowTime = time.Now().Add(3 * time.Second)
 		// Recarrega emails do DB após sync
 		if m.state != stateReady {
 			m.state = stateLoadingEmails
 		}
-		return m, m.loadEmailsFromDB()
+		// Reinicia timer de auto-refresh
+		m.autoRefreshStart = time.Now()
+		m.autoRefreshEnabled = true
+		return m, tea.Batch(m.loadEmailsFromDB(), scheduleAutoRefresh())
 
 	case emailsLoadedMsg:
 		m.log("📧 %d emails carregados do cache", len(msg.emails))
@@ -3502,6 +3538,26 @@ Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 			}
 		}
 		return m, nil
+
+	// === AUTO-REFRESH HANDLER ===
+
+	case autoRefreshTickMsg:
+		if !m.autoRefreshEnabled || m.state != stateReady {
+			return m, scheduleAutoRefresh()
+		}
+
+		// Calcula tempo desde último refresh (adiciona 1s de buffer para barra completar)
+		var elapsed = time.Since(m.autoRefreshStart)
+		if elapsed >= autoRefreshInterval+time.Second {
+			// Hora de fazer refresh!
+			m.log("⏰ Auto-refresh iniciado")
+			m.state = stateSyncing
+			m.autoRefreshStart = time.Now()
+			return m, m.syncEmails()
+		}
+
+		// Continua aguardando
+		return m, scheduleAutoRefresh()
 
 	case draftScheduledMsg:
 		if msg.err != nil {
@@ -3891,11 +3947,35 @@ func (m Model) viewInbox() string {
 		alertIndicator = errorStyle.Render(fmt.Sprintf(" 🚨%d ", activeAlerts))
 	}
 
+	// Indicador de novos emails (mostra por 3 segundos após sync)
+	var newEmailIndicator = ""
+	if time.Now().Before(m.newEmailShowTime) {
+		if m.newEmailCount > 0 {
+			var newEmailStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#00FF00")).
+				Foreground(lipgloss.Color("#000000")).
+				Bold(true).
+				Padding(0, 1).
+				Blink(true)
+			if m.newEmailCount == 1 {
+				newEmailIndicator = newEmailStyle.Render("📬 1 NOVO!")
+			} else {
+				newEmailIndicator = newEmailStyle.Render(fmt.Sprintf("📬 %d NOVOS!", m.newEmailCount))
+			}
+		} else {
+			var noNewStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#666666")).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Padding(0, 1)
+			newEmailIndicator = noNewStyle.Render("✓ 0 novos")
+		}
+	}
+
 	var header = headerStyle.Render(fmt.Sprintf(" miau 🐱  %s  [%s]%s ",
 		m.account.Email,
 		m.currentBox,
 		stats,
-	)) + draftIndicator + monitorIndicator + alertIndicator
+	)) + newEmailIndicator + draftIndicator + monitorIndicator + alertIndicator
 
 	// Search banner (quando em modo de busca)
 	var searchBanner = ""
@@ -3937,6 +4017,32 @@ func (m Model) viewInbox() string {
 	// Email list
 	var emailList = m.renderEmailList()
 
+	// Auto-refresh timer indicator
+	var timerIndicator = ""
+	if m.autoRefreshEnabled && m.state == stateReady {
+		var elapsed = time.Since(m.autoRefreshStart)
+		var progress = float64(elapsed) / float64(autoRefreshInterval)
+		if progress > 1 {
+			progress = 1
+		}
+		// Barra de progresso visual com 10 caracteres
+		var filled = int(progress * 10)
+		var bar = ""
+		for i := 0; i < 10; i++ {
+			if i < filled {
+				bar += "█"
+			} else {
+				bar += "░"
+			}
+		}
+		var remaining = autoRefreshInterval - elapsed
+		if remaining < 0 {
+			remaining = 0
+		}
+		var timerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		timerIndicator = timerStyle.Render(fmt.Sprintf(" ⏱ %s %ds ", bar, int(remaining.Seconds())))
+	}
+
 	// Footer
 	var footer string
 	if m.searchMode {
@@ -3953,6 +4059,11 @@ func (m Model) viewInbox() string {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  e:arquivar  x:lixo  c:novo  d:drafts  /:buscar  a:AI  q:sair ")
+	}
+
+	// Adiciona timer ao footer se ativo
+	if timerIndicator != "" {
+		footer = lipgloss.JoinHorizontal(lipgloss.Left, footer, timerIndicator)
 	}
 
 	// Layout

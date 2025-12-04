@@ -9,10 +9,11 @@ Roadmap de desenvolvimento do miau com status visual de progresso.
 ## Progresso Geral
 
 ```
-Core Features     [████████████████████░░░░] 80%
+Core Features     [████████████████████████] 100%
 Email Sending     [████████████████████████] 100%
 TUI Interface     [██████████████████░░░░░░] 75%
 AI Integration    [████████████████░░░░░░░░] 65%
+Modular Arch      [████████████████████████] 100%
 Advanced Features [░░░░░░░░░░░░░░░░░░░░░░░░] 0%
 ```
 
@@ -40,7 +41,9 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 | ✅ Retenção permanente de dados | 2024-12-04 | `de0d314` |
 | ✅ Menu de configurações | 2024-12-04 | merged |
 | ✅ Documentação (arch + schema) | 2024-12-04 | merged |
-| ✅ Image Preview no TUI | 2024-12-04 | - |
+| ✅ Image Preview no TUI | 2024-12-04 | `7243d38` |
+| ✅ Fix delete/archive sync Gmail | 2024-12-04 | `fcb23e8` |
+| ✅ Arquitetura Modular (Ports/Adapters) | 2024-12-04 | `033e6a6` |
 
 ---
 
@@ -111,6 +114,7 @@ Advanced Features [░░░░░░░░░░░░░░░░░░░░�
 │                                                                 │
 │  9.  [ ] Web Interface (Go + HTMX)                              │
 │          └─ miau serve --port 8080                              │
+│          └─ Arquitetura modular já suporta ✅                   │
 │          └─ Ver: IDEAS.md#multi-platform-ui                     │
 │                                                                 │
 │  10. [ ] Offline Queue                                          │
@@ -217,4 +221,4 @@ Nov 2024                              Dez 2024
 
 ---
 
-*Última atualização: 2024-12-04*
+*Última atualização: 2025-12-04*

@@ -5,6 +5,12 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
 ## [Unreleased]
 
 ### Adicionado
+- **Arquitetura Modular (Ports/Adapters)**: Preparação para múltiplas interfaces
+  - `internal/ports/`: Interfaces de domínio (EmailService, StoragePort, etc)
+  - `internal/adapters/`: Implementações (IMAP, Storage)
+  - `internal/services/`: Lógica de negócio (Sync, Send, Draft, Batch, Search)
+  - `internal/app/`: Aplicação core que conecta tudo
+  - Permite TUI, Web e Desktop compartilharem a mesma lógica
 - **Image Preview no TUI**: Visualização de imagens diretamente no terminal
   - Tecla `i` no viewer abre preview de imagens
   - Renderização gráfica com chafa/viu (recomendado)
@@ -14,12 +20,24 @@ Histórico de implementação do miau, ordenado do mais recente para o mais anti
   - Salvar imagem com `s` (salva em ~/Downloads)
   - Abrir no viewer externo com `Enter`
   - Suporte a JPEG, PNG, GIF, WebP
+  - **Qualidade melhorada**: `--passthrough none`, `--work 9`, `--colors full`
 - **ROADMAP.md**: Roadmap visual com barras de progresso e fila de prioridades
 - **IDEAS.md**: Novas ideias adicionadas:
   - Multi-select (Space/Shift para selecionar múltiplos emails)
   - Suporte a mouse (click, scroll, context menu)
   - Help overlay (tecla ? com todos os atalhos)
   - About screen (info do autor, LinkedIn, Exato)
+  - Undo/Redo infinito
+  - Temas e customização visual
+  - Multi-language (i18n)
+  - Tasks/Todo integration
+  - Calendar integration
+  - Multi-AI integration (Gemini, Ollama, OpenRouter)
+  - Scheduled Messages (Send Later)
+
+### Corrigido
+- **Delete/Archive não sincronizava com Gmail**: Agora usa Gmail API para OAuth2 (independente do SendMethod), com fallback para IMAP
+- **Overlay de imagem**: Removido background que interferia com cores ANSI do chafa
 
 ### Em desenvolvimento
 - Resumo automático de emails longos via IA

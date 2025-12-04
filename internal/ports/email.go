@@ -161,3 +161,22 @@ type AIService interface {
 	// ClassifyEmail classifies an email (spam, important, etc.)
 	ClassifyEmail(ctx context.Context, emailID int64) (string, error)
 }
+
+// AnalyticsService defines operations for email analytics and statistics.
+type AnalyticsService interface {
+	// GetAnalytics returns comprehensive analytics for a time period
+	// period can be: "7d", "30d", "90d", "all"
+	GetAnalytics(ctx context.Context, period string) (*AnalyticsResult, error)
+
+	// GetOverview returns basic email statistics
+	GetOverview(ctx context.Context) (*AnalyticsOverview, error)
+
+	// GetTopSenders returns top email senders
+	GetTopSenders(ctx context.Context, limit int, period string) ([]SenderStats, error)
+
+	// GetEmailTrends returns email volume trends
+	GetEmailTrends(ctx context.Context, period string) (*EmailTrends, error)
+
+	// GetResponseStats returns response time statistics
+	GetResponseStats(ctx context.Context) (*ResponseTimeStats, error)
+}

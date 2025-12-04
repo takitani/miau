@@ -69,6 +69,14 @@ type StoragePort interface {
 	// Settings
 	GetSetting(ctx context.Context, accountID int64, key string) (string, error)
 	SetSetting(ctx context.Context, accountID int64, key, value string) error
+
+	// Analytics
+	GetAnalyticsOverview(ctx context.Context, accountID int64) (*AnalyticsOverview, error)
+	GetTopSenders(ctx context.Context, accountID int64, limit int, sinceDays int) ([]SenderStats, error)
+	GetEmailCountByHour(ctx context.Context, accountID int64, sinceDays int) ([]HourlyStats, error)
+	GetEmailCountByDay(ctx context.Context, accountID int64, sinceDays int) ([]DailyStats, error)
+	GetEmailCountByWeekday(ctx context.Context, accountID int64, sinceDays int) ([]WeekdayStats, error)
+	GetResponseStats(ctx context.Context, accountID int64) (*ResponseTimeStats, error)
 }
 
 // SentEmailTrack represents a tracked sent email for bounce detection

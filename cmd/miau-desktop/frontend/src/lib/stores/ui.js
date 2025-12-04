@@ -8,6 +8,7 @@ export const showCompose = writable(false);
 export const showHelp = writable(false);
 export const showSettings = writable(false);
 export const showAI = writable(false);
+export const showAnalytics = writable(false);
 export const aiWithContext = writable(false);
 
 // Active panel: 'folders' | 'emails' | 'viewer'
@@ -101,6 +102,13 @@ function handleKeydown(e) {
         e.preventDefault();
         aiWithContext.set(true);
         showAI.set(true);
+      }
+      return;
+
+    case 'p':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showAnalytics.update(v => !v);
       }
       return;
   }
@@ -239,6 +247,7 @@ function closeAllModals() {
   showHelp.set(false);
   showSettings.set(false);
   showAI.set(false);
+  showAnalytics.set(false);
 }
 
 // Sync emails

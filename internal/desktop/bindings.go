@@ -612,6 +612,148 @@ func (a *App) GetCurrentAccount() *AccountDTO {
 }
 
 // ============================================================================
+// ANALYTICS
+// ============================================================================
+
+// GetAnalytics returns comprehensive analytics for a time period
+func (a *App) GetAnalytics(period string) (*AnalyticsResultDTO, error) {
+	if a.application == nil {
+		return nil, nil
+	}
+
+	if period == "" {
+		period = "30d"
+	}
+
+	var result, err = a.application.Analytics().GetAnalytics(context.Background(), period)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.analyticsResultToDTO(result), nil
+}
+
+// GetAnalyticsOverview returns basic email statistics
+func (a *App) GetAnalyticsOverview() (*AnalyticsOverviewDTO, error) {
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var overview, err = a.application.Analytics().GetOverview(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	return &AnalyticsOverviewDTO{
+		TotalEmails:    overview.TotalEmails,
+		UnreadEmails:   overview.UnreadEmails,
+		StarredEmails:  overview.StarredEmails,
+		ArchivedEmails: overview.ArchivedEmails,
+		SentEmails:     overview.SentEmails,
+		DraftCount:     overview.DraftCount,
+		StorageUsedMB:  overview.StorageUsedMB,
+	}, nil
+}
+
+// GetTopSenders returns top email senders
+func (a *App) GetTopSenders(limit int, period string) ([]SenderStatsDTO, error) {
+	if a.application == nil {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+	if period == "" {
+		period = "30d"
+	}
+
+	var senders, err = a.application.Analytics().GetTopSenders(context.Background(), limit, period)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []SenderStatsDTO
+	for _, s := range senders {
+		result = append(result, SenderStatsDTO{
+			Email:       s.Email,
+			Name:        s.Name,
+			Count:       s.Count,
+			UnreadCount: s.UnreadCount,
+			Percentage:  s.Percentage,
+		})
+	}
+	return result, nil
+}
+
+// analyticsResultToDTO converts ports.AnalyticsResult to AnalyticsResultDTO
+func (a *App) analyticsResultToDTO(result *ports.AnalyticsResult) *AnalyticsResultDTO {
+	if result == nil {
+		return nil
+	}
+
+	var topSenders []SenderStatsDTO
+	for _, s := range result.TopSenders {
+		topSenders = append(topSenders, SenderStatsDTO{
+			Email:       s.Email,
+			Name:        s.Name,
+			Count:       s.Count,
+			UnreadCount: s.UnreadCount,
+			Percentage:  s.Percentage,
+		})
+	}
+
+	var daily []DailyStatsDTO
+	for _, d := range result.Trends.Daily {
+		daily = append(daily, DailyStatsDTO{
+			Date:  d.Date,
+			Count: d.Count,
+		})
+	}
+
+	var hourly []HourlyStatsDTO
+	for _, h := range result.Trends.Hourly {
+		hourly = append(hourly, HourlyStatsDTO{
+			Hour:  h.Hour,
+			Count: h.Count,
+		})
+	}
+
+	var weekday []WeekdayStatsDTO
+	for _, w := range result.Trends.Weekday {
+		weekday = append(weekday, WeekdayStatsDTO{
+			Weekday: w.Weekday,
+			Name:    w.Name,
+			Count:   w.Count,
+		})
+	}
+
+	return &AnalyticsResultDTO{
+		Overview: AnalyticsOverviewDTO{
+			TotalEmails:    result.Overview.TotalEmails,
+			UnreadEmails:   result.Overview.UnreadEmails,
+			StarredEmails:  result.Overview.StarredEmails,
+			ArchivedEmails: result.Overview.ArchivedEmails,
+			SentEmails:     result.Overview.SentEmails,
+			DraftCount:     result.Overview.DraftCount,
+			StorageUsedMB:  result.Overview.StorageUsedMB,
+		},
+		TopSenders: topSenders,
+		Trends: EmailTrendsDTO{
+			Daily:   daily,
+			Hourly:  hourly,
+			Weekday: weekday,
+		},
+		ResponseTime: ResponseTimeStatsDTO{
+			AvgResponseMinutes: result.ResponseTime.AvgResponseMinutes,
+			ResponseRate:       result.ResponseTime.ResponseRate,
+		},
+		Period:      result.Period,
+		GeneratedAt: result.GeneratedAt,
+	}
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 

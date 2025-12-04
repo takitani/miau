@@ -1107,3 +1107,242 @@ func GetAllSettings(accountID int64) (map[string]string, error) {
 	}
 	return result, nil
 }
+
+// === ANALYTICS ===
+
+// AnalyticsOverviewResult contains general email statistics
+type AnalyticsOverviewResult struct {
+	TotalEmails    int     `db:"total_emails"`
+	UnreadEmails   int     `db:"unread_emails"`
+	StarredEmails  int     `db:"starred_emails"`
+	ArchivedEmails int     `db:"archived_emails"`
+	SentEmails     int     `db:"sent_emails"`
+	DraftCount     int     `db:"draft_count"`
+	StorageUsedMB  float64 `db:"storage_used_mb"`
+}
+
+// GetAnalyticsOverview returns overall email statistics
+func GetAnalyticsOverview(accountID int64) (*AnalyticsOverviewResult, error) {
+	var overview AnalyticsOverviewResult
+
+	// Total emails (not deleted)
+	err := db.Get(&overview.TotalEmails, `
+		SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0`,
+		accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unread emails
+	db.Get(&overview.UnreadEmails, `
+		SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0 AND is_archived = 0 AND is_read = 0`,
+		accountID)
+
+	// Starred emails
+	db.Get(&overview.StarredEmails, `
+		SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0 AND is_starred = 1`,
+		accountID)
+
+	// Archived emails
+	db.Get(&overview.ArchivedEmails, `
+		SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0 AND is_archived = 1`,
+		accountID)
+
+	// Sent emails
+	db.Get(&overview.SentEmails, `
+		SELECT COUNT(*) FROM sent_emails WHERE account_id = ?`,
+		accountID)
+
+	// Draft count
+	db.Get(&overview.DraftCount, `
+		SELECT COUNT(*) FROM drafts WHERE account_id = ? AND status IN ('draft', 'scheduled')`,
+		accountID)
+
+	// Storage used (sum of email sizes in MB)
+	db.Get(&overview.StorageUsedMB, `
+		SELECT COALESCE(SUM(size) / 1048576.0, 0) FROM emails WHERE account_id = ? AND is_deleted = 0`,
+		accountID)
+
+	return &overview, nil
+}
+
+// SenderStatsResult contains statistics for a sender
+type SenderStatsResult struct {
+	Email       string `db:"from_email"`
+	Name        string `db:"from_name"`
+	Count       int    `db:"email_count"`
+	UnreadCount int    `db:"unread_count"`
+}
+
+// GetTopSenders returns top email senders
+func GetTopSenders(accountID int64, limit int, sinceDays int) ([]SenderStatsResult, error) {
+	var senders []SenderStatsResult
+
+	var query = `
+		SELECT
+			from_email,
+			COALESCE(from_name, from_email) as from_name,
+			COUNT(*) as email_count,
+			SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread_count
+		FROM emails
+		WHERE account_id = ? AND is_deleted = 0 AND is_archived = 0`
+
+	if sinceDays > 0 {
+		query += fmt.Sprintf(` AND date >= datetime('now', '-%d days')`, sinceDays)
+	}
+
+	query += `
+		GROUP BY from_email
+		ORDER BY email_count DESC
+		LIMIT ?`
+
+	err := db.Select(&senders, query, accountID, limit)
+	return senders, err
+}
+
+// HourlyStatsResult contains email count per hour
+type HourlyStatsResult struct {
+	Hour  int `db:"hour"`
+	Count int `db:"count"`
+}
+
+// GetEmailCountByHour returns email count by hour of day
+func GetEmailCountByHour(accountID int64, sinceDays int) ([]HourlyStatsResult, error) {
+	var stats []HourlyStatsResult
+
+	var query = `
+		SELECT
+			CAST(strftime('%H', date) AS INTEGER) as hour,
+			COUNT(*) as count
+		FROM emails
+		WHERE account_id = ? AND is_deleted = 0`
+
+	if sinceDays > 0 {
+		query += fmt.Sprintf(` AND date >= datetime('now', '-%d days')`, sinceDays)
+	}
+
+	query += `
+		GROUP BY hour
+		ORDER BY hour`
+
+	err := db.Select(&stats, query, accountID)
+
+	// Fill missing hours with 0
+	var hourMap = make(map[int]int)
+	for _, s := range stats {
+		hourMap[s.Hour] = s.Count
+	}
+
+	var result = make([]HourlyStatsResult, 24)
+	for i := 0; i < 24; i++ {
+		result[i] = HourlyStatsResult{Hour: i, Count: hourMap[i]}
+	}
+
+	return result, err
+}
+
+// DailyStatsResult contains email count per day
+type DailyStatsResult struct {
+	Date  string `db:"date"`
+	Count int    `db:"count"`
+}
+
+// GetEmailCountByDay returns email count by day
+func GetEmailCountByDay(accountID int64, sinceDays int) ([]DailyStatsResult, error) {
+	var stats []DailyStatsResult
+
+	var query = `
+		SELECT
+			strftime('%Y-%m-%d', date) as date,
+			COUNT(*) as count
+		FROM emails
+		WHERE account_id = ? AND is_deleted = 0`
+
+	if sinceDays > 0 {
+		query += fmt.Sprintf(` AND date >= datetime('now', '-%d days')`, sinceDays)
+	}
+
+	query += `
+		GROUP BY date
+		ORDER BY date DESC
+		LIMIT ?`
+
+	err := db.Select(&stats, query, accountID, sinceDays)
+	return stats, err
+}
+
+// WeekdayStatsResult contains email count per weekday
+type WeekdayStatsResult struct {
+	Weekday int `db:"weekday"`
+	Count   int `db:"count"`
+}
+
+// GetEmailCountByWeekday returns email count by day of week
+func GetEmailCountByWeekday(accountID int64, sinceDays int) ([]WeekdayStatsResult, error) {
+	var stats []WeekdayStatsResult
+
+	var query = `
+		SELECT
+			CAST(strftime('%w', date) AS INTEGER) as weekday,
+			COUNT(*) as count
+		FROM emails
+		WHERE account_id = ? AND is_deleted = 0`
+
+	if sinceDays > 0 {
+		query += fmt.Sprintf(` AND date >= datetime('now', '-%d days')`, sinceDays)
+	}
+
+	query += `
+		GROUP BY weekday
+		ORDER BY weekday`
+
+	err := db.Select(&stats, query, accountID)
+
+	// Fill missing weekdays with 0
+	var weekdayMap = make(map[int]int)
+	for _, s := range stats {
+		weekdayMap[s.Weekday] = s.Count
+	}
+
+	var result = make([]WeekdayStatsResult, 7)
+	for i := 0; i < 7; i++ {
+		result[i] = WeekdayStatsResult{Weekday: i, Count: weekdayMap[i]}
+	}
+
+	return result, err
+}
+
+// ResponseStatsResult contains response time statistics
+type ResponseStatsResult struct {
+	AvgResponseMinutes float64 `db:"avg_response_minutes"`
+	ResponseRate       float64 `db:"response_rate"`
+}
+
+// GetResponseStats returns response time statistics
+func GetResponseStats(accountID int64) (*ResponseStatsResult, error) {
+	var stats ResponseStatsResult
+
+	// Calculate average response time for replied emails
+	err := db.Get(&stats.AvgResponseMinutes, `
+		SELECT COALESCE(AVG(
+			(julianday(s.sent_at) - julianday(e.date)) * 24 * 60
+		), 0)
+		FROM sent_emails s
+		JOIN emails e ON s.reply_to_email_id = e.id
+		WHERE s.account_id = ? AND s.reply_to_email_id IS NOT NULL`,
+		accountID)
+	if err != nil {
+		stats.AvgResponseMinutes = 0
+	}
+
+	// Calculate response rate (emails replied / total received)
+	var total, replied int
+	db.Get(&total, `SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0`, accountID)
+	db.Get(&replied, `SELECT COUNT(*) FROM emails WHERE account_id = ? AND is_deleted = 0 AND is_replied = 1`, accountID)
+
+	if total > 0 {
+		stats.ResponseRate = float64(replied) / float64(total) * 100
+	}
+
+	return &stats, nil
+}

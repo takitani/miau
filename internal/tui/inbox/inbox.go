@@ -186,6 +186,20 @@ type Model struct {
 	imageRenderOutput string              // Output renderizado para display
 	imageCapabilities *image.Capabilities // Capabilities detectadas
 	imageLoading      bool                // Se está carregando/renderizando
+	// Analytics
+	showAnalytics      bool                      // Painel de analytics visível
+	analyticsData      *AnalyticsData            // Dados de analytics
+	analyticsPeriod    string                    // Período atual: "7d", "30d", "90d", "all"
+	analyticsLoading   bool                      // Se está carregando
+}
+
+// AnalyticsData contém todos os dados de analytics para o TUI
+type AnalyticsData struct {
+	Overview     *storage.AnalyticsOverviewResult
+	TopSenders   []storage.SenderStatsResult
+	Hourly       []storage.HourlyStatsResult
+	Weekday      []storage.WeekdayStatsResult
+	ResponseTime *storage.ResponseStatsResult
 }
 
 // SentEmailTracker rastreia emails enviados para detectar bounces
@@ -359,6 +373,12 @@ type searchResultsMsg struct {
 	results []storage.EmailSummary
 	query   string
 	err     error
+}
+
+// Analytics messages
+type analyticsLoadedMsg struct {
+	data *AnalyticsData
+	err  error
 }
 
 type searchDebounceMsg struct {
@@ -643,6 +663,50 @@ func (m Model) loadIndexState() tea.Cmd {
 		state.TotalEmails = toIndex + indexed
 		state.IndexedEmails = indexed
 		return indexStateLoadedMsg{state: state}
+	}
+}
+
+func (m Model) loadAnalytics() tea.Cmd {
+	var accountID = m.dbAccount.ID
+	var period = m.analyticsPeriod
+	return func() tea.Msg {
+		// Converte período para dias
+		var sinceDays int
+		switch period {
+		case "7d":
+			sinceDays = 7
+		case "30d":
+			sinceDays = 30
+		case "90d":
+			sinceDays = 90
+		case "all":
+			sinceDays = 0
+		default:
+			sinceDays = 30
+		}
+
+		var data = &AnalyticsData{}
+		var err error
+
+		// Carrega overview
+		data.Overview, err = storage.GetAnalyticsOverview(accountID)
+		if err != nil {
+			return analyticsLoadedMsg{err: err}
+		}
+
+		// Carrega top senders
+		data.TopSenders, _ = storage.GetTopSenders(accountID, 10, sinceDays)
+
+		// Carrega distribuição por hora
+		data.Hourly, _ = storage.GetEmailCountByHour(accountID, sinceDays)
+
+		// Carrega distribuição por dia da semana
+		data.Weekday, _ = storage.GetEmailCountByWeekday(accountID, sinceDays)
+
+		// Carrega estatísticas de resposta
+		data.ResponseTime, _ = storage.GetResponseStats(accountID)
+
+		return analyticsLoadedMsg{data: data}
 	}
 }
 
@@ -2481,6 +2545,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Bloqueia outras teclas no modo filtro
 		}
 
+		// Analytics mode
+		if m.showAnalytics {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "p", "q":
+				m.showAnalytics = false
+				m.log("📊 Analytics fechado")
+				return m, nil
+			case "1":
+				m.analyticsPeriod = "7d"
+				m.analyticsLoading = true
+				return m, m.loadAnalytics()
+			case "2":
+				m.analyticsPeriod = "30d"
+				m.analyticsLoading = true
+				return m, m.loadAnalytics()
+			case "3":
+				m.analyticsPeriod = "90d"
+				m.analyticsLoading = true
+				return m, m.loadAnalytics()
+			case "4":
+				m.analyticsPeriod = "all"
+				m.analyticsLoading = true
+				return m, m.loadAnalytics()
+			}
+			return m, nil // Bloqueia outras teclas no modo analytics
+		}
+
 		// Settings mode
 		if m.showSettings {
 			switch msg.String() {
@@ -2929,6 +3022,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.settingsSelection = 0
 				m.log("⚙️ Abrindo configurações")
 				return m, m.loadIndexState()
+			}
+
+		case "p":
+			// Abre painel de analytics
+			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI && !m.searchMode && !m.showSettings {
+				m.showAnalytics = !m.showAnalytics
+				if m.showAnalytics {
+					m.analyticsPeriod = "30d"
+					m.analyticsLoading = true
+					m.log("📊 Abrindo analytics")
+					return m, m.loadAnalytics()
+				}
+				return m, nil
 			}
 		}
 
@@ -3516,6 +3622,16 @@ Verifique as configurações ou contate o administrador.`,
 		}
 		return m, nil
 
+	case analyticsLoadedMsg:
+		m.analyticsLoading = false
+		if msg.err != nil {
+			m.log("❌ Erro ao carregar analytics: %v", msg.err)
+			return m, nil
+		}
+		m.analyticsData = msg.data
+		m.log("📊 Analytics carregados")
+		return m, nil
+
 	// === SETTINGS & INDEXER HANDLERS ===
 
 	case indexStateLoadedMsg:
@@ -3640,6 +3756,8 @@ func (m Model) View() string {
 			baseView = m.viewEmailViewer()
 		} else if m.showSettings {
 			baseView = m.viewSettings()
+		} else if m.showAnalytics {
+			baseView = m.viewAnalytics()
 		} else {
 			baseView = m.viewInbox()
 		}
@@ -4165,6 +4283,209 @@ func (m Model) viewDebugPanel() string {
 	)
 
 	return debugBoxStyle.Width(width).Height(height).Render(content)
+}
+
+func (m Model) viewAnalytics() string {
+	var analyticsBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Padding(1, 2)
+
+	var header = titleStyle.Render("miau 🐱") + " - " + infoStyle.Render("Analytics") + " " + subtitleStyle.Render("("+m.analyticsPeriod+")")
+
+	var lines []string
+
+	// Period selector
+	var periodLine = "  Período: "
+	var periods = []struct {
+		key    string
+		label  string
+		period string
+	}{
+		{"1", "7d", "7d"},
+		{"2", "30d", "30d"},
+		{"3", "90d", "90d"},
+		{"4", "Todos", "all"},
+	}
+	for _, p := range periods {
+		if p.period == m.analyticsPeriod {
+			periodLine += selectedStyle.Render("["+p.key+"]"+p.label) + "  "
+		} else {
+			periodLine += subtitleStyle.Render("["+p.key+"]"+p.label) + "  "
+		}
+	}
+	lines = append(lines, periodLine)
+	lines = append(lines, "")
+
+	if m.analyticsLoading {
+		lines = append(lines, "")
+		lines = append(lines, infoStyle.Render("  ⏳ Carregando estatísticas..."))
+		lines = append(lines, "")
+	} else if m.analyticsData != nil && m.analyticsData.Overview != nil {
+		var o = m.analyticsData.Overview
+
+		// Overview cards
+		lines = append(lines, infoStyle.Render("  📊 Visão Geral"))
+		lines = append(lines, fmt.Sprintf("     Total:     %s emails", formatNumber(o.TotalEmails)))
+		lines = append(lines, fmt.Sprintf("     Não lidos: %s", successStyle.Render(formatNumber(o.UnreadEmails))))
+		lines = append(lines, fmt.Sprintf("     Enviados:  %s", infoStyle.Render(formatNumber(o.SentEmails))))
+		lines = append(lines, fmt.Sprintf("     Arquivos:  %s", subtitleStyle.Render(formatNumber(o.ArchivedEmails))))
+		lines = append(lines, fmt.Sprintf("     Storage:   %.1f MB", o.StorageUsedMB))
+		lines = append(lines, "")
+
+		// Response stats
+		if m.analyticsData.ResponseTime != nil {
+			var r = m.analyticsData.ResponseTime
+			lines = append(lines, infoStyle.Render("  ⏱️  Tempo de Resposta"))
+			lines = append(lines, fmt.Sprintf("     Média:         %s", formatDuration(r.AvgResponseMinutes)))
+			lines = append(lines, fmt.Sprintf("     Taxa resposta: %.1f%%", r.ResponseRate))
+			lines = append(lines, "")
+		}
+
+		// Top senders
+		if len(m.analyticsData.TopSenders) > 0 {
+			lines = append(lines, infoStyle.Render("  👤 Top Remetentes"))
+			for i, s := range m.analyticsData.TopSenders {
+				if i >= 5 {
+					break // Mostra apenas top 5
+				}
+				var name = s.Name
+				if name == "" {
+					name = s.Email
+				}
+				// Trunca nome se muito longo
+				if len(name) > 20 {
+					name = name[:17] + "..."
+				}
+				var bar = renderMiniBar(s.Count, m.analyticsData.TopSenders[0].Count, 10)
+				var unreadInfo = ""
+				if s.UnreadCount > 0 {
+					unreadInfo = successStyle.Render(fmt.Sprintf(" +%d", s.UnreadCount))
+				}
+				lines = append(lines, fmt.Sprintf("     %d. %-20s %s %3d%s",
+					i+1, name, bar, s.Count, unreadInfo))
+			}
+			lines = append(lines, "")
+		}
+
+		// Weekday distribution
+		if len(m.analyticsData.Weekday) > 0 {
+			var weekdayNames = []string{"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"}
+			var maxCount = 1
+			for _, w := range m.analyticsData.Weekday {
+				if w.Count > maxCount {
+					maxCount = w.Count
+				}
+			}
+			lines = append(lines, infoStyle.Render("  📅 Por Dia da Semana"))
+			var weekLine = "     "
+			for i, w := range m.analyticsData.Weekday {
+				var bar = renderVerticalBar(w.Count, maxCount, 5)
+				weekLine += fmt.Sprintf("%s ", bar)
+				_ = weekdayNames[i] // usado abaixo
+			}
+			lines = append(lines, weekLine)
+			var labelLine = "     "
+			for _, name := range weekdayNames {
+				labelLine += fmt.Sprintf("%-4s", name)
+			}
+			lines = append(lines, subtitleStyle.Render(labelLine))
+			lines = append(lines, "")
+		}
+
+		// Hourly distribution (simplified)
+		if len(m.analyticsData.Hourly) > 0 {
+			var maxCount = 1
+			for _, h := range m.analyticsData.Hourly {
+				if h.Count > maxCount {
+					maxCount = h.Count
+				}
+			}
+			lines = append(lines, infoStyle.Render("  ⏰ Por Hora (pico)"))
+			// Find peak hour
+			var peakHour = 0
+			var peakCount = 0
+			for _, h := range m.analyticsData.Hourly {
+				if h.Count > peakCount {
+					peakCount = h.Count
+					peakHour = h.Hour
+				}
+			}
+			lines = append(lines, fmt.Sprintf("     Horário de pico: %02d:00 (%d emails)", peakHour, peakCount))
+		}
+	} else {
+		lines = append(lines, "")
+		lines = append(lines, subtitleStyle.Render("  Nenhum dado disponível"))
+		lines = append(lines, "")
+	}
+
+	var content = strings.Join(lines, "\n")
+
+	// Footer
+	var footer = subtitleStyle.Render(" [1-4]:período  p/Esc:fechar ")
+
+	var box = analyticsBoxStyle.Width(m.width - 4).Render(header + "\n" + content + "\n" + footer)
+
+	// Debug panel se ativo
+	if m.debugMode && m.width > 0 {
+		var debugPanel = m.viewDebugPanel()
+		return lipgloss.JoinHorizontal(lipgloss.Top, box, debugPanel)
+	}
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
+}
+
+// formatNumber formata número para exibição (1234 -> 1.2k)
+func formatNumber(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+// formatDuration formata minutos para exibição (247 -> 4h 7m)
+func formatDuration(minutes float64) string {
+	if minutes < 60 {
+		return fmt.Sprintf("%.0f min", minutes)
+	}
+	var hours = int(minutes / 60)
+	var mins = int(minutes) % 60
+	if hours < 24 {
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	var days = hours / 24
+	return fmt.Sprintf("%dd %dh", days, hours%24)
+}
+
+// renderMiniBar renderiza uma barra horizontal proporcional
+func renderMiniBar(value, max, width int) string {
+	if max == 0 {
+		return strings.Repeat("░", width)
+	}
+	var filled = value * width / max
+	if filled < 1 && value > 0 {
+		filled = 1
+	}
+	return infoStyle.Render(strings.Repeat("█", filled)) + strings.Repeat("░", width-filled)
+}
+
+// renderVerticalBar renderiza uma barra vertical (usada para weekday chart)
+func renderVerticalBar(value, max, height int) string {
+	if max == 0 {
+		return "·"
+	}
+	var filled = value * height / max
+	if filled < 1 && value > 0 {
+		filled = 1
+	}
+	var bars = []string{"·", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	if filled >= len(bars) {
+		filled = len(bars) - 1
+	}
+	return infoStyle.Render(bars[filled])
 }
 
 func (m Model) viewSettings() string {

@@ -29,14 +29,15 @@ type Application struct {
 	storageAdapter *adapters.StorageAdapter
 
 	// Services
-	eventBus     ports.EventBus
-	syncService  *services.SyncService
-	emailService *services.EmailService
-	sendService  *services.SendService
-	draftService *services.DraftService
-	searchService *services.SearchService
-	batchService *services.BatchService
-	notifyService *services.NotificationService
+	eventBus         ports.EventBus
+	syncService      *services.SyncService
+	emailService     *services.EmailService
+	sendService      *services.SendService
+	draftService     *services.DraftService
+	searchService    *services.SearchService
+	batchService     *services.BatchService
+	notifyService    *services.NotificationService
+	analyticsService *services.AnalyticsService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -129,6 +130,9 @@ func (a *Application) Start() error {
 	a.notifyService = services.NewNotificationService(a.storageAdapter, a.eventBus)
 	a.notifyService.SetAccount(accountInfo)
 
+	a.analyticsService = services.NewAnalyticsService(a.storageAdapter, a.eventBus)
+	a.analyticsService.SetAccount(accountInfo)
+
 	a.started = true
 	return nil
 }
@@ -189,6 +193,11 @@ func (a *Application) Sync() ports.SyncService {
 // AI returns the AI service (not implemented yet)
 func (a *Application) AI() ports.AIService {
 	return nil
+}
+
+// Analytics returns the analytics service
+func (a *Application) Analytics() ports.AnalyticsService {
+	return a.analyticsService
 }
 
 // Events returns the event bus

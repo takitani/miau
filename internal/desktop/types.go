@@ -96,3 +96,70 @@ type SearchResultDTO struct {
 	TotalCount int        `json:"totalCount"`
 	Query      string     `json:"query"`
 }
+
+// ============================================================================
+// ANALYTICS DTOs
+// ============================================================================
+
+// AnalyticsOverviewDTO contains general email statistics
+type AnalyticsOverviewDTO struct {
+	TotalEmails    int     `json:"totalEmails"`
+	UnreadEmails   int     `json:"unreadEmails"`
+	StarredEmails  int     `json:"starredEmails"`
+	ArchivedEmails int     `json:"archivedEmails"`
+	SentEmails     int     `json:"sentEmails"`
+	DraftCount     int     `json:"draftCount"`
+	StorageUsedMB  float64 `json:"storageUsedMb"`
+}
+
+// SenderStatsDTO contains statistics for a sender
+type SenderStatsDTO struct {
+	Email       string  `json:"email"`
+	Name        string  `json:"name"`
+	Count       int     `json:"count"`
+	UnreadCount int     `json:"unreadCount"`
+	Percentage  float64 `json:"percentage"`
+}
+
+// HourlyStatsDTO contains email count per hour
+type HourlyStatsDTO struct {
+	Hour  int `json:"hour"`
+	Count int `json:"count"`
+}
+
+// DailyStatsDTO contains email count per day
+type DailyStatsDTO struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+// WeekdayStatsDTO contains email count per weekday
+type WeekdayStatsDTO struct {
+	Weekday int    `json:"weekday"`
+	Name    string `json:"name"`
+	Count   int    `json:"count"`
+}
+
+// EmailTrendsDTO contains email volume trends
+type EmailTrendsDTO struct {
+	Daily   []DailyStatsDTO   `json:"daily"`
+	Hourly  []HourlyStatsDTO  `json:"hourly"`
+	Weekday []WeekdayStatsDTO `json:"weekday"`
+}
+
+// ResponseTimeStatsDTO contains response time statistics
+type ResponseTimeStatsDTO struct {
+	AvgResponseMinutes float64 `json:"avgResponseMinutes"`
+	MedianMinutes      float64 `json:"medianMinutes"`
+	ResponseRate       float64 `json:"responseRate"`
+}
+
+// AnalyticsResultDTO contains all analytics data
+type AnalyticsResultDTO struct {
+	Overview     AnalyticsOverviewDTO   `json:"overview"`
+	TopSenders   []SenderStatsDTO       `json:"topSenders"`
+	Trends       EmailTrendsDTO         `json:"trends"`
+	ResponseTime ResponseTimeStatsDTO   `json:"responseTime"`
+	Period       string                 `json:"period"`
+	GeneratedAt  time.Time              `json:"generatedAt"`
+}

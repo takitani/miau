@@ -97,6 +97,7 @@ func New(account *config.Account, debug bool, app ...ports.App) Model {
 		imageCapabilities: &imgCaps,
 		imageAttachments:  []Attachment{},
 		app:               application,
+		selectedEmails:    make(map[int64]bool), // Initialize multi-selection map
 	}
 }
 
@@ -952,21 +953,21 @@ func extractBounceReason(snippet, subject string) string {
 
 	// Razões comuns
 	var reasons = map[string]string{
-		"classificação":             "Requer classificação de email",
-		"classification":            "Requires email classification",
-		"spam":                      "Marcado como spam",
-		"rejected":                  "Rejeitado pelo servidor",
-		"user unknown":              "Usuário desconhecido",
-		"mailbox full":              "Caixa de correio cheia",
-		"quota exceeded":            "Cota excedida",
-		"does not exist":            "Endereço não existe",
-		"address rejected":          "Endereço rejeitado",
-		"policy":                    "Violação de política",
-		"blocked":                   "Bloqueado",
-		"blacklist":                 "Na lista negra",
-		"administrador":             "Bloqueado pelo administrador",
-		"administrator":             "Blocked by administrator",
-		"enterprise administrator":  "Bloqueado pela política corporativa",
+		"classificação":            "Requer classificação de email",
+		"classification":           "Requires email classification",
+		"spam":                     "Marcado como spam",
+		"rejected":                 "Rejeitado pelo servidor",
+		"user unknown":             "Usuário desconhecido",
+		"mailbox full":             "Caixa de correio cheia",
+		"quota exceeded":           "Cota excedida",
+		"does not exist":           "Endereço não existe",
+		"address rejected":         "Endereço rejeitado",
+		"policy":                   "Violação de política",
+		"blocked":                  "Bloqueado",
+		"blacklist":                "Na lista negra",
+		"administrador":            "Bloqueado pelo administrador",
+		"administrator":            "Blocked by administrator",
+		"enterprise administrator": "Bloqueado pela política corporativa",
 	}
 
 	for key, reason := range reasons {
@@ -2318,6 +2319,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openThreadView()
 			}
 
+		case "V":
+			// Entra no modo de seleção múltipla (visual mode)
+			if !m.showFolders && len(m.emails) > 0 {
+				m.multiSelectMode = !m.multiSelectMode
+				if !m.multiSelectMode {
+					// Saiu do visual mode - limpa seleções
+					m.selectedEmails = make(map[int64]bool)
+					m.log("✖️ Modo visual desativado - seleções limpas")
+				} else {
+					m.selectionAnchor = m.selectedEmail
+					m.log("✅ Modo visual ativado - use Space para selecionar")
+				}
+				return m, nil
+			}
+
+		case " ":
+			// Seleciona/deseleciona email atual (só em visual mode)
+			if m.multiSelectMode && !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				if m.selectedEmails[email.ID] {
+					delete(m.selectedEmails, email.ID)
+					m.log("➖ Email desmarcado: %s", email.Subject)
+				} else {
+					m.selectedEmails[email.ID] = true
+					m.log("➕ Email marcado: %s", email.Subject)
+				}
+				// Avança para o próximo email
+				if m.selectedEmail < len(m.emails)-1 {
+					m.selectedEmail++
+				}
+				return m, nil
+			}
+
+		case "ctrl+a":
+			// Seleciona todos os emails visíveis
+			if !m.showFolders && len(m.emails) > 0 {
+				if !m.multiSelectMode {
+					m.multiSelectMode = true
+					m.log("✅ Modo visual ativado")
+				}
+				m.selectedEmails = make(map[int64]bool)
+				for _, email := range m.emails {
+					m.selectedEmails[email.ID] = true
+				}
+				m.log("✅ Selecionados %d emails", len(m.emails))
+				return m, nil
+			}
+
 		case "v":
 			// Abre viewer simples (legacy - mantido para compatibilidade)
 			if !m.showFolders && len(m.emails) > 0 {
@@ -2396,8 +2445,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "e":
-			// Archive email (Gmail style)
+			// Archive email (Gmail style) - batch if in visual mode with selections
 			if !m.showFolders && len(m.emails) > 0 {
+				if m.multiSelectMode && len(m.selectedEmails) > 0 {
+					// Batch archive via service
+					m.log("📦 Arquivando %d emails selecionados", len(m.selectedEmails))
+					return m, m.batchArchiveSelected()
+				}
 				var email = m.emails[m.selectedEmail]
 				var messageID = ""
 				if email.MessageID.Valid {
@@ -2408,8 +2462,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "x", "#":
-			// Delete email (move to trash)
+			// Delete email (move to trash) - batch if in visual mode with selections
 			if !m.showFolders && len(m.emails) > 0 {
+				if m.multiSelectMode && len(m.selectedEmails) > 0 {
+					// Batch delete via service
+					m.log("🗑️ Deletando %d emails selecionados", len(m.selectedEmails))
+					return m, m.batchDeleteSelected()
+				}
 				var email = m.emails[m.selectedEmail]
 				var messageID = ""
 				if email.MessageID.Valid {
@@ -2417,6 +2476,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.log("🗑️ Deletando email: %s", email.Subject)
 				return m, m.deleteEmail(email.ID, email.UID, messageID)
+			}
+
+		case "m":
+			// Mark as read/unread - batch if in visual mode with selections
+			if !m.showFolders && len(m.emails) > 0 {
+				if m.multiSelectMode && len(m.selectedEmails) > 0 {
+					// Batch mark as read
+					m.log("📧 Marcando %d emails como lidos", len(m.selectedEmails))
+					return m, m.batchMarkReadSelected()
+				}
+				// Single email toggle read status
+				var email = m.emails[m.selectedEmail]
+				var newReadStatus = !email.IsRead
+				m.log("📧 Alternando status de leitura: %s", email.Subject)
+				return m, m.markAsRead(email.ID, email.UID)
+			}
+
+		case "s":
+			// Star/unstar email - batch if in visual mode with selections
+			if !m.showFolders && len(m.emails) > 0 {
+				if m.multiSelectMode && len(m.selectedEmails) > 0 {
+					// Batch star
+					m.log("⭐ Estrelando %d emails", len(m.selectedEmails))
+					return m, m.batchStarSelected()
+				}
+				// Single email toggle star status
+				var email = m.emails[m.selectedEmail]
+				var newStarStatus = !email.IsStarred
+				m.log("⭐ Alternando estrela: %s", email.Subject)
+				return m, m.starEmail(email.ID, newStarStatus)
 			}
 
 		case "X":
@@ -2951,6 +3040,34 @@ Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 		m.originalEmails = nil
 		return m, nil
 
+	case batchOperationCompleteMsg:
+		// Multi-selection batch operation completed
+		if msg.err != nil {
+			m.log("❌ Erro na operação %s: %v", msg.operation, msg.err)
+			return m, nil
+		}
+		m.log("✅ Operação %s concluída: %d emails processados", msg.operation, msg.count)
+		// Sai do visual mode e limpa seleções
+		m.multiSelectMode = false
+		m.selectedEmails = make(map[int64]bool)
+		// Recarrega emails do banco
+		return m, m.loadEmailsFromDB()
+
+	case emailStarredMsg:
+		// Atualiza o email na lista local
+		for i := range m.emails {
+			if m.emails[i].ID == msg.emailID {
+				m.emails[i].IsStarred = msg.starred
+				break
+			}
+		}
+		var starStatus = "estrelado"
+		if !msg.starred {
+			starStatus = "desestrelado"
+		}
+		m.log("⭐ Email %s", starStatus)
+		return m, nil
+
 	case checkPendingBatchOpsMsg:
 		// Verifica se há operações pendentes após resposta do AI
 		m.log("🔎 Verificando batch ops pendentes...")
@@ -3475,6 +3592,20 @@ func (m Model) viewInbox() string {
 		stats,
 	)) + newEmailIndicator + draftIndicator + monitorIndicator + alertIndicator
 
+	// Visual mode banner (quando em modo de seleção múltipla)
+	var visualModeBanner = ""
+	if m.multiSelectMode {
+		var bannerStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#9D4EDD")).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Padding(0, 1).
+			Width(m.width)
+		var selectedCount = len(m.selectedEmails)
+		var helpText = "Space:selecionar  V:sair  a:arquivar  d:deletar  m:marcar_lido  s:estrelar"
+		visualModeBanner = bannerStyle.Render(fmt.Sprintf("✓ VISUAL MODE - %d selecionados  |  %s", selectedCount, helpText))
+	}
+
 	// Search banner (quando em modo de busca)
 	var searchBanner = ""
 	if m.searchMode {
@@ -3601,6 +3732,13 @@ func (m Model) viewInbox() string {
 			content,
 			footer,
 		)
+	} else if visualModeBanner != "" {
+		view = lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			visualModeBanner,
+			content,
+			footer,
+		)
 	} else {
 		view = lipgloss.JoinVertical(lipgloss.Left,
 			header,
@@ -3700,6 +3838,16 @@ func (m Model) renderEmailList() string {
 }
 
 func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
+	// Selection indicator (multi-select mode)
+	var selectionPrefix = ""
+	if m.multiSelectMode {
+		if m.selectedEmails[email.ID] {
+			selectionPrefix = "[✓] "
+		} else {
+			selectionPrefix = "[ ] "
+		}
+	}
+
 	var indicator = "●"
 	if email.IsRead {
 		indicator = " "
@@ -3747,7 +3895,7 @@ func (m Model) formatEmailLine(email storage.EmailSummary, width int) string {
 		currentWidth++
 	}
 
-	return fmt.Sprintf(" %s %-18s │ %s%s │ %s ", indicator, from, attachmentIcon, subject, date)
+	return fmt.Sprintf("%s %s %-18s │ %s%s │ %s ", selectionPrefix, indicator, from, attachmentIcon, subject, date)
 }
 
 func truncate(s string, max int) string {
@@ -4156,9 +4304,9 @@ func (m Model) viewSettings() string {
 	var tabLine = "  "
 	for i, tab := range tabs {
 		if i == m.settingsTab {
-			tabLine += selectedStyle.Render(" "+tab+" ")
+			tabLine += selectedStyle.Render(" " + tab + " ")
 		} else {
-			tabLine += subtitleStyle.Render(" "+tab+" ")
+			tabLine += subtitleStyle.Render(" " + tab + " ")
 		}
 		if i < len(tabs)-1 {
 			tabLine += " │ "
@@ -4799,4 +4947,94 @@ func (m Model) viewDraftsPanel(baseView string) string {
 	var modal = panelStyle.Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// ============================================================================
+// Batch Operations (Multi-selection)
+// ============================================================================
+
+type batchOperationCompleteMsg struct {
+	operation string
+	count     int
+	err       error
+}
+
+func (m Model) batchArchiveSelected() tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return batchOperationCompleteMsg{operation: "archive", err: fmt.Errorf("app not initialized")}
+		}
+
+		var emailIDs = make([]int64, 0, len(m.selectedEmails))
+		for id := range m.selectedEmails {
+			emailIDs = append(emailIDs, id)
+		}
+
+		var ctx = context.Background()
+		var err = m.app.Batch().ArchiveSelected(ctx, emailIDs)
+		return batchOperationCompleteMsg{operation: "archive", count: len(emailIDs), err: err}
+	}
+}
+
+func (m Model) batchDeleteSelected() tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return batchOperationCompleteMsg{operation: "delete", err: fmt.Errorf("app not initialized")}
+		}
+
+		var emailIDs = make([]int64, 0, len(m.selectedEmails))
+		for id := range m.selectedEmails {
+			emailIDs = append(emailIDs, id)
+		}
+
+		var ctx = context.Background()
+		var err = m.app.Batch().DeleteSelected(ctx, emailIDs)
+		return batchOperationCompleteMsg{operation: "delete", count: len(emailIDs), err: err}
+	}
+}
+
+func (m Model) batchMarkReadSelected() tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return batchOperationCompleteMsg{operation: "mark_read", err: fmt.Errorf("app not initialized")}
+		}
+
+		var emailIDs = make([]int64, 0, len(m.selectedEmails))
+		for id := range m.selectedEmails {
+			emailIDs = append(emailIDs, id)
+		}
+
+		var ctx = context.Background()
+		var err = m.app.Batch().MarkReadSelected(ctx, emailIDs, true)
+		return batchOperationCompleteMsg{operation: "mark_read", count: len(emailIDs), err: err}
+	}
+}
+
+func (m Model) batchStarSelected() tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return batchOperationCompleteMsg{operation: "star", err: fmt.Errorf("app not initialized")}
+		}
+
+		var emailIDs = make([]int64, 0, len(m.selectedEmails))
+		for id := range m.selectedEmails {
+			emailIDs = append(emailIDs, id)
+		}
+
+		var ctx = context.Background()
+		var err = m.app.Batch().StarSelected(ctx, emailIDs, true)
+		return batchOperationCompleteMsg{operation: "star", count: len(emailIDs), err: err}
+	}
+}
+
+func (m Model) starEmail(emailID int64, starred bool) tea.Cmd {
+	return func() tea.Msg {
+		storage.MarkAsStarred(emailID, starred)
+		return emailStarredMsg{emailID: emailID, starred: starred}
+	}
+}
+
+type emailStarredMsg struct {
+	emailID int64
+	starred bool
 }

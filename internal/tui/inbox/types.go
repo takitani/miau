@@ -138,6 +138,10 @@ type Model struct {
 	// Thread view
 	threadView   interface{} // thread.Model (imported dynamically to avoid cycle)
 	previousState state       // Estado anterior antes de abrir thread
+	// Multi-selection
+	multiSelectMode  bool            // Modo de seleção múltipla ativo (visual mode)
+	selectedEmails   map[int64]bool  // Map de email IDs selecionados
+	selectionAnchor  int             // Índice do email âncora para seleção de range
 }
 
 // AnalyticsData contém todos os dados de analytics para o TUI

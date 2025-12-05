@@ -809,6 +809,15 @@ func ExecuteBatchOp(id int64) (int, error) {
 			opErr = MarkAsRead(emailID, true)
 		case "mark_unread":
 			opErr = MarkAsRead(emailID, false)
+		case "star":
+			opErr = MarkAsStarred(emailID, true)
+		case "unstar":
+			opErr = MarkAsStarred(emailID, false)
+		case "forward":
+			// Forward operation requires email service integration
+			// This is handled at the service layer via SendService
+			// Here we just track that the operation was requested
+			opErr = nil
 		}
 		if opErr == nil {
 			count++
@@ -1400,13 +1409,13 @@ func GetResponseStats(accountID int64) (*ResponseStatsResult, error) {
 
 // SyncLog representa um registro de sync
 type SyncLog struct {
-	ID            int64      `db:"id"`
-	AccountID     int64      `db:"account_id"`
-	FolderID      int64      `db:"folder_id"`
-	StartedAt     time.Time  `db:"started_at"`
-	CompletedAt   time.Time  `db:"completed_at"`
-	NewEmails     int        `db:"new_emails"`
-	DeletedEmails int        `db:"deleted_emails"`
+	ID            int64          `db:"id"`
+	AccountID     int64          `db:"account_id"`
+	FolderID      int64          `db:"folder_id"`
+	StartedAt     time.Time      `db:"started_at"`
+	CompletedAt   time.Time      `db:"completed_at"`
+	NewEmails     int            `db:"new_emails"`
+	DeletedEmails int            `db:"deleted_emails"`
 	Error         sql.NullString `db:"error"`
 }
 

@@ -112,3 +112,103 @@ func (s *BatchService) GetBatchOpEmails(ctx context.Context, id int64) ([]ports.
 	// For now, return empty as placeholder
 	return nil, nil
 }
+
+// ArchiveSelected creates and executes a batch archive operation for selected emails
+func (s *BatchService) ArchiveSelected(ctx context.Context, emailIDs []int64) error {
+	var op = &ports.BatchOperation{
+		Operation:   ports.BatchOpArchive,
+		Description: fmt.Sprintf("Archive %d selected emails", len(emailIDs)),
+		EmailIDs:    emailIDs,
+		EmailCount:  len(emailIDs),
+	}
+
+	var created, err = s.CreateBatchOp(ctx, op)
+	if err != nil {
+		return err
+	}
+
+	return s.ConfirmBatchOp(ctx, created.ID)
+}
+
+// DeleteSelected creates and executes a batch delete operation for selected emails
+func (s *BatchService) DeleteSelected(ctx context.Context, emailIDs []int64) error {
+	var op = &ports.BatchOperation{
+		Operation:   ports.BatchOpDelete,
+		Description: fmt.Sprintf("Delete %d selected emails", len(emailIDs)),
+		EmailIDs:    emailIDs,
+		EmailCount:  len(emailIDs),
+	}
+
+	var created, err = s.CreateBatchOp(ctx, op)
+	if err != nil {
+		return err
+	}
+
+	return s.ConfirmBatchOp(ctx, created.ID)
+}
+
+// MarkReadSelected creates and executes a batch mark-as-read operation
+func (s *BatchService) MarkReadSelected(ctx context.Context, emailIDs []int64, read bool) error {
+	var opType = ports.BatchOpMarkRead
+	var desc = fmt.Sprintf("Mark %d emails as read", len(emailIDs))
+	if !read {
+		opType = ports.BatchOpMarkUnread
+		desc = fmt.Sprintf("Mark %d emails as unread", len(emailIDs))
+	}
+
+	var op = &ports.BatchOperation{
+		Operation:   opType,
+		Description: desc,
+		EmailIDs:    emailIDs,
+		EmailCount:  len(emailIDs),
+	}
+
+	var created, err = s.CreateBatchOp(ctx, op)
+	if err != nil {
+		return err
+	}
+
+	return s.ConfirmBatchOp(ctx, created.ID)
+}
+
+// StarSelected creates and executes a batch star/unstar operation
+func (s *BatchService) StarSelected(ctx context.Context, emailIDs []int64, starred bool) error {
+	var opType = ports.BatchOpStar
+	var desc = fmt.Sprintf("Star %d emails", len(emailIDs))
+	if !starred {
+		opType = ports.BatchOpUnstar
+		desc = fmt.Sprintf("Unstar %d emails", len(emailIDs))
+	}
+
+	var op = &ports.BatchOperation{
+		Operation:   opType,
+		Description: desc,
+		EmailIDs:    emailIDs,
+		EmailCount:  len(emailIDs),
+	}
+
+	var created, err = s.CreateBatchOp(ctx, op)
+	if err != nil {
+		return err
+	}
+
+	return s.ConfirmBatchOp(ctx, created.ID)
+}
+
+// ForwardSelected creates a batch forward operation (requires confirmation with recipient)
+func (s *BatchService) ForwardSelected(ctx context.Context, emailIDs []int64, forwardTo string) error {
+	var op = &ports.BatchOperation{
+		Operation:   ports.BatchOpForward,
+		Description: fmt.Sprintf("Forward %d emails to %s", len(emailIDs), forwardTo),
+		EmailIDs:    emailIDs,
+		EmailCount:  len(emailIDs),
+		ForwardTo:   forwardTo,
+	}
+
+	var created, err = s.CreateBatchOp(ctx, op)
+	if err != nil {
+		return err
+	}
+
+	return s.ConfirmBatchOp(ctx, created.ID)
+}

@@ -102,6 +102,13 @@ type BatchService interface {
 
 	// GetBatchOpEmails returns the emails affected by a batch operation
 	GetBatchOpEmails(ctx context.Context, id int64) ([]EmailMetadata, error)
+
+	// Multi-selection operations (direct execution)
+	ArchiveSelected(ctx context.Context, emailIDs []int64) error
+	DeleteSelected(ctx context.Context, emailIDs []int64) error
+	MarkReadSelected(ctx context.Context, emailIDs []int64, read bool) error
+	StarSelected(ctx context.Context, emailIDs []int64, starred bool) error
+	ForwardSelected(ctx context.Context, emailIDs []int64, forwardTo string) error
 }
 
 // NotificationService defines operations for notifications and alerts.

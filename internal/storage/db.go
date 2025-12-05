@@ -370,6 +370,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração threading: %w", err)
 	}
 
+	// Migração: adiciona coluna forward_to para batch ops
+	if err := migrateAddForwardTo(); err != nil {
+		return fmt.Errorf("erro na migração forward_to: %w", err)
+	}
+
 	return nil
 }
 
@@ -429,6 +434,15 @@ func migrateAddThreading() error {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_in_reply_to ON emails(in_reply_to)")
 
+	return nil
+}
+
+// migrateAddForwardTo adiciona coluna forward_to para operações de forward em batch
+func migrateAddForwardTo() error {
+	var _, err = db.Exec("ALTER TABLE pending_batch_ops ADD COLUMN forward_to TEXT")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
 	return nil
 }
 

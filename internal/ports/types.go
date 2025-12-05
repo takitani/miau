@@ -141,6 +141,7 @@ type BatchOperation struct {
 	EmailIDs    []int64
 	EmailCount  int
 	Status      BatchOpStatus
+	ForwardTo   string // For forward operations: recipient email address
 	CreatedAt   time.Time
 	ExecutedAt  *time.Time
 }
@@ -155,6 +156,7 @@ const (
 	BatchOpMarkUnread BatchOpType = "mark_unread"
 	BatchOpStar       BatchOpType = "star"
 	BatchOpUnstar     BatchOpType = "unstar"
+	BatchOpForward    BatchOpType = "forward"
 )
 
 // BatchOpStatus defines the status of a batch operation
@@ -267,11 +269,11 @@ type AnalyticsOverview struct {
 
 // SenderStats contains statistics for a sender
 type SenderStats struct {
-	Email      string  `json:"email"`
-	Name       string  `json:"name"`
-	Count      int     `json:"count"`
-	UnreadCount int    `json:"unreadCount"`
-	Percentage float64 `json:"percentage"`
+	Email       string  `json:"email"`
+	Name        string  `json:"name"`
+	Count       int     `json:"count"`
+	UnreadCount int     `json:"unreadCount"`
+	Percentage  float64 `json:"percentage"`
 }
 
 // HourlyStats contains email count per hour
@@ -309,12 +311,12 @@ type ResponseTimeStats struct {
 
 // AnalyticsResult contains all analytics data
 type AnalyticsResult struct {
-	Overview     AnalyticsOverview   `json:"overview"`
-	TopSenders   []SenderStats       `json:"topSenders"`
-	Trends       EmailTrends         `json:"trends"`
-	ResponseTime ResponseTimeStats   `json:"responseTime"`
-	Period       string              `json:"period"` // "7d", "30d", "90d", "all"
-	GeneratedAt  time.Time           `json:"generatedAt"`
+	Overview     AnalyticsOverview `json:"overview"`
+	TopSenders   []SenderStats     `json:"topSenders"`
+	Trends       EmailTrends       `json:"trends"`
+	ResponseTime ResponseTimeStats `json:"responseTime"`
+	Period       string            `json:"period"` // "7d", "30d", "90d", "all"
+	GeneratedAt  time.Time         `json:"generatedAt"`
 }
 
 // AccountInfo contains account information

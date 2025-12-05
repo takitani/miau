@@ -31,6 +31,9 @@ type Model struct {
 	width         int
 	height        int
 	state         state
+	// Panel widths (resizable)
+	foldersWidth    int  // Largura do painel de pastas (default 25)
+	resizingPanel   bool // Se está arrastando para redimensionar
 	err           error
 	account       *config.Account
 	dbAccount     *storage.Account

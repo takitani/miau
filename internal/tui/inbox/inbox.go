@@ -85,6 +85,7 @@ func New(account *config.Account, debug bool, app ...ports.App) Model {
 		state:             stateInitDB,
 		currentBox:        "INBOX",
 		showFolders:       false,
+		foldersWidth:      25, // Default folders panel width
 		passwordInput:     input,
 		aiInput:           aiInput,
 		spinner:           s,
@@ -2282,6 +2283,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.showFolders = !m.showFolders
 
+		case "<", ",":
+			// Diminui largura do painel de pastas
+			if m.showFolders && m.foldersWidth > 15 {
+				m.foldersWidth -= 5
+				m.log("📐 Folders width: %d", m.foldersWidth)
+			}
+
+		case ">", ".":
+			// Aumenta largura do painel de pastas
+			if m.showFolders && m.foldersWidth < 50 {
+				m.foldersWidth += 5
+				m.log("📐 Folders width: %d", m.foldersWidth)
+			}
+
 		case "enter", "v":
 			if m.showFolders && len(m.mailboxes) > 0 {
 				m.currentBox = m.mailboxes[m.selectedBox].Name
@@ -2441,6 +2456,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case tea.MouseMsg:
+		// Handle mouse events for panel resizing
+		if m.showFolders && m.state == stateReady {
+			// Check if mouse is near the folder panel border (foldersWidth area)
+			var borderX = m.foldersWidth + 1 // Approximate border position
+
+			switch msg.Action {
+			case tea.MouseActionPress:
+				// Start dragging if clicking near the border (±3 pixels)
+				if msg.X >= borderX-2 && msg.X <= borderX+2 {
+					m.resizingPanel = true
+					m.log("🖱️ Started resizing folders panel")
+				}
+			case tea.MouseActionRelease:
+				if m.resizingPanel {
+					m.resizingPanel = false
+					m.log("🖱️ Stopped resizing. Width: %d", m.foldersWidth)
+				}
+			case tea.MouseActionMotion:
+				// Drag to resize
+				if m.resizingPanel {
+					var newWidth = msg.X - 1
+					if newWidth < 15 {
+						newWidth = 15
+					} else if newWidth > 50 {
+						newWidth = 50
+					}
+					m.foldersWidth = newWidth
+				}
+			}
+		}
 
 	case dbInitMsg:
 		m.log("📦 DB inicializado")
@@ -3495,6 +3542,8 @@ func (m Model) viewInbox() string {
 		footer = subtitleStyle.Render(fmt.Sprintf(" Enter:enviar  ↑↓:scroll  Esc:fechar%s ", contextHint))
 	} else if activeAlerts > 0 {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
+	} else if m.showFolders {
+		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:selecionar  Tab:emails  </>:resize  q:sair ")
 	} else {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  e:arquivar  x:lixo  c:novo  d:drafts  /:buscar  a:AI  q:sair ")
 	}
@@ -3573,7 +3622,7 @@ func (m Model) renderFolders() string {
 	}
 
 	var content = strings.Join(lines, "\n")
-	return boxStyle.Width(25).Render(content)
+	return boxStyle.Width(m.foldersWidth).Render(content)
 }
 
 func (m Model) renderEmailList() string {
@@ -3606,7 +3655,7 @@ func (m Model) renderEmailList() string {
 
 	var emailWidth = m.width - 4
 	if m.showFolders {
-		emailWidth -= 27
+		emailWidth -= m.foldersWidth + 2 // folders panel width + borders
 	}
 	if m.debugMode {
 		emailWidth -= 44 // largura do debug panel

@@ -188,7 +188,7 @@ func main() {
 		}
 	}
 
-	var p = tea.NewProgram(initialModel(debugMode), tea.WithAltScreen())
+	var p = tea.NewProgram(initialModel(debugMode), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Erro ao iniciar miau: %v\n", err)
 		os.Exit(1)

@@ -16,6 +16,9 @@ export const currentFolder = writable('INBOX');
 // Loading state
 export const loading = writable(false);
 
+// Threading enabled (groups emails by thread, showing only latest with count)
+export const threadingEnabled = writable(true);
+
 // Derived: get selected email object
 export const selectedEmail = derived(
   [emails, selectedEmailId],
@@ -25,12 +28,19 @@ export const selectedEmail = derived(
 // Load emails from backend
 export async function loadEmails(folder, limit = 50) {
   loading.set(true);
-  logDebug(`loadEmails called: folder=${folder}, limit=${limit}`);
+  var threaded = get(threadingEnabled);
+  logDebug(`loadEmails called: folder=${folder}, limit=${limit}, threaded=${threaded}`);
   try {
     // Check if Wails bindings are available
     if (typeof window !== 'undefined' && window.go && window.go.desktop && window.go.desktop.App) {
-      logDebug('Calling Go backend GetEmails...');
-      const result = await window.go.desktop.App.GetEmails(folder, limit);
+      var result;
+      if (threaded) {
+        logDebug('Calling Go backend GetEmailsThreaded...');
+        result = await window.go.desktop.App.GetEmailsThreaded(folder, limit);
+      } else {
+        logDebug('Calling Go backend GetEmails...');
+        result = await window.go.desktop.App.GetEmails(folder, limit);
+      }
       logDebug(`GetEmails returned ${result ? result.length : 0} emails`);
       emails.set(result || []);
 
@@ -38,7 +48,7 @@ export async function loadEmails(folder, limit = 50) {
       if (result && result.length > 0) {
         selectedEmailId.set(result[0].id);
         selectedIndex.set(0);
-        info(`Loaded ${result.length} emails from ${folder}`);
+        info(`Loaded ${result.length} ${threaded ? 'threads' : 'emails'} from ${folder}`);
       } else {
         info(`No emails found in ${folder}`);
       }
@@ -55,6 +65,14 @@ export async function loadEmails(folder, limit = 50) {
   } finally {
     loading.set(false);
   }
+}
+
+// Toggle threading mode and reload emails
+export async function toggleThreading() {
+  var current = get(threadingEnabled);
+  threadingEnabled.set(!current);
+  var folder = get(currentFolder);
+  await loadEmails(folder);
 }
 
 // Navigate to next email

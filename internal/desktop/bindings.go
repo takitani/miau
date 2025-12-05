@@ -105,6 +105,64 @@ func (a *App) GetEmails(folder string, limit int) (result []EmailDTO, err error)
 	return result, nil
 }
 
+// GetEmailsThreaded returns emails from a folder grouped by thread (only latest email per thread with thread count)
+func (a *App) GetEmailsThreaded(folder string, limit int) (result []EmailDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetEmailsThreaded] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	if a.account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Get account and folder IDs
+	var dbAccount, accountErr = storage.GetOrCreateAccount(a.account.Email, a.account.Name)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+
+	var dbFolder, folderErr = storage.GetOrCreateFolder(dbAccount.ID, folder)
+	if folderErr != nil {
+		return nil, folderErr
+	}
+
+	// Get thread summaries (latest email per thread with thread count)
+	var summaries, sErr = storage.GetThreadSummaries(dbAccount.ID, dbFolder.ID, limit, 0)
+	if sErr != nil {
+		return nil, sErr
+	}
+
+	// Convert to EmailDTO
+	for _, s := range summaries {
+		result = append(result, EmailDTO{
+			ID:             s.ID,
+			UID:            s.UID,
+			Subject:        s.Subject,
+			FromName:       s.FromName,
+			FromEmail:      s.FromEmail,
+			Date:           s.Date.Time,
+			IsRead:         s.IsRead,
+			IsStarred:      s.IsStarred,
+			HasAttachments: s.HasAttachments,
+			Snippet:        s.Snippet,
+			ThreadID:       s.ThreadID.String,
+			ThreadCount:    s.ThreadCount,
+		})
+	}
+
+	return result, nil
+}
+
 // GetEmail returns full email details by ID
 func (a *App) GetEmail(id int64) (result *EmailDetailDTO, err error) {
 	defer func() {
@@ -1174,6 +1232,180 @@ func (a *App) GetAvailableFolders() ([]AvailableFolderDTO, error) {
 }
 
 // ============================================================================
+// THREADS
+// ============================================================================
+
+// GetThread returns a complete thread with all messages for a given email ID
+func (a *App) GetThread(emailID int64) (result *ThreadDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetThread] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var thread, ferr = a.application.Thread().GetThread(context.Background(), emailID)
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	return a.threadToDTO(thread), nil
+}
+
+// GetThreadByID returns a thread by its thread_id
+func (a *App) GetThreadByID(threadID string) (result *ThreadDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetThreadByID] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var thread, ferr = a.application.Thread().GetThreadByID(context.Background(), threadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	return a.threadToDTO(thread), nil
+}
+
+// GetThreadSummary returns thread metadata for inbox display
+func (a *App) GetThreadSummary(threadID string) (result *ThreadSummaryDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetThreadSummary] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var summary, ferr = a.application.Thread().GetThreadSummary(context.Background(), threadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	return &ThreadSummaryDTO{
+		ThreadID:        summary.ThreadID,
+		Subject:         summary.Subject,
+		LastSender:      summary.LastSender,
+		LastSenderEmail: summary.LastSenderEmail,
+		LastDate:        summary.LastDate,
+		MessageCount:    summary.MessageCount,
+		UnreadCount:     summary.UnreadCount,
+		HasAttachments:  summary.HasAttachments,
+		Participants:    summary.Participants,
+	}, nil
+}
+
+// GetThreadMessageCount returns the number of messages in a thread for an email
+func (a *App) GetThreadMessageCount(emailID int64) (count int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetThreadMessageCount] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return 0, nil
+	}
+
+	// First get the email to find its thread_id
+	var email, emailErr = a.application.Email().GetEmail(context.Background(), emailID)
+	if emailErr != nil {
+		return 0, emailErr
+	}
+
+	if email.ThreadID == "" {
+		return 1, nil // Single email, no thread
+	}
+
+	return a.application.Thread().CountThreadMessages(context.Background(), email.ThreadID)
+}
+
+// MarkThreadAsRead marks all messages in a thread as read
+func (a *App) MarkThreadAsRead(threadID string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[MarkThreadAsRead] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil
+	}
+
+	return a.application.Thread().MarkThreadAsRead(context.Background(), threadID)
+}
+
+// MarkThreadAsUnread marks the most recent message in a thread as unread
+func (a *App) MarkThreadAsUnread(threadID string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[MarkThreadAsUnread] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil
+	}
+
+	return a.application.Thread().MarkThreadAsUnread(context.Background(), threadID)
+}
+
+// threadToDTO converts ports.Thread to ThreadDTO
+func (a *App) threadToDTO(thread *ports.Thread) *ThreadDTO {
+	if thread == nil {
+		return nil
+	}
+
+	var messages []ThreadEmailDTO
+	for _, msg := range thread.Messages {
+		// Generate snippet from body if not available
+		var snippet = msg.Snippet
+		if snippet == "" && msg.BodyText != "" {
+			snippet = generateSnippet(msg.BodyText, 150)
+		} else if snippet == "" && msg.BodyHTML != "" {
+			snippet = generateSnippetFromHTML(msg.BodyHTML, 150)
+		}
+
+		messages = append(messages, ThreadEmailDTO{
+			ID:             msg.ID,
+			UID:            msg.UID,
+			MessageID:      msg.MessageID,
+			Subject:        msg.Subject,
+			FromName:       msg.FromName,
+			FromEmail:      msg.FromEmail,
+			ToAddresses:    msg.ToAddresses,
+			Date:           msg.Date,
+			IsRead:         msg.IsRead,
+			IsStarred:      msg.IsStarred,
+			IsReplied:      msg.IsReplied,
+			HasAttachments: msg.HasAttachments,
+			Snippet:        snippet,
+			BodyText:       msg.BodyText,
+			BodyHTML:       msg.BodyHTML,
+		})
+	}
+
+	return &ThreadDTO{
+		ThreadID:     thread.ThreadID,
+		Subject:      thread.Subject,
+		Participants: thread.Participants,
+		MessageCount: thread.MessageCount,
+		Messages:     messages,
+		IsRead:       thread.IsRead,
+	}
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -1210,4 +1442,54 @@ func (a *App) draftToDTO(draft *ports.Draft) *DraftDTO {
 		BodyText:  draft.BodyText,
 		ReplyToID: replyToID,
 	}
+}
+
+// generateSnippet creates a snippet from plain text
+func generateSnippet(text string, maxLen int) string {
+	// Clean whitespace
+	var cleaned = strings.Join(strings.Fields(text), " ")
+	cleaned = strings.TrimSpace(cleaned)
+
+	if len(cleaned) <= maxLen {
+		return cleaned
+	}
+	return cleaned[:maxLen] + "..."
+}
+
+// generateSnippetFromHTML creates a snippet from HTML content
+func generateSnippetFromHTML(html string, maxLen int) string {
+	// Simple HTML tag removal - could use a proper parser but this is faster
+	var text = html
+
+	// Remove style and script tags with content
+	for _, tag := range []string{"style", "script"} {
+		for {
+			var start = strings.Index(strings.ToLower(text), "<"+tag)
+			if start == -1 {
+				break
+			}
+			var end = strings.Index(strings.ToLower(text[start:]), "</"+tag+">")
+			if end == -1 {
+				end = len(text) - start
+			} else {
+				end += len("</"+tag+">") + start
+			}
+			text = text[:start] + text[end:]
+		}
+	}
+
+	// Remove remaining HTML tags
+	var result strings.Builder
+	var inTag = false
+	for _, r := range text {
+		if r == '<' {
+			inTag = true
+		} else if r == '>' {
+			inTag = false
+		} else if !inTag {
+			result.WriteRune(r)
+		}
+	}
+
+	return generateSnippet(result.String(), maxLen)
 }

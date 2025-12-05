@@ -307,6 +307,8 @@ export namespace desktop {
 	    isStarred: boolean;
 	    hasAttachments: boolean;
 	    snippet: string;
+	    threadId?: string;
+	    threadCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new EmailDTO(source);
@@ -324,6 +326,8 @@ export namespace desktop {
 	        this.isStarred = source["isStarred"];
 	        this.hasAttachments = source["hasAttachments"];
 	        this.snippet = source["snippet"];
+	        this.threadId = source["threadId"];
+	        this.threadCount = source["threadCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -356,6 +360,8 @@ export namespace desktop {
 	    isStarred: boolean;
 	    hasAttachments: boolean;
 	    snippet: string;
+	    threadId?: string;
+	    threadCount?: number;
 	    toAddresses: string;
 	    ccAddresses: string;
 	    bodyText: string;
@@ -378,6 +384,8 @@ export namespace desktop {
 	        this.isStarred = source["isStarred"];
 	        this.hasAttachments = source["hasAttachments"];
 	        this.snippet = source["snippet"];
+	        this.threadId = source["threadId"];
+	        this.threadCount = source["threadCount"];
 	        this.toAddresses = source["toAddresses"];
 	        this.ccAddresses = source["ccAddresses"];
 	        this.bodyText = source["bodyText"];
@@ -536,6 +544,153 @@ export namespace desktop {
 	        this.newEmails = source["newEmails"];
 	        this.deletedEmails = source["deletedEmails"];
 	    }
+	}
+	export class ThreadEmailDTO {
+	    id: number;
+	    uid: number;
+	    messageId: string;
+	    subject: string;
+	    fromName: string;
+	    fromEmail: string;
+	    toAddresses: string;
+	    // Go type: time
+	    date: any;
+	    isRead: boolean;
+	    isStarred: boolean;
+	    isReplied: boolean;
+	    hasAttachments: boolean;
+	    snippet: string;
+	    bodyText: string;
+	    bodyHtml: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThreadEmailDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.uid = source["uid"];
+	        this.messageId = source["messageId"];
+	        this.subject = source["subject"];
+	        this.fromName = source["fromName"];
+	        this.fromEmail = source["fromEmail"];
+	        this.toAddresses = source["toAddresses"];
+	        this.date = this.convertValues(source["date"], null);
+	        this.isRead = source["isRead"];
+	        this.isStarred = source["isStarred"];
+	        this.isReplied = source["isReplied"];
+	        this.hasAttachments = source["hasAttachments"];
+	        this.snippet = source["snippet"];
+	        this.bodyText = source["bodyText"];
+	        this.bodyHtml = source["bodyHtml"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ThreadDTO {
+	    threadId: string;
+	    subject: string;
+	    participants: string[];
+	    messageCount: number;
+	    messages: ThreadEmailDTO[];
+	    isRead: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThreadDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threadId = source["threadId"];
+	        this.subject = source["subject"];
+	        this.participants = source["participants"];
+	        this.messageCount = source["messageCount"];
+	        this.messages = this.convertValues(source["messages"], ThreadEmailDTO);
+	        this.isRead = source["isRead"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class ThreadSummaryDTO {
+	    threadId: string;
+	    subject: string;
+	    lastSender: string;
+	    lastSenderEmail: string;
+	    // Go type: time
+	    lastDate: any;
+	    messageCount: number;
+	    unreadCount: number;
+	    hasAttachments: boolean;
+	    participants: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ThreadSummaryDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threadId = source["threadId"];
+	        this.subject = source["subject"];
+	        this.lastSender = source["lastSender"];
+	        this.lastSenderEmail = source["lastSenderEmail"];
+	        this.lastDate = this.convertValues(source["lastDate"], null);
+	        this.messageCount = source["messageCount"];
+	        this.unreadCount = source["unreadCount"];
+	        this.hasAttachments = source["hasAttachments"];
+	        this.participants = source["participants"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

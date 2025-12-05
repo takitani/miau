@@ -156,6 +156,7 @@ func (a *Application) Start() error {
 
 	a.threadService = services.NewThreadService(a.storageAdapter, a.eventBus)
 	a.threadService.SetAccount(accountInfo)
+	a.threadService.SetEmailService(a.emailService)
 
 	a.started = true
 	return nil

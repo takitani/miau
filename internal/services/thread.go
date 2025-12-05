@@ -13,10 +13,11 @@ import (
 // CRITICAL: This is the SINGLE SOURCE OF TRUTH for threading logic
 // TUI and Desktop MUST use this service, NEVER implement threading directly
 type ThreadService struct {
-	mu      sync.RWMutex
-	storage ports.StoragePort
-	events  ports.EventBus
-	account *ports.AccountInfo
+	mu           sync.RWMutex
+	storage      ports.StoragePort
+	events       ports.EventBus
+	account      *ports.AccountInfo
+	emailService ports.EmailService
 }
 
 // NewThreadService creates a new ThreadService
@@ -25,6 +26,13 @@ func NewThreadService(storage ports.StoragePort, events ports.EventBus) *ThreadS
 		storage: storage,
 		events:  events,
 	}
+}
+
+// SetEmailService sets the email service for body fetching
+func (s *ThreadService) SetEmailService(emailService ports.EmailService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emailService = emailService
 }
 
 // SetAccount sets the current account
@@ -39,6 +47,7 @@ func (s *ThreadService) SetAccount(account *ports.AccountInfo) {
 func (s *ThreadService) GetThread(ctx context.Context, emailID int64) (*ports.Thread, error) {
 	s.mu.RLock()
 	var account = s.account
+	var emailSvc = s.emailService
 	s.mu.RUnlock()
 
 	if account == nil {
@@ -55,9 +64,19 @@ func (s *ThreadService) GetThread(ctx context.Context, emailID int64) (*ports.Th
 		return nil, fmt.Errorf("email not found")
 	}
 
-	// Convert storage.Email to ports.EmailContent
+	// Convert storage.Email to ports.EmailContent, fetching body via EmailService if needed
 	var messages = make([]ports.EmailContent, len(emails))
 	for i, e := range emails {
+		// If body is empty and we have EmailService, fetch the full email
+		if (e.BodyText == "" && e.BodyHTML == "") && emailSvc != nil {
+			var fullEmail, fetchErr = emailSvc.GetEmail(ctx, e.ID)
+			if fetchErr == nil && fullEmail != nil {
+				messages[i] = *fullEmail
+				continue
+			}
+		}
+
+		// Fallback to what we have from database
 		messages[i] = ports.EmailContent{
 			EmailMetadata: ports.EmailMetadata{
 				ID:         e.ID,

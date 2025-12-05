@@ -46,11 +46,21 @@ export function GetEmailByUID(arg1:number):Promise<desktop.EmailDetailDTO>;
 
 export function GetEmails(arg1:string,arg2:number):Promise<Array<desktop.EmailDTO>>;
 
+export function GetEmailsThreaded(arg1:string,arg2:number):Promise<Array<desktop.EmailDTO>>;
+
 export function GetFolders():Promise<Array<desktop.FolderDTO>>;
 
 export function GetSettings():Promise<desktop.SettingsDTO>;
 
 export function GetSignature():Promise<string>;
+
+export function GetThread(arg1:number):Promise<desktop.ThreadDTO>;
+
+export function GetThreadByID(arg1:string):Promise<desktop.ThreadDTO>;
+
+export function GetThreadMessageCount(arg1:number):Promise<number>;
+
+export function GetThreadSummary(arg1:string):Promise<desktop.ThreadSummaryDTO>;
 
 export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.SenderStatsDTO>>;
 
@@ -63,6 +73,10 @@ export function ListDrafts():Promise<Array<desktop.DraftDTO>>;
 export function MarkAsRead(arg1:number,arg2:boolean):Promise<void>;
 
 export function MarkAsStarred(arg1:number,arg2:boolean):Promise<void>;
+
+export function MarkThreadAsRead(arg1:string):Promise<void>;
+
+export function MarkThreadAsUnread(arg1:string):Promise<void>;
 
 export function MoveToFolder(arg1:number,arg2:string):Promise<void>;
 

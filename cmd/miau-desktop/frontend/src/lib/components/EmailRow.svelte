@@ -66,6 +66,9 @@
   </div>
 
   <div class="meta">
+    {#if email.threadCount > 1}
+      <span class="thread-count" title="{email.threadCount} messages in thread">[{email.threadCount}]</span>
+    {/if}
     {#if email.hasAttachments}
       <span class="attachment" title="Has attachments">📎</span>
     {/if}
@@ -165,5 +168,15 @@
     font-size: var(--font-xs);
     min-width: 60px;
     text-align: right;
+  }
+
+  .thread-count {
+    font-size: var(--font-xs);
+    font-weight: 600;
+    color: var(--accent-primary);
+    background: var(--bg-secondary);
+    padding: 1px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--accent-primary);
   }
 </style>

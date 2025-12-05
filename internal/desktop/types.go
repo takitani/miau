@@ -16,6 +16,8 @@ type EmailDTO struct {
 	IsStarred      bool      `json:"isStarred"`
 	HasAttachments bool      `json:"hasAttachments"`
 	Snippet        string    `json:"snippet"`
+	ThreadID       string    `json:"threadId,omitempty"`
+	ThreadCount    int       `json:"threadCount,omitempty"` // Number of emails in thread (for grouped view)
 }
 
 // EmailDetailDTO represents full email details for the frontend
@@ -190,4 +192,50 @@ type SettingsDTO struct {
 type AvailableFolderDTO struct {
 	Name       string `json:"name"`
 	IsSelected bool   `json:"isSelected"`
+}
+
+// ============================================================================
+// THREAD DTOs
+// ============================================================================
+
+// ThreadDTO represents a thread with all messages
+type ThreadDTO struct {
+	ThreadID     string           `json:"threadId"`
+	Subject      string           `json:"subject"`
+	Participants []string         `json:"participants"`
+	MessageCount int              `json:"messageCount"`
+	Messages     []ThreadEmailDTO `json:"messages"`
+	IsRead       bool             `json:"isRead"`
+}
+
+// ThreadEmailDTO represents a single email in a thread
+type ThreadEmailDTO struct {
+	ID             int64     `json:"id"`
+	UID            uint32    `json:"uid"`
+	MessageID      string    `json:"messageId"`
+	Subject        string    `json:"subject"`
+	FromName       string    `json:"fromName"`
+	FromEmail      string    `json:"fromEmail"`
+	ToAddresses    string    `json:"toAddresses"`
+	Date           time.Time `json:"date"`
+	IsRead         bool      `json:"isRead"`
+	IsStarred      bool      `json:"isStarred"`
+	IsReplied      bool      `json:"isReplied"`
+	HasAttachments bool      `json:"hasAttachments"`
+	Snippet        string    `json:"snippet"`
+	BodyText       string    `json:"bodyText"`
+	BodyHTML       string    `json:"bodyHtml"`
+}
+
+// ThreadSummaryDTO represents thread metadata for inbox display
+type ThreadSummaryDTO struct {
+	ThreadID        string    `json:"threadId"`
+	Subject         string    `json:"subject"`
+	LastSender      string    `json:"lastSender"`
+	LastSenderEmail string    `json:"lastSenderEmail"`
+	LastDate        time.Time `json:"lastDate"`
+	MessageCount    int       `json:"messageCount"`
+	UnreadCount     int       `json:"unreadCount"`
+	HasAttachments  bool      `json:"hasAttachments"`
+	Participants    []string  `json:"participants"`
 }

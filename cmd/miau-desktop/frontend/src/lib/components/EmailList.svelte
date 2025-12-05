@@ -1,5 +1,5 @@
 <script>
-  import { emails, selectedIndex, selectEmail, loading } from '../stores/emails.js';
+  import { emails, selectedIndex, selectEmail, loading, threadingEnabled, toggleThreading } from '../stores/emails.js';
   import { currentFolder } from '../stores/emails.js';
   import EmailRow from './EmailRow.svelte';
 
@@ -12,7 +12,17 @@
 <div class="email-list">
   <header class="list-header">
     <h2>{formatFolderName($currentFolder)}</h2>
-    <span class="count">{$emails.length} emails</span>
+    <div class="header-right">
+      <button
+        class="thread-toggle"
+        class:active={$threadingEnabled}
+        on:click={toggleThreading}
+        title="Toggle threading (g)"
+      >
+        {$threadingEnabled ? '◧ Threads' : '◨ List'}
+      </button>
+      <span class="count">{$emails.length} {$threadingEnabled ? 'threads' : 'emails'}</span>
+    </div>
   </header>
 
   {#if $loading}
@@ -57,6 +67,34 @@
     font-size: var(--font-lg);
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .thread-toggle {
+    padding: 4px 8px;
+    font-size: var(--font-xs);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .thread-toggle:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+  }
+
+  .thread-toggle.active {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
   }
 
   .count {

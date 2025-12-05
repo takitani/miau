@@ -160,8 +160,10 @@ func (a *App) emailMetadataToDTO(email *ports.EmailMetadata) EmailDTO {
 		Date:           email.Date,
 		IsRead:         email.IsRead,
 		IsStarred:      email.IsStarred,
-		HasAttachments: false, // metadata doesn't have this
+		HasAttachments: email.HasAttachments,
 		Snippet:        email.Snippet,
+		ThreadID:       email.ThreadID,
+		ThreadCount:    email.ThreadCount,
 	}
 }
 

@@ -90,6 +90,10 @@ export function GetEmails(arg1, arg2) {
   return window['go']['desktop']['App']['GetEmails'](arg1, arg2);
 }
 
+export function GetEmailsThreaded(arg1, arg2) {
+  return window['go']['desktop']['App']['GetEmailsThreaded'](arg1, arg2);
+}
+
 export function GetFolders() {
   return window['go']['desktop']['App']['GetFolders']();
 }
@@ -100,6 +104,22 @@ export function GetSettings() {
 
 export function GetSignature() {
   return window['go']['desktop']['App']['GetSignature']();
+}
+
+export function GetThread(arg1) {
+  return window['go']['desktop']['App']['GetThread'](arg1);
+}
+
+export function GetThreadByID(arg1) {
+  return window['go']['desktop']['App']['GetThreadByID'](arg1);
+}
+
+export function GetThreadMessageCount(arg1) {
+  return window['go']['desktop']['App']['GetThreadMessageCount'](arg1);
+}
+
+export function GetThreadSummary(arg1) {
+  return window['go']['desktop']['App']['GetThreadSummary'](arg1);
 }
 
 export function GetTopSenders(arg1, arg2) {
@@ -124,6 +144,14 @@ export function MarkAsRead(arg1, arg2) {
 
 export function MarkAsStarred(arg1, arg2) {
   return window['go']['desktop']['App']['MarkAsStarred'](arg1, arg2);
+}
+
+export function MarkThreadAsRead(arg1) {
+  return window['go']['desktop']['App']['MarkThreadAsRead'](arg1);
+}
+
+export function MarkThreadAsUnread(arg1) {
+  return window['go']['desktop']['App']['MarkThreadAsUnread'](arg1);
 }
 
 export function MoveToFolder(arg1, arg2) {

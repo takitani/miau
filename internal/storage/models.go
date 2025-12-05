@@ -117,6 +117,7 @@ type EmailSummary struct {
 	HasAttachments bool           `db:"has_attachments"`
 	Snippet        string         `db:"snippet"`
 	ThreadID       sql.NullString `db:"thread_id"`
+	ThreadCount    int            `db:"thread_count"` // Number of emails in thread (for grouped view)
 }
 
 // DraftStatus representa o estado de um draft

@@ -94,7 +94,7 @@ func UpsertEmail(e *Email) error {
 			from_name, from_email, to_addresses, cc_addresses, date,
 			is_read, is_starred, is_deleted, has_attachments, snippet,
 			body_text, body_html, raw_headers, size,
-			in_reply_to, references,
+			in_reply_to, "references",
 			updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
@@ -107,7 +107,7 @@ func UpsertEmail(e *Email) error {
 			body_text = excluded.body_text,
 			body_html = excluded.body_html,
 			in_reply_to = excluded.in_reply_to,
-			references = excluded.references,
+			"references" = excluded."references",
 			updated_at = CURRENT_TIMESTAMP`,
 		e.AccountID, e.FolderID, e.UID, e.MessageID, e.Subject,
 		e.FromName, e.FromEmail, e.ToAddresses, e.CcAddresses, e.Date,
@@ -1771,32 +1771,38 @@ func GetThreadForEmail(emailID int64) ([]Email, error) {
 }
 
 // GetThreadSummaries returns thread summaries for inbox view
-// Groups emails by thread_id and returns most recent message per thread
+// Groups emails by thread_id and returns most recent message per thread with thread count
+// Emails without thread_id are shown individually (thread_count = 1)
 func GetThreadSummaries(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
 	var summaries []EmailSummary
 	err := db.Select(&summaries, `
-		WITH thread_latest AS (
+		WITH ranked AS (
 			SELECT
-				thread_id,
-				MAX(date) as latest_date,
-				COUNT(*) as thread_count
+				id, uid, message_id, subject, from_name, from_email,
+				date, is_read, is_starred, is_replied, has_attachments,
+				snippet, thread_id,
+				ROW_NUMBER() OVER (
+					PARTITION BY COALESCE(NULLIF(thread_id, ''), CAST(id AS TEXT))
+					ORDER BY date DESC
+				) as rn,
+				COUNT(*) OVER (
+					PARTITION BY COALESCE(NULLIF(thread_id, ''), CAST(id AS TEXT))
+				) as thread_count
 			FROM emails
 			WHERE account_id = ?
 			  AND folder_id = ?
 			  AND is_deleted = 0
 			  AND is_archived = 0
-			GROUP BY thread_id
 		)
 		SELECT
-			e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email,
-			e.date, e.is_read, e.is_starred, e.is_replied, e.has_attachments,
-			e.snippet, e.thread_id
-		FROM emails e
-		INNER JOIN thread_latest tl ON e.thread_id = tl.thread_id AND e.date = tl.latest_date
-		WHERE e.account_id = ? AND e.folder_id = ?
-		ORDER BY e.date DESC
+			id, uid, message_id, subject, from_name, from_email,
+			date, is_read, is_starred, is_replied, has_attachments,
+			snippet, thread_id, thread_count
+		FROM ranked
+		WHERE rn = 1
+		ORDER BY date DESC
 		LIMIT ? OFFSET ?
-	`, accountID, folderID, accountID, folderID, limit, offset)
+	`, accountID, folderID, limit, offset)
 
 	return summaries, err
 }

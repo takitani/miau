@@ -10,22 +10,24 @@ import (
 
 // EmailMetadata contains basic email information for listing
 type EmailMetadata struct {
-	ID         int64
-	UID        uint32
-	MessageID  string
-	Subject    string
-	FromName   string
-	FromEmail  string
-	ToAddress  string
-	Date       time.Time
-	IsRead     bool
-	IsStarred  bool
-	IsReplied  bool
-	Snippet    string
-	Size       int64
-	InReplyTo  string
-	References string
-	ThreadID   string
+	ID             int64
+	UID            uint32
+	MessageID      string
+	Subject        string
+	FromName       string
+	FromEmail      string
+	ToAddress      string
+	Date           time.Time
+	IsRead         bool
+	IsStarred      bool
+	IsReplied      bool
+	HasAttachments bool
+	Snippet        string
+	Size           int64
+	InReplyTo      string
+	References     string
+	ThreadID       string
+	ThreadCount    int // Number of emails in thread (for grouped view)
 }
 
 // EmailContent contains full email content

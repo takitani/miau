@@ -413,7 +413,8 @@ func migrateAddThreading() error {
 	}
 
 	// Adiciona references (lista completa de Message-IDs da thread)
-	_, err = db.Exec("ALTER TABLE emails ADD COLUMN references TEXT")
+	// "references" is a SQLite reserved keyword, must be quoted
+	_, err = db.Exec(`ALTER TABLE emails ADD COLUMN "references" TEXT`)
 	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return err
 	}

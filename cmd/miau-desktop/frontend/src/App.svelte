@@ -13,7 +13,8 @@
   import SettingsModal from './lib/components/SettingsModal.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
-  import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders } from './lib/stores/ui.js';
+  import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders, showThreadView, threadEmailId, closeThreadView } from './lib/stores/ui.js';
+  import ThreadView from './lib/components/ThreadView.svelte';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
 
   // Get email context for AI
@@ -187,16 +188,18 @@
       title="Arrastar para redimensionar (duplo-clique para resetar)"
     ></div>
 
-    <!-- Email Viewer Panel / Analytics Panel -->
+    <!-- Email Viewer Panel / Analytics Panel / Thread View -->
     <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
-      {#if $showAnalytics}
+      {#if $showThreadView && $threadEmailId}
+        <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
+      {:else if $showAnalytics}
         <AnalyticsPanel />
       {:else if $selectedEmail}
         <EmailViewer email={$selectedEmail} />
       {:else}
         <div class="empty-state">
           <p>Selecione um email para visualizar</p>
-          <p class="hint">Use j/k para navegar, Enter para abrir, p para analytics</p>
+          <p class="hint">Use j/k para navegar, Enter ou t para thread, p para analytics</p>
         </div>
       {/if}
     </section>

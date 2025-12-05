@@ -41,8 +41,9 @@ func NormalizeSubject(subject string) string {
 // Algorithm:
 // 1. If email has In-Reply-To, use that Message-ID as thread root
 // 2. Else if References exists, use first Message-ID as thread root
-// 3. Else use email's own Message-ID as thread root (starts new thread)
-// 4. Fallback: use normalized subject as thread ID
+// 3. If subject starts with Re:/Fwd:/etc, use subject-based threading (likely a reply without headers)
+// 4. Else use email's own Message-ID as thread root (starts new thread)
+// 5. Fallback: use normalized subject as thread ID
 func GenerateThreadID(messageID, inReplyTo, references, subject string) string {
 	// Strategy 1: In-Reply-To points to parent, find its thread
 	if inReplyTo != "" {
@@ -57,12 +58,19 @@ func GenerateThreadID(messageID, inReplyTo, references, subject string) string {
 		}
 	}
 
-	// Strategy 3: Own Message-ID (new thread)
+	// Strategy 3: If subject has reply/forward prefix but no threading headers,
+	// use subject-based threading (common for emails with stripped headers)
+	var prefixRegex = regexp.MustCompile(`(?i)^(re|fwd|fw|aw|sv|ref):\s*`)
+	if prefixRegex.MatchString(subject) {
+		return "subject:" + NormalizeSubject(subject)
+	}
+
+	// Strategy 4: Own Message-ID (new thread)
 	if messageID != "" {
 		return cleanMessageID(messageID)
 	}
 
-	// Strategy 4: Fallback to subject-based threading
+	// Strategy 5: Fallback to subject-based threading
 	return "subject:" + NormalizeSubject(subject)
 }
 
@@ -95,7 +103,31 @@ func (td *ThreadDetector) DetectAndUpdateThread(emailID int64, messageID, inRepl
 		"UPDATE emails SET thread_id = ? WHERE id = ?",
 		threadID, emailID)
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	// If using subject-based threading, also update any existing emails
+	// with the same normalized subject that don't have proper threading headers
+	// This links original messages with their replies even when Re: prefix is missing
+	if strings.HasPrefix(threadID, "subject:") {
+		var normalizedSubject = NormalizeSubject(subject)
+		// Update emails with same normalized subject that have their own Message-ID as thread_id
+		// (meaning they were treated as thread starters but are actually part of this thread)
+		td.db.Exec(`
+			UPDATE emails
+			SET thread_id = ?
+			WHERE id <> ?
+			  AND is_deleted = 0
+			  AND (
+			    LOWER(subject) = ?
+			    OR LOWER(subject) LIKE ?
+			  )
+			  AND thread_id NOT LIKE 'subject:%'
+		`, threadID, emailID, normalizedSubject, "re: "+normalizedSubject+"%")
+	}
+
+	return nil
 }
 
 // GetThreadEmails returns all emails in a thread, ordered by date DESC (newest first)
@@ -154,4 +186,38 @@ func (td *ThreadDetector) GetThreadParticipants(threadID string, accountID int64
 	`, threadID, accountID)
 
 	return participants, err
+}
+
+// ReprocessAllThreads reprocesses thread_id for all emails (useful for fixing existing data)
+func ReprocessAllThreads() (int, error) {
+	var emails []struct {
+		ID         int64  `db:"id"`
+		MessageID  string `db:"message_id"`
+		InReplyTo  string `db:"in_reply_to"`
+		References string `db:"references"`
+		Subject    string `db:"subject"`
+	}
+
+	var err = db.Select(&emails, `
+		SELECT id, COALESCE(message_id, '') as message_id,
+		       COALESCE(in_reply_to, '') as in_reply_to,
+		       COALESCE("references", '') as "references",
+		       COALESCE(subject, '') as subject
+		FROM emails
+		WHERE is_deleted = 0
+	`)
+	if err != nil {
+		return 0, err
+	}
+
+	var count = 0
+	for _, e := range emails {
+		var threadID = GenerateThreadID(e.MessageID, e.InReplyTo, e.References, e.Subject)
+		_, err := db.Exec("UPDATE emails SET thread_id = ? WHERE id = ?", threadID, e.ID)
+		if err == nil {
+			count++
+		}
+	}
+
+	return count, nil
 }

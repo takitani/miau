@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, currentFolder } from './emails.js';
+import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, currentFolder, toggleThreading } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 
 // UI State
@@ -10,6 +10,22 @@ export const showSettings = writable(false);
 export const showAI = writable(false);
 export const showAnalytics = writable(false);
 export const aiWithContext = writable(false);
+
+// Thread View State
+export const showThreadView = writable(false);
+export const threadEmailId = writable(null);
+
+// Open thread view for an email
+export function openThreadView(emailId) {
+  threadEmailId.set(emailId);
+  showThreadView.set(true);
+}
+
+// Close thread view
+export function closeThreadView() {
+  showThreadView.set(false);
+  threadEmailId.set(null);
+}
 
 // Active panel: 'folders' | 'emails' | 'viewer'
 export const activePanel = writable('emails');
@@ -135,6 +151,13 @@ function handleKeydown(e) {
         showAnalytics.update(v => !v);
       }
       return;
+
+    case 'g':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        toggleThreading();
+      }
+      return;
   }
 
   // Panel-specific shortcuts
@@ -202,9 +225,17 @@ function handleEmailShortcuts(e) {
     case 'Enter':
       if (emailId) {
         e.preventDefault();
-        // Switch to viewer panel and mark as read
-        activePanel.set('viewer');
+        // Open thread view for the selected email
+        openThreadView(emailId);
         markAsRead(emailId, true);
+      }
+      break;
+
+    case 't':
+      if (emailId && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        // Open thread view
+        openThreadView(emailId);
       }
       break;
 
@@ -272,6 +303,7 @@ function closeAllModals() {
   showSettings.set(false);
   showAI.set(false);
   showAnalytics.set(false);
+  closeThreadView();
 }
 
 // Sync emails (current folder only)

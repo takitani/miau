@@ -62,12 +62,10 @@ func (s *ContactService) SyncContacts(ctx context.Context, accountID int64, full
 	}
 
 	// Publish event
-	s.events.Publish(ports.Event{
-		Type: "contacts.sync.started",
-		Data: map[string]interface{}{
-			"account_id": accountID,
-			"full_sync":  fullSync,
-		},
+	s.events.Publish(ports.ContactSyncStartedEvent{
+		BaseEvent: ports.NewBaseEvent(ports.EventTypeContactSyncStarted),
+		AccountID: accountID,
+		FullSync:  fullSync,
 	})
 
 	// Determine sync token
@@ -87,12 +85,10 @@ func (s *ContactService) SyncContacts(ctx context.Context, accountID int64, full
 			syncStatus.Status = "error"
 			syncStatus.ErrorMessage = err2.Error()
 			s.storage.UpdateSyncStatus(ctx, syncStatus)
-			s.events.Publish(ports.Event{
-				Type: "contacts.sync.failed",
-				Data: map[string]interface{}{
-					"account_id": accountID,
-					"error":      err2.Error(),
-				},
+			s.events.Publish(ports.ContactSyncFailedEvent{
+				BaseEvent: ports.NewBaseEvent(ports.EventTypeContactSyncFailed),
+				AccountID: accountID,
+				Error:     err2.Error(),
 			})
 			return fmt.Errorf("failed to fetch contacts: %w", err2)
 		}
@@ -136,13 +132,11 @@ func (s *ContactService) SyncContacts(ctx context.Context, accountID int64, full
 	}
 
 	// Publish success event
-	s.events.Publish(ports.Event{
-		Type: "contacts.sync.completed",
-		Data: map[string]interface{}{
-			"account_id":   accountID,
-			"total_synced": totalSynced,
-			"full_sync":    fullSync,
-		},
+	s.events.Publish(ports.ContactSyncCompletedEvent{
+		BaseEvent:   ports.NewBaseEvent(ports.EventTypeContactSyncCompleted),
+		AccountID:   accountID,
+		TotalSynced: totalSynced,
+		FullSync:    fullSync,
 	})
 
 	log.Printf("Contact sync completed: %d contacts synced", totalSynced)

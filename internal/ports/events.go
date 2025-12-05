@@ -54,6 +54,11 @@ const (
 	// Thread events
 	EventTypeThreadMarkedRead   EventType = "thread_marked_read"
 	EventTypeThreadMarkedUnread EventType = "thread_marked_unread"
+
+	// Contact events
+	EventTypeContactSyncStarted   EventType = "contact_sync_started"
+	EventTypeContactSyncCompleted EventType = "contact_sync_completed"
+	EventTypeContactSyncFailed    EventType = "contact_sync_failed"
 )
 
 // BaseEvent provides common event fields
@@ -156,6 +161,28 @@ type ThreadMarkedReadEvent struct {
 type ThreadMarkedUnreadEvent struct {
 	BaseEvent
 	ThreadID string
+}
+
+// ContactSyncStartedEvent is emitted when contact sync begins
+type ContactSyncStartedEvent struct {
+	BaseEvent
+	AccountID int64
+	FullSync  bool
+}
+
+// ContactSyncCompletedEvent is emitted when contact sync completes
+type ContactSyncCompletedEvent struct {
+	BaseEvent
+	AccountID   int64
+	TotalSynced int
+	FullSync    bool
+}
+
+// ContactSyncFailedEvent is emitted when contact sync fails
+type ContactSyncFailedEvent struct {
+	BaseEvent
+	AccountID int64
+	Error     string
 }
 
 // EventHandler is a function that handles events

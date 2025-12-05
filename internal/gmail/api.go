@@ -409,3 +409,177 @@ func (c *Client) GetMessageIDByRFC822MsgID(rfc822MsgID string) (string, error) {
 
 	return result.Messages[0].ID, nil
 }
+
+// === PEOPLE API (CONTACTS) ===
+
+// Person representa um contato da People API
+type Person struct {
+	ResourceName  string         `json:"resourceName"`
+	Etag          string         `json:"etag"`
+	Names         []Name         `json:"names"`
+	EmailAddresses []EmailAddress `json:"emailAddresses"`
+	PhoneNumbers  []PhoneNumber  `json:"phoneNumbers"`
+	Photos        []Photo        `json:"photos"`
+	Metadata      PersonMetadata `json:"metadata"`
+}
+
+// Name representa um nome no People API
+type Name struct {
+	DisplayName       string `json:"displayName"`
+	FamilyName        string `json:"familyName"`
+	GivenName         string `json:"givenName"`
+	DisplayNameLastFirst string `json:"displayNameLastFirst"`
+	UnstructuredName  string `json:"unstructuredName"`
+	Metadata          FieldMetadata `json:"metadata"`
+}
+
+// EmailAddress representa um email no People API
+type EmailAddress struct {
+	Value    string        `json:"value"`
+	Type     string        `json:"type"`
+	Metadata FieldMetadata `json:"metadata"`
+}
+
+// PhoneNumber representa um telefone no People API
+type PhoneNumber struct {
+	Value           string        `json:"value"`
+	CanonicalForm   string        `json:"canonicalForm"`
+	Type            string        `json:"type"`
+	Metadata        FieldMetadata `json:"metadata"`
+}
+
+// Photo representa uma foto no People API
+type Photo struct {
+	URL      string        `json:"url"`
+	Metadata FieldMetadata `json:"metadata"`
+	Default  bool          `json:"default"`
+}
+
+// PersonMetadata metadados de um Person
+type PersonMetadata struct {
+	Sources       []Source `json:"sources"`
+	ObjectType    string   `json:"objectType"`
+	LinkedPeopleResourceNames []string `json:"linkedPeopleResourceNames"`
+}
+
+// FieldMetadata metadados de um campo
+type FieldMetadata struct {
+	Primary  bool   `json:"primary"`
+	Verified bool   `json:"verified"`
+	Source   Source `json:"source"`
+}
+
+// Source representa a fonte de um campo
+type Source struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// ListConnectionsResponse resposta da API connections.list
+type ListConnectionsResponse struct {
+	Connections       []Person `json:"connections"`
+	NextPageToken     string   `json:"nextPageToken"`
+	NextSyncToken     string   `json:"nextSyncToken"`
+	TotalPeople       int      `json:"totalPeople"`
+	TotalItems        int      `json:"totalItems"`
+}
+
+// ListContactsRequest requisição para listar contatos
+type ListContactsRequest struct {
+	PageSize      int    // 1-1000, default 100
+	PageToken     string // para paginação
+	SyncToken     string // para sync incremental
+	PersonFields  string // campos a retornar (ex: "names,emailAddresses,phoneNumbers,photos")
+}
+
+// ListContacts lista os contatos do usuário via People API
+func (c *Client) ListContacts(req *ListContactsRequest) (*ListConnectionsResponse, error) {
+	var url = "https://people.googleapis.com/v1/people/me/connections"
+
+	// Parametros default
+	if req.PageSize == 0 {
+		req.PageSize = 100
+	}
+	if req.PersonFields == "" {
+		req.PersonFields = "names,emailAddresses,phoneNumbers,photos"
+	}
+
+	// Monta query params
+	var params = fmt.Sprintf("?pageSize=%d&personFields=%s", req.PageSize, req.PersonFields)
+
+	if req.PageToken != "" {
+		params += fmt.Sprintf("&pageToken=%s", req.PageToken)
+	}
+
+	if req.SyncToken != "" {
+		params += fmt.Sprintf("&syncToken=%s", req.SyncToken)
+	}
+
+	url += params
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result ListConnectionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetContact busca um contato específico por resourceName
+func (c *Client) GetContact(resourceName string, personFields string) (*Person, error) {
+	if personFields == "" {
+		personFields = "names,emailAddresses,phoneNumbers,photos"
+	}
+
+	var url = fmt.Sprintf("https://people.googleapis.com/v1/%s?personFields=%s",
+		resourceName, personFields)
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result Person
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &result, nil
+}
+
+// DownloadPhoto faz download da foto de perfil de um contato
+func (c *Client) DownloadPhoto(photoURL string) ([]byte, error) {
+	var resp, err = c.httpClient.Get(photoURL)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("erro da API: %d", resp.StatusCode)
+	}
+
+	var data, err2 = io.ReadAll(resp.Body)
+	if err2 != nil {
+		return nil, fmt.Errorf("erro ao ler resposta: %w", err2)
+	}
+
+	return data, nil
+}

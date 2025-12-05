@@ -341,6 +341,90 @@ CREATE TABLE IF NOT EXISTS operations_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_operations_history_account_stack ON operations_history(account_id, stack_type, stack_position DESC);
+
+-- Tabela de contatos (sincronizados do Google People API)
+CREATE TABLE IF NOT EXISTS contacts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	resource_name TEXT NOT NULL, -- people/c1234567890 (ID do Google)
+	display_name TEXT,
+	given_name TEXT,
+	family_name TEXT,
+	photo_url TEXT,
+	photo_etag TEXT,
+	photo_path TEXT, -- caminho local da foto cacheada
+	is_starred BOOLEAN DEFAULT 0,
+	interaction_count INTEGER DEFAULT 0, -- número de emails trocados
+	last_interaction_at DATETIME,
+	metadata_json TEXT, -- outros metadados do Google (JSON)
+	synced_at DATETIME,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	UNIQUE(account_id, resource_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_account ON contacts(account_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name);
+CREATE INDEX IF NOT EXISTS idx_contacts_interaction ON contacts(account_id, interaction_count DESC);
+
+-- Tabela de emails dos contatos (relação N:N, um contato pode ter múltiplos emails)
+CREATE TABLE IF NOT EXISTS contact_emails (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	contact_id INTEGER NOT NULL,
+	email TEXT NOT NULL,
+	email_type TEXT, -- home, work, home, other
+	is_primary BOOLEAN DEFAULT 0,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
+	UNIQUE(contact_id, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_emails_contact ON contact_emails(contact_id);
+CREATE INDEX IF NOT EXISTS idx_contact_emails_email ON contact_emails(email);
+
+-- Tabela de telefones dos contatos
+CREATE TABLE IF NOT EXISTS contact_phones (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	contact_id INTEGER NOT NULL,
+	phone_number TEXT NOT NULL,
+	phone_type TEXT, -- mobile, work, home, other
+	is_primary BOOLEAN DEFAULT 0,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_phones_contact ON contact_phones(contact_id);
+
+-- Tabela de interações com contatos (histórico de emails)
+CREATE TABLE IF NOT EXISTS contact_interactions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	contact_id INTEGER NOT NULL,
+	email_id INTEGER, -- pode ser NULL se for email enviado que não está no DB
+	interaction_type TEXT NOT NULL, -- 'received', 'sent'
+	interaction_date DATETIME NOT NULL,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
+	FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_interactions_contact ON contact_interactions(contact_id, interaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_contact_interactions_email ON contact_interactions(email_id);
+
+-- Tabela de sync state para contatos (track last sync)
+CREATE TABLE IF NOT EXISTS contacts_sync_state (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL UNIQUE,
+	last_sync_token TEXT,
+	last_full_sync DATETIME,
+	last_incremental_sync DATETIME,
+	total_contacts INTEGER DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'never_synced', -- never_synced, syncing, synced, error
+	error_message TEXT,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
 `
 
 func Init(dbPath string) error {

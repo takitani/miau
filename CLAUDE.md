@@ -92,7 +92,7 @@ The app uses Bubble Tea as its TUI framework with a state machine pattern:
 - Browser-based OAuth2 flow for Gmail/Google Workspace
 - Tokens stored at `~/.config/miau/tokens/{account}.json`
 - Implements XOAUTH2 SASL mechanism for IMAP
-- Scopes: `mail.google.com` (IMAP) + `gmail.send` (API)
+- Scopes: `mail.google.com` (IMAP) + `gmail.send` (API) + `contacts.readonly` (People API)
 
 **internal/imap** - IMAP client wrapper
 - Wraps go-imap/v2 library
@@ -110,14 +110,25 @@ The app uses Bubble Tea as its TUI framework with a state machine pattern:
 - OAuth2-based REST API client
 - SendMessage with classificationLabelValues (bypasses DLP)
 - GetSignature, GetSendAsConfig for account info
+- People API integration for contacts sync
+
+**internal/services/contact** - Contact management service
+- Implements `ports.ContactService` following REGRA DE OURO
+- Syncs contacts from Google People API
+- Supports full and incremental sync with sync tokens
+- Auto-downloads and caches contact profile photos
+- Extracts contacts from emails automatically
+- Tracks interaction frequency for smart suggestions
+- Photos stored at `~/.config/miau/photos/`
 
 **internal/storage** - SQLite persistence
-- Schema includes: accounts, folders, emails tables
+- Schema includes: accounts, folders, emails, contacts, attachments tables
 - FTS5 full-text search on emails
 - Repository pattern in `repository.go`
 - Database at `~/.config/miau/data/miau.db`
 - Soft delete: `is_deleted=1` (never hard deletes)
 - PurgeDeletedFromServer: syncs deletions from IMAP server
+- Contact storage adapter implements `ports.ContactStoragePort`
 
 **internal/tui/inbox** - Main inbox interface
 - State machine: `stateInitDB` → `stateConnecting` → `stateLoadingFolders` → `stateSyncing` → `stateReady`
@@ -145,6 +156,97 @@ The app uses Bubble Tea as its TUI framework with a state machine pattern:
 4. If `smtp`: use SMTP with password/OAuth2
 5. Track sent email for bounce detection (5 min)
 6. Show success/error overlay
+
+## Contacts Management
+
+### Overview
+miau includes a comprehensive contacts system that syncs with Google Contacts via the People API. Contacts are stored locally in SQLite and automatically enriched with interaction data from emails.
+
+### Database Schema
+
+**contacts** - Main contacts table
+- `id`, `account_id`, `resource_name` (Google People ID)
+- `display_name`, `given_name`, `family_name`
+- `photo_url`, `photo_path` (local cache)
+- `is_starred`, `interaction_count`, `last_interaction_at`
+- `synced_at`, `created_at`, `updated_at`
+
+**contact_emails** - Email addresses (N:N relationship)
+- `contact_id`, `email`, `email_type` (home/work/other)
+- `is_primary`
+
+**contact_phones** - Phone numbers
+- `contact_id`, `phone_number`, `phone_type`
+- `is_primary`
+
+**contact_interactions** - Interaction history
+- `contact_id`, `email_id`, `interaction_type` (sent/received)
+- `interaction_date`
+
+**contacts_sync_state** - Sync tracking
+- `account_id`, `last_sync_token`, `last_full_sync`
+- `total_contacts`, `status`, `error_message`
+
+### Sync Flow
+
+1. **Initial Sync** (full sync)
+   - `ContactService.SyncContacts(accountID, fullSync=true)`
+   - Fetches all contacts from Google People API
+   - Downloads profile photos in background
+   - Stores contacts + emails + phones
+   - Saves sync token for incremental updates
+
+2. **Incremental Sync** (delta updates)
+   - Uses `syncToken` from previous sync
+   - Only fetches changed/new contacts
+   - More efficient for regular updates
+
+3. **Automatic Extraction**
+   - When emails are synced, extract sender/recipient info
+   - Auto-create/update contacts from email headers
+   - Track interactions (sent/received) for frequency ranking
+
+### Usage Examples
+
+```go
+// Via ContactService (REGRA DE OURO - always use service!)
+contactService := app.Contacts()
+
+// Full sync
+err := contactService.SyncContacts(ctx, accountID, true)
+
+// Search contacts
+contacts, err := contactService.SearchContacts(ctx, accountID, "john", 10)
+
+// Get contact by email
+contact, err := contactService.GetContactByEmail(ctx, accountID, "john@example.com")
+
+// Get top frequent contacts
+topContacts, err := contactService.GetTopContacts(ctx, accountID, 20)
+```
+
+### Photo Storage
+- Photos cached at `~/.config/miau/photos/contact_{id}.jpg`
+- Downloaded asynchronously during sync
+- Photo path stored in `contacts.photo_path`
+
+### Integration Points
+- `internal/services/contact.go` - Business logic (REGRA DE OURO)
+- `internal/storage/contacts.go` - Storage adapter
+- `internal/gmail/api.go` - People API client (`ListContacts`, `GetContact`, `DownloadPhoto`)
+- `internal/gmail/contacts_adapter.go` - Adapter to `ports.GmailContactsPort`
+- `internal/ports/contact.go` - Service interfaces
+
+### OAuth Scopes Required
+- `https://www.googleapis.com/auth/contacts.readonly` - Read-only access to contacts
+- Automatically included in `internal/auth/oauth2.go`
+
+### Future Enhancements
+- Contact autocomplete in email compose
+- Contact avatar display in email list
+- Contact groups/labels sync
+- Contact birthday/event reminders
+- Merge duplicate contacts detection
 
 ## AI Email Management
 

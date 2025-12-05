@@ -327,3 +327,84 @@ type AttachmentSummary struct {
 	IsCached    bool   `db:"is_cached"`
 	PartNumber  string `db:"part_number"`
 }
+
+// === CONTACTS ===
+
+// Contact representa um contato sincronizado do Google People API
+type Contact struct {
+	ID                  int64          `db:"id"`
+	AccountID           int64          `db:"account_id"`
+	ResourceName        string         `db:"resource_name"` // people/c1234567890
+	DisplayName         string         `db:"display_name"`
+	GivenName           sql.NullString `db:"given_name"`
+	FamilyName          sql.NullString `db:"family_name"`
+	PhotoURL            sql.NullString `db:"photo_url"`
+	PhotoETag           sql.NullString `db:"photo_etag"`
+	PhotoPath           sql.NullString `db:"photo_path"` // local cache path
+	IsStarred           bool           `db:"is_starred"`
+	InteractionCount    int            `db:"interaction_count"`
+	LastInteractionAt   sql.NullTime   `db:"last_interaction_at"`
+	MetadataJSON        sql.NullString `db:"metadata_json"`
+	SyncedAt            sql.NullTime   `db:"synced_at"`
+	CreatedAt           SQLiteTime     `db:"created_at"`
+	UpdatedAt           SQLiteTime     `db:"updated_at"`
+}
+
+// ContactEmail representa um endereço de email associado a um contato
+type ContactEmail struct {
+	ID        int64      `db:"id"`
+	ContactID int64      `db:"contact_id"`
+	Email     string     `db:"email"`
+	EmailType string     `db:"email_type"` // home, work, other
+	IsPrimary bool       `db:"is_primary"`
+	CreatedAt SQLiteTime `db:"created_at"`
+}
+
+// ContactPhone representa um telefone associado a um contato
+type ContactPhone struct {
+	ID          int64      `db:"id"`
+	ContactID   int64      `db:"contact_id"`
+	PhoneNumber string     `db:"phone_number"`
+	PhoneType   string     `db:"phone_type"` // mobile, work, home, other
+	IsPrimary   bool       `db:"is_primary"`
+	CreatedAt   SQLiteTime `db:"created_at"`
+}
+
+// ContactInteraction representa uma interação (email enviado/recebido) com um contato
+type ContactInteraction struct {
+	ID              int64          `db:"id"`
+	ContactID       int64          `db:"contact_id"`
+	EmailID         sql.NullInt64  `db:"email_id"`
+	InteractionType string         `db:"interaction_type"` // received, sent
+	InteractionDate SQLiteTime     `db:"interaction_date"`
+	CreatedAt       SQLiteTime     `db:"created_at"`
+}
+
+// ContactsSyncState rastreia o estado do sync de contatos
+type ContactsSyncState struct {
+	ID                   int64          `db:"id"`
+	AccountID            int64          `db:"account_id"`
+	LastSyncToken        sql.NullString `db:"last_sync_token"`
+	LastFullSync         sql.NullTime   `db:"last_full_sync"`
+	LastIncrementalSync  sql.NullTime   `db:"last_incremental_sync"`
+	TotalContacts        int            `db:"total_contacts"`
+	Status               string         `db:"status"` // never_synced, syncing, synced, error
+	ErrorMessage         sql.NullString `db:"error_message"`
+	CreatedAt            SQLiteTime     `db:"created_at"`
+	UpdatedAt            SQLiteTime     `db:"updated_at"`
+}
+
+// ContactsSyncStatus constantes de status do sync
+const (
+	ContactsSyncNeverSynced = "never_synced"
+	ContactsSyncSyncing     = "syncing"
+	ContactsSyncSynced      = "synced"
+	ContactsSyncError       = "error"
+)
+
+// ContactWithEmails representa um contato com seus emails para facilitar queries
+type ContactWithEmails struct {
+	Contact
+	Emails []ContactEmail `db:"-"`
+	Phones []ContactPhone `db:"-"`
+}

@@ -1698,6 +1698,11 @@ func (m Model) loadEmailContent() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate to thread view if active
+	if m.state == stateViewingThread {
+		return m.updateThreadView(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Primeiro verifica se há alerta overlay aberto
@@ -2282,7 +2287,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.showFolders = !m.showFolders
 
-		case "enter", "v":
+		case "enter":
 			if m.showFolders && len(m.mailboxes) > 0 {
 				m.currentBox = m.mailboxes[m.selectedBox].Name
 				m.showFolders = false
@@ -2293,7 +2298,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dbFolder = folder
 				return m, m.syncEmails()
 			}
-			// Abre viewer do email
+			// Abre thread view do email (usa app.Thread service)
+			if !m.showFolders && len(m.emails) > 0 && m.app != nil {
+				return m.openThreadView()
+			}
+
+		case "v":
+			// Abre viewer simples (legacy - mantido para compatibilidade)
 			if !m.showFolders && len(m.emails) > 0 {
 				m.viewerEmail = &m.emails[m.selectedEmail]
 				m.viewerLoading = true
@@ -3239,6 +3250,8 @@ func (m Model) View() string {
 		baseView = m.viewAppPasswordPrompt()
 	case stateError:
 		baseView = m.viewError()
+	case stateViewingThread:
+		baseView = m.viewThreadView()
 	case stateReady:
 		if m.showCompose {
 			baseView = m.viewCompose()

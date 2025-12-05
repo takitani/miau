@@ -6,6 +6,14 @@ export function Archive(arg1:number):Promise<void>;
 
 export function AskAI(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function BatchArchive(arg1:Array<number>):Promise<void>;
+
+export function BatchDelete(arg1:Array<number>):Promise<void>;
+
+export function BatchMarkRead(arg1:Array<number>,arg2:boolean):Promise<void>;
+
+export function BatchStar(arg1:Array<number>,arg2:boolean):Promise<void>;
+
 export function CanRedo():Promise<boolean>;
 
 export function CanUndo():Promise<boolean>;

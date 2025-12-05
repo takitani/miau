@@ -1,16 +1,36 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { scale } from 'svelte/transition';
+  import {
+    selectedIds,
+    selectionMode,
+    toggleSelection,
+    selectRange,
+    lastSelectedIndex,
+    dragSelecting,
+    startDragSelection,
+    updateDragSelection,
+    endDragSelection
+  } from '../stores/selection.js';
 
-  export let email;
-  export let selected = false;
+  export var email;
+  export var selected = false; // Cursor selection (current row)
+  export var index = 0;
 
-  const dispatch = createEventDispatcher();
+  var dispatch = createEventDispatcher();
+  var hovering = false;
+
+  // Is this email checked (multi-select)?
+  $: isChecked = $selectedIds.has(email.id);
+
+  // Show checkbox when: hovering, selection mode active, or this email is checked
+  $: showCheckbox = hovering || $selectionMode || isChecked;
 
   // Format date
   function formatDate(dateStr) {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now - date;
+    var date = new Date(dateStr);
+    var now = new Date();
+    var diff = now - date;
 
     // Today: show time
     if (diff < 86400000 && date.getDate() === now.getDate()) {
@@ -26,32 +46,107 @@
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' });
   }
 
-  // Handle click
-  function handleClick() {
+  // Handle click with modifiers
+  function handleClick(e) {
+    // Shift+Click: range selection
+    if (e.shiftKey) {
+      e.preventDefault();
+      selectRange(index);
+      return;
+    }
+
+    // Ctrl/Cmd+Click: toggle this email
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      toggleSelection(email.id, index);
+      return;
+    }
+
+    // Normal click: update lastSelectedIndex and dispatch to parent
+    lastSelectedIndex.set(index);
     dispatch('click');
+  }
+
+  // Handle checkbox click
+  function handleCheckboxClick(e) {
+    e.stopPropagation();
+    toggleSelection(email.id, index);
   }
 
   // Handle double click to open
   function handleDoubleClick() {
     dispatch('open');
   }
+
+  // Drag selection handlers
+  function handleMouseDown(e) {
+    // Only start drag selection on left click without modifiers
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      // Check if click is in the left area (checkbox zone)
+      var rect = e.currentTarget.getBoundingClientRect();
+      var leftZone = rect.left + 50; // Checkbox area width
+
+      if (e.clientX < leftZone) {
+        e.preventDefault();
+        startDragSelection(index);
+      }
+    }
+  }
+
+  function handleMouseEnter() {
+    hovering = true;
+    if ($dragSelecting) {
+      updateDragSelection(index);
+    }
+  }
+
+  function handleMouseUp() {
+    if ($dragSelecting) {
+      endDragSelection();
+    }
+  }
 </script>
+
+<svelte:window on:mouseup={handleMouseUp} />
 
 <div
   class="email-row"
   class:selected
+  class:checked={isChecked}
   class:unread={!email.isRead}
+  class:drag-selecting={$dragSelecting}
   role="button"
   tabindex="0"
   on:click={handleClick}
   on:dblclick={handleDoubleClick}
-  on:keydown={(e) => e.key === 'Enter' && handleClick()}
+  on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
+  on:mousedown={handleMouseDown}
+  on:mouseenter={handleMouseEnter}
+  on:mouseleave={() => hovering = false}
 >
-  <div class="flags">
-    {#if email.isStarred}
-      <span class="star" title="Starred">★</span>
+  <!-- Checkbox / Star area -->
+  <div class="checkbox-area">
+    {#if showCheckbox}
+      <button
+        class="checkbox"
+        class:checked={isChecked}
+        on:click={handleCheckboxClick}
+        transition:scale={{ duration: 150 }}
+      >
+        {#if isChecked}
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+          </svg>
+        {/if}
+      </button>
     {:else}
-      <span class="star empty">☆</span>
+      <div class="star-area">
+        {#if email.isStarred}
+          <span class="star" title="Starred">★</span>
+        {:else}
+          <span class="star empty">☆</span>
+        {/if}
+      </div>
     {/if}
   </div>
 
@@ -74,6 +169,11 @@
     {/if}
     <span class="date">{formatDate(email.date)}</span>
   </div>
+
+  <!-- Selection indicator line -->
+  {#if isChecked}
+    <div class="selection-indicator"></div>
+  {/if}
 </div>
 
 <style>
@@ -85,6 +185,7 @@
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
     transition: background var(--transition-fast);
+    position: relative;
   }
 
   .email-row:hover {
@@ -93,6 +194,19 @@
 
   .email-row.selected {
     background: var(--bg-selected);
+  }
+
+  .email-row.checked {
+    background: rgba(102, 126, 234, 0.1);
+  }
+
+  .email-row.checked.selected {
+    background: rgba(102, 126, 234, 0.2);
+  }
+
+  .email-row.drag-selecting {
+    cursor: crosshair;
+    user-select: none;
   }
 
   .email-row.unread {
@@ -104,8 +218,61 @@
     color: var(--text-primary);
   }
 
-  .flags {
+  /* Selection indicator - vertical line on left */
+  .selection-indicator {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* Checkbox area */
+  .checkbox-area {
     flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .checkbox {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+
+  .checkbox:hover {
+    border-color: rgba(102, 126, 234, 0.6);
+    background: rgba(102, 126, 234, 0.1);
+  }
+
+  .checkbox.checked {
+    border-color: #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+
+  .checkbox svg {
+    width: 14px;
+    height: 14px;
+    color: white;
+  }
+
+  .star-area {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 20px;
     text-align: center;
   }
@@ -178,5 +345,11 @@
     padding: 1px 6px;
     border-radius: 8px;
     border: 1px solid var(--accent-primary);
+  }
+
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

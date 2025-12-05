@@ -11,6 +11,7 @@
   import ComposeModal from './lib/components/ComposeModal.svelte';
   import AnalyticsPanel from './lib/components/AnalyticsPanel.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
+  import SelectionBar from './lib/components/SelectionBar.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
   import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders, showThreadView, threadEmailId, closeThreadView } from './lib/stores/ui.js';
@@ -207,6 +208,9 @@
 
   <!-- Status Bar -->
   <StatusBar />
+
+  <!-- Selection Bar (floating at bottom when emails selected) -->
+  <SelectionBar />
 
   <!-- Debug Panel -->
   {#if $debugEnabled}

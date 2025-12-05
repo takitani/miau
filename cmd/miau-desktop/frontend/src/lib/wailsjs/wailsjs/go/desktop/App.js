@@ -10,6 +10,22 @@ export function AskAI(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['AskAI'](arg1, arg2, arg3);
 }
 
+export function BatchArchive(arg1) {
+  return window['go']['desktop']['App']['BatchArchive'](arg1);
+}
+
+export function BatchDelete(arg1) {
+  return window['go']['desktop']['App']['BatchDelete'](arg1);
+}
+
+export function BatchMarkRead(arg1, arg2) {
+  return window['go']['desktop']['App']['BatchMarkRead'](arg1, arg2);
+}
+
+export function BatchStar(arg1, arg2) {
+  return window['go']['desktop']['App']['BatchStar'](arg1, arg2);
+}
+
 export function CanRedo() {
   return window['go']['desktop']['App']['CanRedo']();
 }

@@ -126,6 +126,12 @@ func (m *StoragePort) MarkAsReplied(ctx context.Context, id int64, replied bool)
 	return args.Error(0)
 }
 
+// Email content updates
+func (m *StoragePort) UpdateEmailBody(ctx context.Context, id int64, bodyText, bodyHTML string) error {
+	var args = m.Called(ctx, id, bodyText, bodyHTML)
+	return args.Error(0)
+}
+
 // Bulk operations
 func (m *StoragePort) MarkDeletedByUIDs(ctx context.Context, folderID int64, uids []uint32) error {
 	var args = m.Called(ctx, folderID, uids)

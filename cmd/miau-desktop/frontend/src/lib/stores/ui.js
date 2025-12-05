@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
-import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, refreshEmails, currentFolder, toggleThreading, restoreLastRemovedEmail } from './emails.js';
+import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, emails, selectedIndex, loadEmails, refreshEmails, currentFolder, toggleThreading, restoreLastRemovedEmail } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
+import { toggleSelectionMode, selectAll, someSelected, exitSelectionMode, toggleSelection } from './selection.js';
 
 // UI State
 export const showSearch = writable(false);
@@ -25,6 +26,35 @@ export function openThreadView(emailId) {
 export function closeThreadView() {
   showThreadView.set(false);
   threadEmailId.set(null);
+}
+
+// Smart email selection - handles thread view transitions
+// If thread view is open:
+//   - If new email has thread (threadCount > 1): switch to that thread
+//   - If new email has no thread: close thread view, show email
+// If thread view is closed: just select the email
+export function selectEmailSmart(id) {
+  var $emails = get(emails);
+  var email = $emails.find(e => e.id === id);
+  var index = $emails.findIndex(e => e.id === id);
+
+  if (index < 0 || !email) return;
+
+  // Update selection
+  selectedIndex.set(index);
+  selectedEmailId.set(id);
+
+  // Handle thread view
+  var isThreadViewOpen = get(showThreadView);
+  if (isThreadViewOpen) {
+    if (email.threadCount > 1) {
+      // Switch to new thread
+      threadEmailId.set(id);
+    } else {
+      // Close thread view, show normal email
+      closeThreadView();
+    }
+  }
 }
 
 // Active panel: 'folders' | 'emails' | 'viewer'
@@ -95,10 +125,42 @@ function handleKeydown(e) {
     return;
   }
 
+  // Ctrl+A for select all (when not editing)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault();
+    selectAll();
+    return;
+  }
+
   // Global shortcuts (work everywhere)
   switch (e.key) {
     case 'Escape':
+      // If in selection mode, exit it first
+      if (get(someSelected)) {
+        exitSelectionMode();
+        return;
+      }
       closeAllModals();
+      return;
+
+    case 'v':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        toggleSelectionMode();
+        info('Modo de seleção: ' + (get(someSelected) ? 'ativado' : 'desativado'));
+      }
+      return;
+
+    case ' ':
+      // Space toggles current email selection
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        var emailId = get(selectedEmailId);
+        var idx = get(selectedIndex);
+        if (emailId) {
+          toggleSelection(emailId, idx);
+        }
+      }
       return;
 
     case '/':

@@ -9,6 +9,13 @@
       { key: 'Tab', desc: 'Alternar paineis' },
       { key: 'Esc', desc: 'Fechar modal/overlay' },
     ]},
+    { section: 'Multi-Select', items: [
+      { key: 'v', desc: 'Ativar modo de selecao' },
+      { key: 'Space', desc: 'Selecionar/deselecionar atual' },
+      { key: 'Ctrl+A', desc: 'Selecionar todos' },
+      { key: 'Shift+Click', desc: 'Selecao em lote' },
+      { key: 'Ctrl+Click', desc: 'Alternar selecao' },
+    ]},
     { section: 'Acoes', items: [
       { key: 'e', desc: 'Arquivar email' },
       { key: 'x / #', desc: 'Deletar email' },

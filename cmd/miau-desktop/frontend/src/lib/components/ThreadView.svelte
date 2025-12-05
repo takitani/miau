@@ -203,12 +203,14 @@
     }
   }
 
-  onMount(() => {
-    loadThread();
-  });
+  // Track current emailId to detect changes
+  var currentEmailId = null;
 
-  // Reload when emailId changes
-  $: if (emailId) loadThread();
+  // Reload when emailId changes (reactive statement)
+  $: if (emailId && emailId !== currentEmailId) {
+    currentEmailId = emailId;
+    loadThread();
+  }
 </script>
 
 <svelte:window on:keydown={handleKeydown} />

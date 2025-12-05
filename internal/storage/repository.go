@@ -214,6 +214,31 @@ func GetLatestUID(accountID, folderID int64) (uint32, error) {
 	return uid, err
 }
 
+// UpdateEmailBody updates the body_text and body_html of an email (caches IMAP fetch)
+func UpdateEmailBody(id int64, bodyText, bodyHTML string) error {
+	// Also generate snippet if not present
+	var snippet string
+	if bodyText != "" {
+		snippet = bodyText
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+	} else if bodyHTML != "" {
+		// Strip HTML for snippet (simple approach)
+		snippet = bodyHTML
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+	}
+
+	var _, err = db.Exec(`
+		UPDATE emails
+		SET body_text = ?, body_html = ?, snippet = COALESCE(NULLIF(snippet, ''), ?), updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, bodyText, bodyHTML, snippet, id)
+	return err
+}
+
 func MarkAsRead(id int64, read bool) error {
 	_, err := db.Exec("UPDATE emails SET is_read = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", read, id)
 	return err

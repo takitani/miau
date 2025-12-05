@@ -26,6 +26,9 @@ type StoragePort interface {
 	GetLatestUID(ctx context.Context, folderID int64) (uint32, error)
 	GetAllUIDs(ctx context.Context, folderID int64) ([]uint32, error)
 
+	// Email content updates
+	UpdateEmailBody(ctx context.Context, id int64, bodyText, bodyHTML string) error
+
 	// Email status updates
 	MarkAsRead(ctx context.Context, id int64, read bool) error
 	MarkAsStarred(ctx context.Context, id int64, starred bool) error

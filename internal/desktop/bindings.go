@@ -246,6 +246,67 @@ func (a *App) MoveToFolder(id int64, folder string) error {
 }
 
 // ============================================================================
+// BATCH OPERATIONS
+// ============================================================================
+
+// BatchArchive archives multiple emails
+func (a *App) BatchArchive(ids []int64) error {
+	if a.application == nil {
+		return nil
+	}
+	var ctx = context.Background()
+	for _, id := range ids {
+		if err := a.application.Email().Archive(ctx, id); err != nil {
+			log.Printf("[BatchArchive] failed to archive %d: %v", id, err)
+			// Continue with other emails
+		}
+	}
+	return nil
+}
+
+// BatchDelete deletes multiple emails
+func (a *App) BatchDelete(ids []int64) error {
+	if a.application == nil {
+		return nil
+	}
+	var ctx = context.Background()
+	for _, id := range ids {
+		if err := a.application.Email().Delete(ctx, id); err != nil {
+			log.Printf("[BatchDelete] failed to delete %d: %v", id, err)
+		}
+	}
+	return nil
+}
+
+// BatchMarkRead marks multiple emails as read or unread
+func (a *App) BatchMarkRead(ids []int64, read bool) error {
+	if a.application == nil {
+		return nil
+	}
+	var ctx = context.Background()
+	for _, id := range ids {
+		if err := a.application.Email().MarkAsRead(ctx, id, read); err != nil {
+			log.Printf("[BatchMarkRead] failed to mark %d: %v", id, err)
+		}
+	}
+	return nil
+}
+
+// BatchStar stars or unstars multiple emails
+func (a *App) BatchStar(ids []int64, starred bool) error {
+	if a.application == nil {
+		return nil
+	}
+	var ctx = context.Background()
+	for _, id := range ids {
+		if err := a.application.Email().MarkAsStarred(ctx, id, starred); err != nil {
+			log.Printf("[BatchStar] failed to star %d: %v", id, err)
+		}
+	}
+	return nil
+}
+
+// ============================================================================
 // SEARCH
 // ============================================================================
 

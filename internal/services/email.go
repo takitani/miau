@@ -142,7 +142,7 @@ func (s *EmailService) GetEmail(ctx context.Context, id int64) (*ports.EmailCont
 		}
 	}
 
-	// If body is empty, fetch from IMAP
+	// If body is empty, fetch from IMAP and cache it
 	if email.BodyText == "" && email.BodyHTML == "" {
 		var rawData, fetchErr = s.imap.FetchEmailRaw(ctx, email.UID)
 		if fetchErr != nil {
@@ -155,6 +155,12 @@ func (s *EmailService) GetEmail(ctx context.Context, id int64) (*ports.EmailCont
 		if parsed != nil {
 			email.BodyText = parsed.TextBody
 			email.BodyHTML = parsed.HTMLBody
+
+			// Cache the body in database for future requests
+			if err := s.storage.UpdateEmailBody(ctx, id, parsed.TextBody, parsed.HTMLBody); err != nil {
+				log.Printf("[GetEmail] Failed to cache email body: %v", err)
+				// Continue anyway, we have the body in memory
+			}
 		}
 	}
 

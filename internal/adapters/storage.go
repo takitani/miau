@@ -187,6 +187,11 @@ func (a *StorageAdapter) GetAllUIDs(ctx context.Context, folderID int64) ([]uint
 	return nil, nil
 }
 
+// UpdateEmailBody updates the body content of an email (caches IMAP fetch)
+func (a *StorageAdapter) UpdateEmailBody(ctx context.Context, id int64, bodyText, bodyHTML string) error {
+	return storage.UpdateEmailBody(id, bodyText, bodyHTML)
+}
+
 // MarkAsRead marks an email as read
 func (a *StorageAdapter) MarkAsRead(ctx context.Context, id int64, read bool) error {
 	return storage.MarkAsRead(id, read)

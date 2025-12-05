@@ -10,19 +10,22 @@ import (
 
 // EmailMetadata contains basic email information for listing
 type EmailMetadata struct {
-	ID        int64
-	UID       uint32
-	MessageID string
-	Subject   string
-	FromName  string
-	FromEmail string
-	ToAddress string
-	Date      time.Time
-	IsRead    bool
-	IsStarred bool
-	IsReplied bool
-	Snippet   string
-	Size      int64
+	ID         int64
+	UID        uint32
+	MessageID  string
+	Subject    string
+	FromName   string
+	FromEmail  string
+	ToAddress  string
+	Date       time.Time
+	IsRead     bool
+	IsStarred  bool
+	IsReplied  bool
+	Snippet    string
+	Size       int64
+	InReplyTo  string
+	References string
+	ThreadID   string
 }
 
 // EmailContent contains full email content
@@ -218,6 +221,33 @@ type BounceInfo struct {
 	Recipient         string
 	Reason            string
 	BouncedAt         time.Time
+}
+
+// ============================================================================
+// THREADING TYPES
+// ============================================================================
+
+// Thread represents a complete email conversation/thread
+type Thread struct {
+	ThreadID     string
+	Subject      string
+	Participants []string
+	MessageCount int
+	Messages     []EmailContent // Ordered DESC by date (newest first)
+	IsRead       bool           // All messages read?
+}
+
+// ThreadSummary contains thread metadata for inbox display
+type ThreadSummary struct {
+	ThreadID        string
+	Subject         string
+	LastSender      string
+	LastSenderEmail string
+	LastDate        time.Time
+	MessageCount    int
+	UnreadCount     int
+	HasAttachments  bool
+	Participants    []string
 }
 
 // ============================================================================

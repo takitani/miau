@@ -42,6 +42,7 @@ type Application struct {
 	notifyService     *services.NotificationService
 	analyticsService  *services.AnalyticsService
 	attachmentService *services.AttachmentServicePort
+	threadService     *services.ThreadService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -153,6 +154,9 @@ func (a *Application) Start() error {
 	a.attachmentService = services.NewAttachmentServicePort(a.storageAdapter, a.imapAdapter)
 	a.attachmentService.SetAccount(accountInfo)
 
+	a.threadService = services.NewThreadService(a.storageAdapter, a.eventBus)
+	a.threadService.SetAccount(accountInfo)
+
 	a.started = true
 	return nil
 }
@@ -223,6 +227,11 @@ func (a *Application) Analytics() ports.AnalyticsService {
 // Attachment returns the attachment service
 func (a *Application) Attachment() ports.AttachmentService {
 	return a.attachmentService
+}
+
+// Thread returns the thread service
+func (a *Application) Thread() ports.ThreadService {
+	return a.threadService
 }
 
 // Events returns the event bus

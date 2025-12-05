@@ -22,6 +22,7 @@ const (
 	stateSyncing
 	stateLoadingEmails
 	stateReady
+	stateViewingThread // Nova: visualizando thread
 	stateError
 	stateNeedsAppPassword
 )
@@ -134,6 +135,9 @@ type Model struct {
 	viewerAttachments  []Attachment // Todos os anexos do email sendo visualizado
 	selectedAttachment int          // Índice do anexo selecionado
 	attachmentsLoading bool         // Se está carregando anexos
+	// Thread view
+	threadView   interface{} // thread.Model (imported dynamically to avoid cycle)
+	previousState state       // Estado anterior antes de abrir thread
 }
 
 // AnalyticsData contém todos os dados de analytics para o TUI

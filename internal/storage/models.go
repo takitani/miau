@@ -95,6 +95,9 @@ type Email struct {
 	RawHeaders     string         `db:"raw_headers"`
 	Size           int64          `db:"size"`
 	BodyIndexed    bool           `db:"body_indexed"`
+	InReplyTo      sql.NullString `db:"in_reply_to"`
+	References     sql.NullString `db:"references"`
+	ThreadID       sql.NullString `db:"thread_id"`
 	CreatedAt      SQLiteTime     `db:"created_at"`
 	UpdatedAt      SQLiteTime     `db:"updated_at"`
 }
@@ -113,6 +116,7 @@ type EmailSummary struct {
 	IsReplied      bool           `db:"is_replied"`
 	HasAttachments bool           `db:"has_attachments"`
 	Snippet        string         `db:"snippet"`
+	ThreadID       sql.NullString `db:"thread_id"`
 }
 
 // DraftStatus representa o estado de um draft

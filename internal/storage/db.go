@@ -326,6 +326,21 @@ CREATE TABLE IF NOT EXISTS attachment_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachment_cache_last_accessed ON attachment_cache(last_accessed);
+
+-- Tabela de histórico de operações (undo/redo)
+CREATE TABLE IF NOT EXISTS operations_history (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	operation_type TEXT NOT NULL, -- 'mark_read', 'mark_starred', 'archive', 'delete', 'move', 'batch'
+	operation_data TEXT NOT NULL, -- JSON com todos dados necessários para undo/redo
+	description TEXT NOT NULL, -- descrição legível: "Arquivar email 'Assunto'"
+	stack_type TEXT NOT NULL, -- 'undo' ou 'redo'
+	stack_position INTEGER NOT NULL, -- posição na pilha (0 = mais recente)
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_operations_history_account_stack ON operations_history(account_id, stack_type, stack_position DESC);
 `
 
 func Init(dbPath string) error {

@@ -132,5 +132,11 @@ func (m *IMAPPort) FetchAttachmentPart(ctx context.Context, uid uint32, partNumb
 	return args.Get(0).([]byte), args.Error(1)
 }
 
+// Undelete removes the \Deleted flag from an email
+func (m *IMAPPort) Undelete(ctx context.Context, uid uint32) error {
+	args := m.Called(ctx, uid)
+	return args.Error(0)
+}
+
 // Ensure IMAPPort implements ports.IMAPPort
 var _ ports.IMAPPort = (*IMAPPort)(nil)

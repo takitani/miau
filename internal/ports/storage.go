@@ -84,6 +84,12 @@ type StoragePort interface {
 	GetAttachmentContent(ctx context.Context, id int64) ([]byte, error)
 	CacheAttachmentContent(ctx context.Context, id int64, content []byte) error
 	UpsertAttachment(ctx context.Context, attachment *Attachment) (int64, error)
+
+	// Undo/Redo operations
+	SaveOperation(ctx context.Context, op *OperationRecord) error
+	RemoveOperation(ctx context.Context, accountID int64, stackType, data string) error
+	GetOperations(ctx context.Context, accountID int64, stackType string) ([]OperationRecord, error)
+	ClearOperationsHistory(ctx context.Context, accountID int64) error
 }
 
 // SentEmailTrack represents a tracked sent email for bounce detection
@@ -135,6 +141,7 @@ type IMAPPort interface {
 	Archive(ctx context.Context, uid uint32) error
 	MoveToFolder(ctx context.Context, uid uint32, folder string) error
 	Delete(ctx context.Context, uid uint32) error
+	Undelete(ctx context.Context, uid uint32) error
 
 	// Utility
 	GetTrashFolder() string

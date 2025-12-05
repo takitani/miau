@@ -362,5 +362,32 @@ func (m *StoragePort) UpsertAttachment(ctx context.Context, attachment *ports.At
 	return args.Get(0).(int64), args.Error(1)
 }
 
+// SaveOperation saves an operation to the operations history
+func (m *StoragePort) SaveOperation(ctx context.Context, op *ports.OperationRecord) error {
+	var args = m.Called(ctx, op)
+	return args.Error(0)
+}
+
+// RemoveOperation removes an operation from the history
+func (m *StoragePort) RemoveOperation(ctx context.Context, accountID int64, stackType, data string) error {
+	var args = m.Called(ctx, accountID, stackType, data)
+	return args.Error(0)
+}
+
+// GetOperations gets operations from the history
+func (m *StoragePort) GetOperations(ctx context.Context, accountID int64, stackType string) ([]ports.OperationRecord, error) {
+	var args = m.Called(ctx, accountID, stackType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.OperationRecord), args.Error(1)
+}
+
+// ClearOperationsHistory clears the operations history for an account
+func (m *StoragePort) ClearOperationsHistory(ctx context.Context, accountID int64) error {
+	var args = m.Called(ctx, accountID)
+	return args.Error(0)
+}
+
 // Ensure StoragePort implements ports.StoragePort
 var _ ports.StoragePort = (*StoragePort)(nil)

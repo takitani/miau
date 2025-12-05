@@ -349,3 +349,19 @@ func (n NullString) String() string {
 	}
 	return ""
 }
+
+// ============================================================================
+// UNDO/REDO TYPES
+// ============================================================================
+
+// OperationRecord represents a stored operation for undo/redo
+type OperationRecord struct {
+	ID            int64
+	AccountID     int64
+	OperationType string
+	OperationData string
+	Description   string
+	StackType     string // "undo" or "redo"
+	StackPosition int
+	CreatedAt     time.Time
+}

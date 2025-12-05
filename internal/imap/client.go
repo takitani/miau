@@ -63,6 +63,9 @@ type Email struct {
 	BodyText   string
 	InReplyTo  string
 	References string
+	// Attachment metadata (populated by batch fetch)
+	HasAttachments bool
+	Attachments    []AttachmentInfo
 }
 
 // Connect estabelece conexão IMAP com a conta
@@ -445,6 +448,169 @@ func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
 	}
 
 	return emails, nil
+}
+
+// SearchSince searches for emails since a specific date
+// Returns UIDs of matching emails
+func (c *Client) SearchSince(sinceDate time.Time) ([]uint32, error) {
+	var criteria = &imap.SearchCriteria{
+		Since: sinceDate,
+	}
+
+	var searchCmd = c.client.UIDSearch(criteria, nil)
+	var searchData, err = searchCmd.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar por data: %w", err)
+	}
+
+	var uids = searchData.AllUIDs()
+	var result = make([]uint32, len(uids))
+	for i, uid := range uids {
+		result[i] = uint32(uid)
+	}
+	return result, nil
+}
+
+// FetchEmailsBatch fetches multiple emails in a single IMAP request
+// Includes envelope, flags, size, AND bodystructure for attachments
+// This is the optimized method - 1 request for N emails instead of N+1
+func (c *Client) FetchEmailsBatch(uids []uint32) ([]Email, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+
+	var uidSet = imap.UIDSet{}
+	for _, uid := range uids {
+		uidSet.AddNum(imap.UID(uid))
+	}
+
+	// Single request with everything we need
+	var fetchOptions = &imap.FetchOptions{
+		UID:           true,
+		Flags:         true,
+		Envelope:      true,
+		RFC822Size:    true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+	}
+
+	var fetchCmd = c.client.Fetch(uidSet, fetchOptions)
+	var messages, err = fetchCmd.Collect()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar emails em batch: %w", err)
+	}
+
+	var emails = make([]Email, 0, len(messages))
+	for _, msg := range messages {
+		var email = Email{
+			UID:  uint32(msg.UID),
+			Size: msg.RFC822Size,
+		}
+
+		// Parse envelope
+		if msg.Envelope != nil {
+			email.Subject = msg.Envelope.Subject
+			email.Date = msg.Envelope.Date
+			email.MessageID = msg.Envelope.MessageID
+
+			if len(msg.Envelope.InReplyTo) > 0 {
+				email.InReplyTo = msg.Envelope.InReplyTo[0]
+			}
+
+			if len(msg.Envelope.From) > 0 {
+				var from = msg.Envelope.From[0]
+				if from.Name != "" {
+					email.From = from.Name
+				} else {
+					email.From = from.Mailbox
+				}
+				email.FromEmail = fmt.Sprintf("%s@%s", from.Mailbox, from.Host)
+			}
+
+			if len(msg.Envelope.To) > 0 {
+				var to = msg.Envelope.To[0]
+				email.To = fmt.Sprintf("%s@%s", to.Mailbox, to.Host)
+			}
+		}
+
+		// Parse flags
+		for _, flag := range msg.Flags {
+			if flag == imap.FlagSeen {
+				email.Seen = true
+			}
+			if flag == imap.FlagFlagged {
+				email.Flagged = true
+			}
+		}
+
+		// Parse bodystructure for attachments (no extra request!)
+		if msg.BodyStructure != nil {
+			var attachments []AttachmentInfo
+			var hasAttachments = false
+			parseBodyStructure(msg.BodyStructure, "", &attachments, &hasAttachments)
+			email.HasAttachments = hasAttachments
+			email.Attachments = attachments
+		}
+
+		emails = append(emails, email)
+	}
+
+	return emails, nil
+}
+
+// FetchNewEmailsBatch fetches new emails since a UID using batch operation
+// Returns emails with envelope + bodystructure in a single request
+func (c *Client) FetchNewEmailsBatch(sinceUID uint32, limit int) ([]Email, error) {
+	// Search for UIDs > sinceUID
+	var criteria = &imap.SearchCriteria{
+		UID: []imap.UIDSet{{imap.UIDRange{Start: imap.UID(sinceUID + 1), Stop: 0}}},
+	}
+
+	var searchCmd = c.client.UIDSearch(criteria, nil)
+	var searchData, err = searchCmd.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	var uids = searchData.AllUIDs()
+	if len(uids) == 0 {
+		return nil, nil
+	}
+
+	// Limit results (take most recent)
+	if len(uids) > limit {
+		uids = uids[len(uids)-limit:]
+	}
+
+	// Convert to uint32 slice
+	var uidSlice = make([]uint32, len(uids))
+	for i, uid := range uids {
+		uidSlice[i] = uint32(uid)
+	}
+
+	// Use batch fetch
+	return c.FetchEmailsBatch(uidSlice)
+}
+
+// FetchEmailsSinceDateBatch fetches emails since a date using batch operation
+// Optimized for initial sync - gets emails from last N days
+func (c *Client) FetchEmailsSinceDateBatch(sinceDays int, limit int) ([]Email, error) {
+	var sinceDate = time.Now().AddDate(0, 0, -sinceDays)
+
+	var uids, err = c.SearchSince(sinceDate)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(uids) == 0 {
+		return nil, nil
+	}
+
+	// Limit results (take most recent - UIDs are ordered)
+	if len(uids) > limit {
+		uids = uids[len(uids)-limit:]
+	}
+
+	return c.FetchEmailsBatch(uids)
 }
 
 // FetchEmailBody busca o corpo completo de um email (TEXT part)

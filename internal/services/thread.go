@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/opik/miau/internal/ports"
@@ -50,6 +51,8 @@ func (s *ThreadService) GetThread(ctx context.Context, emailID int64) (*ports.Th
 	var emailSvc = s.emailService
 	s.mu.RUnlock()
 
+	log.Printf("[ThreadService.GetThread] emailID=%d, account=%v, emailSvc=%v", emailID, account != nil, emailSvc != nil)
+
 	if account == nil {
 		return nil, fmt.Errorf("no account set")
 	}
@@ -57,26 +60,37 @@ func (s *ThreadService) GetThread(ctx context.Context, emailID int64) (*ports.Th
 	// Get all emails in the thread
 	var emails, err = storage.GetThreadForEmail(emailID)
 	if err != nil {
+		log.Printf("[ThreadService.GetThread] GetThreadForEmail error: %v", err)
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
+
+	log.Printf("[ThreadService.GetThread] got %d emails from storage", len(emails))
 
 	if len(emails) == 0 {
 		return nil, fmt.Errorf("email not found")
 	}
 
-	// Convert storage.Email to ports.EmailContent, fetching body via EmailService if needed
+	// Convert storage.Email to ports.EmailContent
+	// For emails without body/snippet, use EmailService to fetch from IMAP
 	var messages = make([]ports.EmailContent, len(emails))
 	for i, e := range emails {
-		// If body is empty and we have EmailService, fetch the full email
-		if (e.BodyText == "" && e.BodyHTML == "") && emailSvc != nil {
+		// If body is empty and we have EmailService, fetch it
+		var bodyText = e.BodyText
+		var bodyHTML = e.BodyHTML
+		var snippet = e.Snippet
+
+		if (bodyText == "" && bodyHTML == "" && snippet == "") && emailSvc != nil {
+			log.Printf("[ThreadService.GetThread] Fetching body for email %d (no cached content)", e.ID)
 			var fullEmail, fetchErr = emailSvc.GetEmail(ctx, e.ID)
 			if fetchErr == nil && fullEmail != nil {
-				messages[i] = *fullEmail
-				continue
+				bodyText = fullEmail.BodyText
+				bodyHTML = fullEmail.BodyHTML
+				snippet = fullEmail.Snippet
+			} else if fetchErr != nil {
+				log.Printf("[ThreadService.GetThread] Failed to fetch body for email %d: %v", e.ID, fetchErr)
 			}
 		}
 
-		// Fallback to what we have from database
 		messages[i] = ports.EmailContent{
 			EmailMetadata: ports.EmailMetadata{
 				ID:         e.ID,
@@ -89,14 +103,16 @@ func (s *ThreadService) GetThread(ctx context.Context, emailID int64) (*ports.Th
 				IsRead:     e.IsRead,
 				IsStarred:  e.IsStarred,
 				IsReplied:  e.IsReplied,
-				Snippet:    e.Snippet,
+				Snippet:    snippet,
 				Size:       e.Size,
 				InReplyTo:  e.InReplyTo.String,
 				References: e.References.String,
 				ThreadID:   e.ThreadID.String,
 			},
-			BodyText:       e.BodyText,
-			BodyHTML:       e.BodyHTML,
+			ToAddresses:    e.ToAddresses,
+			CcAddresses:    e.CcAddresses,
+			BodyText:       bodyText,
+			BodyHTML:       bodyHTML,
 			RawHeaders:     e.RawHeaders,
 			HasAttachments: e.HasAttachments,
 		}
@@ -174,6 +190,8 @@ func (s *ThreadService) GetThreadByID(ctx context.Context, threadID string) (*po
 				References: e.References.String,
 				ThreadID:   e.ThreadID.String,
 			},
+			ToAddresses:    e.ToAddresses,
+			CcAddresses:    e.CcAddresses,
 			BodyText:       e.BodyText,
 			BodyHTML:       e.BodyHTML,
 			RawHeaders:     e.RawHeaders,

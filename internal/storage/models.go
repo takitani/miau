@@ -95,11 +95,12 @@ type Email struct {
 	RawHeaders     string         `db:"raw_headers"`
 	Size           int64          `db:"size"`
 	BodyIndexed    bool           `db:"body_indexed"`
-	InReplyTo      sql.NullString `db:"in_reply_to"`
-	References     sql.NullString `db:"references"`
-	ThreadID       sql.NullString `db:"thread_id"`
-	CreatedAt      SQLiteTime     `db:"created_at"`
-	UpdatedAt      SQLiteTime     `db:"updated_at"`
+	InReplyTo       sql.NullString `db:"in_reply_to"`
+	References      sql.NullString `db:"references"`
+	ThreadID        sql.NullString `db:"thread_id"`
+	ThreadSyncedAt  SQLiteTime     `db:"thread_synced_at"`
+	CreatedAt       SQLiteTime     `db:"created_at"`
+	UpdatedAt       SQLiteTime     `db:"updated_at"`
 }
 
 // EmailSummary é uma versão resumida para listagem

@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/opik/miau/internal/ports"
 	"github.com/stretchr/testify/mock"
@@ -81,6 +82,39 @@ func (m *IMAPPort) GetAllUIDs(ctx context.Context) ([]uint32, error) {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]uint32), args.Error(1)
+}
+
+// Batch email fetching (optimized methods)
+func (m *IMAPPort) SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error) {
+	var args = m.Called(ctx, sinceDate)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uint32), args.Error(1)
+}
+
+func (m *IMAPPort) FetchEmailsBatch(ctx context.Context, uids []uint32) ([]ports.IMAPEmail, error) {
+	var args = m.Called(ctx, uids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.IMAPEmail), args.Error(1)
+}
+
+func (m *IMAPPort) FetchNewEmailsBatch(ctx context.Context, sinceUID uint32, limit int) ([]ports.IMAPEmail, error) {
+	var args = m.Called(ctx, sinceUID, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.IMAPEmail), args.Error(1)
+}
+
+func (m *IMAPPort) FetchEmailsSinceDateBatch(ctx context.Context, sinceDays int, limit int) ([]ports.IMAPEmail, error) {
+	var args = m.Called(ctx, sinceDays, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ports.IMAPEmail), args.Error(1)
 }
 
 // Email actions

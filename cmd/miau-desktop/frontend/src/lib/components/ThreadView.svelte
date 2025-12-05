@@ -11,10 +11,15 @@
   var loading = true;
   var error = null;
   var selectedIndex = 0;
-  var expandedIndices = new Set([0]); // First message expanded by default
+  var expandedIndices = [0]; // First message expanded by default (array for reactivity)
   var showMinimap = true;
   var scrollContainer;
   var scrollProgress = 0;
+
+  // Check if index is expanded
+  function isExpanded(index) {
+    return expandedIndices.includes(index);
+  }
 
   // Wails backend access
   var App = window.go?.desktop?.App;
@@ -58,7 +63,7 @@
         error = 'Thread not found';
       } else {
         // Expand first (newest) message
-        expandedIndices = new Set([0]);
+        expandedIndices = [0];
         selectedIndex = 0;
       }
     } catch (e) {
@@ -92,12 +97,11 @@
 
   // Toggle message expansion
   function toggleMessage(index) {
-    if (expandedIndices.has(index)) {
-      expandedIndices.delete(index);
+    if (expandedIndices.includes(index)) {
+      expandedIndices = expandedIndices.filter(i => i !== index);
     } else {
-      expandedIndices.add(index);
+      expandedIndices = [...expandedIndices, index];
     }
-    expandedIndices = expandedIndices; // Trigger reactivity
   }
 
   // Select message
@@ -107,12 +111,12 @@
 
   // Collapse all except current
   function collapseAll() {
-    expandedIndices = new Set([selectedIndex]);
+    expandedIndices = [selectedIndex];
   }
 
   // Expand all messages
   function expandAll() {
-    expandedIndices = new Set(thread.messages.map((_, i) => i));
+    expandedIndices = thread.messages.map((_, i) => i);
   }
 
   // Mark thread as read
@@ -285,7 +289,7 @@
           <div class="message-wrapper">
             <ThreadMessage
               message={msg}
-              isExpanded={expandedIndices.has(i)}
+              isExpanded={expandedIndices.includes(i)}
               isSelected={i === selectedIndex}
               participantColor={getMessageColor(msg)}
               on:toggle={() => toggleMessage(i)}

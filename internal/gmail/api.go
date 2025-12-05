@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -369,11 +373,101 @@ func (c *Client) UntrashMessage(messageID string) error {
 	return nil
 }
 
+// MessageInfo contains Gmail message ID and thread ID
+type MessageInfo struct {
+	ID       string
+	ThreadID string
+}
+
+// ListMessagesResponse represents the response from messages.list
+type ListMessagesResponse struct {
+	Messages           []MessageInfo `json:"messages"`
+	NextPageToken      string        `json:"nextPageToken"`
+	ResultSizeEstimate int           `json:"resultSizeEstimate"`
+}
+
+// ListAllMessages lists all messages and returns their IDs and thread IDs
+// Uses pagination to handle large mailboxes
+func (c *Client) ListAllMessages(maxResults int, pageToken string) (*ListMessagesResponse, error) {
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=%d", maxResults)
+	if pageToken != "" {
+		url += "&pageToken=" + pageToken
+	}
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result ListMessagesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetMessageMetadata gets message metadata including threadId and Message-ID header
+func (c *Client) GetMessageMetadata(gmailMsgID string) (rfc822MsgID string, threadID string, err error) {
+	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s?format=metadata&metadataHeaders=Message-ID", gmailMsgID)
+
+	var resp, reqErr = c.httpClient.Get(url)
+	if reqErr != nil {
+		return "", "", fmt.Errorf("erro na requisição: %w", reqErr)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		ID       string `json:"id"`
+		ThreadID string `json:"threadId"`
+		Payload  struct {
+			Headers []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"headers"`
+		} `json:"payload"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	// Find Message-ID header
+	for _, h := range result.Payload.Headers {
+		if h.Name == "Message-ID" || h.Name == "Message-Id" {
+			rfc822MsgID = strings.Trim(h.Value, "<>")
+			break
+		}
+	}
+
+	return rfc822MsgID, result.ThreadID, nil
+}
+
 // GetMessageByUID busca o messageID do Gmail dado um UID IMAP
 // Usa o header X-GM-MSGID ou busca por Message-ID
 func (c *Client) GetMessageIDByRFC822MsgID(rfc822MsgID string) (string, error) {
+	var info, err = c.GetMessageInfoByRFC822MsgID(rfc822MsgID)
+	if err != nil {
+		return "", err
+	}
+	return info.ID, nil
+}
+
+// GetMessageInfoByRFC822MsgID busca informações da mensagem pelo Message-ID RFC822
+// Retorna tanto o Gmail message ID quanto o thread ID
+func (c *Client) GetMessageInfoByRFC822MsgID(rfc822MsgID string) (*MessageInfo, error) {
 	if rfc822MsgID == "" {
-		return "", fmt.Errorf("Message-ID vazio")
+		return nil, fmt.Errorf("Message-ID vazio")
 	}
 
 	// Remove < e > se presentes
@@ -384,13 +478,13 @@ func (c *Client) GetMessageIDByRFC822MsgID(rfc822MsgID string) (string, error) {
 
 	var resp, err = c.httpClient.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("erro na requisição: %w", err)
+		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		var body, _ = io.ReadAll(resp.Body)
-		return "", fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -400,14 +494,277 @@ func (c *Client) GetMessageIDByRFC822MsgID(rfc822MsgID string) (string, error) {
 		} `json:"messages"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
 	}
 
 	if len(result.Messages) == 0 {
-		return "", fmt.Errorf("mensagem não encontrada")
+		return nil, fmt.Errorf("mensagem não encontrada")
 	}
 
-	return result.Messages[0].ID, nil
+	return &MessageInfo{
+		ID:       result.Messages[0].ID,
+		ThreadID: result.Messages[0].ThreadID,
+	}, nil
+}
+
+// MessageThreadInfo maps RFC822 Message-ID to Gmail thread ID
+type MessageThreadInfo struct {
+	RFC822MsgID string
+	ThreadID    string
+}
+
+// BatchGetMessageMetadata fetches metadata for up to 100 messages in a single HTTP request
+// Uses Gmail Batch API: POST https://www.googleapis.com/batch/gmail/v1
+// Returns a map of RFC822 Message-ID -> ThreadID
+func (c *Client) BatchGetMessageMetadata(messages []MessageInfo) (map[string]string, error) {
+	if len(messages) == 0 {
+		return make(map[string]string), nil
+	}
+	if len(messages) > 100 {
+		return nil, fmt.Errorf("batch size exceeds 100 messages")
+	}
+
+	// Build multipart request body
+	var boundary = fmt.Sprintf("batch_%d", time.Now().UnixNano())
+	var body bytes.Buffer
+
+	for i, msg := range messages {
+		body.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		body.WriteString("Content-Type: application/http\r\n")
+		body.WriteString(fmt.Sprintf("Content-ID: <%d>\r\n\r\n", i))
+		body.WriteString(fmt.Sprintf("GET /gmail/v1/users/me/messages/%s?format=metadata&metadataHeaders=Message-ID\r\n\r\n", msg.ID))
+	}
+	body.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+
+	// Create batch request
+	var req, err = http.NewRequest("POST", "https://www.googleapis.com/batch/gmail/v1", &body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create batch request: %w", err)
+	}
+	req.Header.Set("Content-Type", fmt.Sprintf("multipart/mixed; boundary=%s", boundary))
+
+	// Execute request
+	var resp, respErr = c.httpClient.Do(req)
+	if respErr != nil {
+		return nil, fmt.Errorf("batch request failed: %w", respErr)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var respBody, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("batch request returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse multipart response
+	var contentType = resp.Header.Get("Content-Type")
+	var _, params, parseErr = mime.ParseMediaType(contentType)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse response content-type: %w", parseErr)
+	}
+
+	var respBoundary = params["boundary"]
+	if respBoundary == "" {
+		return nil, fmt.Errorf("no boundary in response content-type")
+	}
+
+	var result = make(map[string]string)
+	var reader = multipart.NewReader(resp.Body, respBoundary)
+
+	for i := 0; ; i++ {
+		var part, partErr = reader.NextPart()
+		if partErr == io.EOF {
+			break
+		}
+		if partErr != nil {
+			continue // Skip malformed parts
+		}
+
+		// Read part body (contains HTTP response)
+		var partBody, _ = io.ReadAll(part)
+		part.Close()
+
+		// Parse the embedded HTTP response to extract JSON
+		var jsonStart = bytes.Index(partBody, []byte("{"))
+		if jsonStart == -1 {
+			continue
+		}
+		var jsonData = partBody[jsonStart:]
+
+		// Parse JSON response
+		var msgResp struct {
+			ID       string `json:"id"`
+			ThreadID string `json:"threadId"`
+			Payload  struct {
+				Headers []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"headers"`
+			} `json:"payload"`
+		}
+
+		if err := json.Unmarshal(jsonData, &msgResp); err != nil {
+			continue
+		}
+
+		// Extract Message-ID header
+		var rfc822MsgID string
+		for _, h := range msgResp.Payload.Headers {
+			if h.Name == "Message-ID" || h.Name == "Message-Id" {
+				rfc822MsgID = strings.Trim(h.Value, "<>")
+				break
+			}
+		}
+
+		// Map RFC822 Message-ID to ThreadID
+		if rfc822MsgID != "" && msgResp.ThreadID != "" {
+			// Find the original message to get its threadID (from messages.list)
+			if i < len(messages) {
+				result[rfc822MsgID] = messages[i].ThreadID
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// SyncAllThreadIDs fetches all messages from Gmail and returns their thread mappings
+// Uses Gmail Batch API for efficient bulk retrieval (100 messages per request)
+// Runs parallel batch requests for speed (Gmail allows ~100 QPS)
+// Supports cancellation via context
+func (c *Client) SyncAllThreadIDs(ctx context.Context, progressCallback func(processed, total int)) (map[string]string, error) {
+	var result = make(map[string]string) // RFC822 Message-ID -> Thread ID
+	var resultMu sync.Mutex
+
+	// Phase 1: List all messages (this gives us Gmail IDs + ThreadIDs)
+	var allMessages []MessageInfo
+	var pageToken = ""
+	var listingPage = 0
+
+	for {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		var listResp, err = c.ListAllMessages(500, pageToken) // Max 500 per page
+		if err != nil {
+			return result, fmt.Errorf("failed to list messages: %w", err)
+		}
+
+		allMessages = append(allMessages, listResp.Messages...)
+		listingPage++
+
+		if listResp.NextPageToken == "" {
+			break
+		}
+		pageToken = listResp.NextPageToken
+
+		// Progress update during listing phase (negative = listing phase indicator)
+		// Second param shows current accumulated count
+		if progressCallback != nil {
+			progressCallback(-listingPage, len(allMessages))
+		}
+	}
+
+	var total = len(allMessages)
+	if progressCallback != nil {
+		progressCallback(0, total)
+	}
+
+	// Check for cancellation before starting phase 2
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+
+	// Phase 2: Parallel batch fetch Message-ID headers
+	var batchSize = 100
+	var parallelWorkers = 10 // Run 10 batches in parallel (~1000 msgs at once)
+	var processed int64 = 0
+	var cancelled int32 = 0
+
+	// Create work channel
+	type batchWork struct {
+		start int
+		end   int
+		msgs  []MessageInfo
+	}
+	var workChan = make(chan batchWork, parallelWorkers*2)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for w := 0; w < parallelWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for work := range workChan {
+				// Check for cancellation
+				if atomic.LoadInt32(&cancelled) == 1 {
+					continue // Drain channel without processing
+				}
+
+				// Retry logic
+				var batchResult map[string]string
+				var batchErr error
+				for retry := 0; retry < 3; retry++ {
+					if atomic.LoadInt32(&cancelled) == 1 {
+						break
+					}
+					batchResult, batchErr = c.BatchGetMessageMetadata(work.msgs)
+					if batchErr == nil {
+						break
+					}
+					time.Sleep(time.Duration(1<<retry) * time.Second)
+				}
+
+				if batchErr == nil && atomic.LoadInt32(&cancelled) == 0 {
+					resultMu.Lock()
+					for msgID, threadID := range batchResult {
+						result[msgID] = threadID
+					}
+					resultMu.Unlock()
+				}
+
+				// Update progress
+				var newProcessed = atomic.AddInt64(&processed, int64(len(work.msgs)))
+				if progressCallback != nil && atomic.LoadInt32(&cancelled) == 0 {
+					progressCallback(int(newProcessed), total)
+				}
+			}
+		}()
+	}
+
+	// Monitor for cancellation in a goroutine
+	go func() {
+		<-ctx.Done()
+		atomic.StoreInt32(&cancelled, 1)
+	}()
+
+	// Send work to workers
+	for i := 0; i < total; i += batchSize {
+		// Check for cancellation before sending more work
+		if ctx.Err() != nil {
+			break
+		}
+		var end = i + batchSize
+		if end > total {
+			end = total
+		}
+		workChan <- batchWork{
+			start: i,
+			end:   end,
+			msgs:  allMessages[i:end],
+		}
+	}
+	close(workChan)
+
+	// Wait for all workers to finish
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+
+	return result, nil
 }
 
 // === PEOPLE API (CONTACTS) ===

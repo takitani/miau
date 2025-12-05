@@ -4,6 +4,7 @@ package adapters
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/imap"
@@ -321,7 +322,75 @@ func (a *IMAPAdapter) FetchAttachmentPart(ctx context.Context, uid uint32, partN
 	return client.FetchAttachmentPart(uid, partNumber)
 }
 
-// convertIMAPEmails converts imap.Email to ports.IMAPEmail
+// SearchSince searches for emails since a specific date
+func (a *IMAPAdapter) SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	return client.SearchSince(sinceDate)
+}
+
+// FetchEmailsBatch fetches multiple emails in a single IMAP request
+// Includes envelope, flags, size, AND bodystructure for attachments
+func (a *IMAPAdapter) FetchEmailsBatch(ctx context.Context, uids []uint32) ([]ports.IMAPEmail, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	var emails, err = client.FetchEmailsBatch(uids)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertIMAPEmailsWithAttachments(emails), nil
+}
+
+// FetchNewEmailsBatch fetches new emails since a UID using batch operation
+func (a *IMAPAdapter) FetchNewEmailsBatch(ctx context.Context, sinceUID uint32, limit int) ([]ports.IMAPEmail, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	var emails, err = client.FetchNewEmailsBatch(sinceUID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertIMAPEmailsWithAttachments(emails), nil
+}
+
+// FetchEmailsSinceDateBatch fetches emails since a date using batch operation
+func (a *IMAPAdapter) FetchEmailsSinceDateBatch(ctx context.Context, sinceDays int, limit int) ([]ports.IMAPEmail, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	var emails, err = client.FetchEmailsSinceDateBatch(sinceDays, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertIMAPEmailsWithAttachments(emails), nil
+}
+
+// convertIMAPEmails converts imap.Email to ports.IMAPEmail (legacy, no attachments)
 func convertIMAPEmails(emails []imap.Email) []ports.IMAPEmail {
 	var result = make([]ports.IMAPEmail, len(emails))
 	for i, e := range emails {
@@ -339,6 +408,47 @@ func convertIMAPEmails(emails []imap.Email) []ports.IMAPEmail {
 			BodyText:   e.BodyText,
 			InReplyTo:  e.InReplyTo,
 			References: e.References,
+		}
+	}
+	return result
+}
+
+// convertIMAPEmailsWithAttachments converts imap.Email to ports.IMAPEmail including attachment metadata
+func convertIMAPEmailsWithAttachments(emails []imap.Email) []ports.IMAPEmail {
+	var result = make([]ports.IMAPEmail, len(emails))
+	for i, e := range emails {
+		result[i] = ports.IMAPEmail{
+			UID:            e.UID,
+			MessageID:      e.MessageID,
+			Subject:        e.Subject,
+			FromName:       e.From,
+			FromEmail:      e.FromEmail,
+			To:             e.To,
+			Date:           e.Date,
+			Seen:           e.Seen,
+			Flagged:        e.Flagged,
+			Size:           e.Size,
+			BodyText:       e.BodyText,
+			InReplyTo:      e.InReplyTo,
+			References:     e.References,
+			HasAttachments: e.HasAttachments,
+		}
+
+		// Convert attachments
+		if len(e.Attachments) > 0 {
+			result[i].Attachments = make([]ports.AttachmentInfo, len(e.Attachments))
+			for j, att := range e.Attachments {
+				result[i].Attachments[j] = ports.AttachmentInfo{
+					PartNumber:  att.PartNumber,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					ContentID:   att.ContentID,
+					Encoding:    att.Encoding,
+					Size:        att.Size,
+					IsInline:    att.IsInline,
+					Charset:     att.Charset,
+				}
+			}
 		}
 	}
 	return result

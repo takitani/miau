@@ -1,6 +1,7 @@
 <script>
   import { emails, selectedIndex, selectEmail, loading, threadingEnabled, toggleThreading } from '../stores/emails.js';
   import { currentFolder } from '../stores/emails.js';
+  import { showThreadView } from '../stores/ui.js';
   import EmailRow from './EmailRow.svelte';
 
   // Format folder name for display
@@ -12,17 +13,19 @@
 <div class="email-list">
   <header class="list-header">
     <h2>{formatFolderName($currentFolder)}</h2>
-    <div class="header-right">
-      <button
-        class="thread-toggle"
-        class:active={$threadingEnabled}
-        on:click={toggleThreading}
-        title="Toggle threading (g)"
-      >
-        {$threadingEnabled ? '◧ Threads' : '◨ List'}
-      </button>
-      <span class="count">{$emails.length} {$threadingEnabled ? 'threads' : 'emails'}</span>
-    </div>
+    {#if !$showThreadView}
+      <div class="header-right">
+        <button
+          class="thread-toggle"
+          class:active={$threadingEnabled}
+          on:click={toggleThreading}
+          title="Toggle threading (g)"
+        >
+          {$threadingEnabled ? '◧ Threads' : '◨ List'}
+        </button>
+        <span class="count">{$emails.length} {$threadingEnabled ? 'threads' : 'emails'}</span>
+      </div>
+    {/if}
   </header>
 
   {#if $loading}

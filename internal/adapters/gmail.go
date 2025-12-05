@@ -103,3 +103,23 @@ func (a *GmailAPIAdapter) Archive(ctx context.Context, messageID string) error {
 
 	return a.client.ArchiveMessage(gmailID)
 }
+
+// GetMessageInfoByRFC822MsgID returns Gmail message info (ID and ThreadID) by RFC822 Message-ID
+func (a *GmailAPIAdapter) GetMessageInfoByRFC822MsgID(rfc822MsgID string) (*gmail.MessageInfo, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("Gmail API client not initialized")
+	}
+
+	return a.client.GetMessageInfoByRFC822MsgID(rfc822MsgID)
+}
+
+// SyncAllThreadIDs fetches all messages from Gmail and returns thread mappings
+// Returns map of RFC822 Message-ID -> Gmail Thread ID
+// Supports cancellation via context
+func (a *GmailAPIAdapter) SyncAllThreadIDs(ctx context.Context, progressCallback func(processed, total int)) (map[string]string, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("Gmail API client not initialized")
+	}
+
+	return a.client.SyncAllThreadIDs(ctx, progressCallback)
+}

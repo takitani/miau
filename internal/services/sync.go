@@ -26,6 +26,7 @@ type SyncService struct {
 	status   ports.ConnectionStatus
 	account  *ports.AccountInfo
 	folders  map[string]*ports.Folder
+	config   ports.SyncConfig
 }
 
 // NewSyncService creates a new SyncService
@@ -36,7 +37,22 @@ func NewSyncService(imap ports.IMAPPort, storage ports.StoragePort, events ports
 		events:  events,
 		status:  ports.ConnectionStatusDisconnected,
 		folders: make(map[string]*ports.Folder),
+		config:  ports.DefaultSyncConfig(),
 	}
+}
+
+// GetSyncConfig returns the current sync configuration
+func (s *SyncService) GetSyncConfig() ports.SyncConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config
+}
+
+// SetSyncConfig sets the sync configuration
+func (s *SyncService) SetSyncConfig(config ports.SyncConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config = config
 }
 
 // SetAccount sets the current account for sync operations
@@ -106,10 +122,13 @@ func (s *SyncService) GetConnectionStatus() ports.ConnectionStatus {
 	return s.status
 }
 
-// SyncFolder syncs a specific folder
+// SyncFolder syncs a specific folder using OPTIMIZED batch operations
+// This is for incremental sync - uses FetchNewEmailsBatch (1 request for N emails)
+// Does NOT run purge - call PurgeDeletedEmails separately
 func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports.SyncResult, error) {
 	s.mu.RLock()
 	var account = s.account
+	var config = s.config
 	s.mu.RUnlock()
 
 	if account == nil {
@@ -148,27 +167,96 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 	// Get latest UID from storage
 	var latestUID, _ = s.storage.GetLatestUID(ctx, folder.ID)
 
-	// Fetch new emails
-	var newEmails, err3 = s.imap.FetchNewEmails(ctx, latestUID, 100)
-	if err3 != nil {
-		storage.LogSyncComplete(syncID, 0, 0, err3)
-		s.events.Publish(ports.SyncErrorEvent{
-			BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncError),
-			Folder:    folderName,
-			Error:     err3,
-		})
-		return nil, fmt.Errorf("failed to fetch new emails: %w", err3)
-	}
+	// Check if this is initial sync (no emails yet)
+	var isInitialSync = latestUID == 0
 
 	var result = &ports.SyncResult{
 		LatestUID: latestUID,
 	}
 
-	// Store new emails
-	for _, email := range newEmails {
-		// Fetch attachment metadata first
-		var attachments, hasAttachments, _ = s.imap.FetchAttachmentMetadata(ctx, email.UID)
+	// Use appropriate sync method
+	if isInitialSync {
+		// Initial sync: use date-based fetch (last N days)
+		result, err = s.initialSyncFolder(ctx, account, folder, config, syncID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Incremental sync: use batch fetch (1 request for all new emails)
+		var batchSize = config.IncrementalBatchSize
+		if batchSize == 0 {
+			batchSize = 100
+		}
 
+		// OPTIMIZED: Single request for envelope + bodystructure
+		var newEmails, err3 = s.imap.FetchNewEmailsBatch(ctx, latestUID, batchSize)
+		if err3 != nil {
+			storage.LogSyncComplete(syncID, 0, 0, err3)
+			s.events.Publish(ports.SyncErrorEvent{
+				BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncError),
+				Folder:    folderName,
+				Error:     err3,
+			})
+			return nil, fmt.Errorf("failed to fetch new emails: %w", err3)
+		}
+
+		// Store new emails (attachments already included from batch fetch!)
+		s.storeEmailsBatch(ctx, account, folder, newEmails, result)
+	}
+
+	// NOTE: Purge is now SEPARATE - not called during sync
+	// Call PurgeDeletedEmails periodically instead
+
+	// Conta novos emails desde o último sync
+	var newCount, _ = storage.CountNewEmailsSinceLastSync(account.ID, folder.ID)
+	result.NewEmails = newCount
+
+	// Registra conclusão do sync
+	storage.LogSyncComplete(syncID, newCount, 0, nil)
+
+	s.events.Publish(ports.SyncCompletedEvent{
+		BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncCompleted),
+		Folder:    folderName,
+		Result:    result,
+	})
+
+	return result, nil
+}
+
+// initialSyncFolder performs optimized first-time sync using date-based search
+func (s *SyncService) initialSyncFolder(ctx context.Context, account *ports.AccountInfo, folder *ports.Folder, config ports.SyncConfig, syncID int64) (*ports.SyncResult, error) {
+	var days = config.InitialSyncDays
+	if days == 0 {
+		days = 30
+	}
+	var maxEmails = config.InitialMaxPerFolder
+	if maxEmails == 0 {
+		maxEmails = 500
+	}
+
+	var result = &ports.SyncResult{}
+
+	// OPTIMIZED: Fetch by date (last N days) with batch operation
+	var emails, err = s.imap.FetchEmailsSinceDateBatch(ctx, days, maxEmails)
+	if err != nil {
+		storage.LogSyncComplete(syncID, 0, 0, err)
+		s.events.Publish(ports.SyncErrorEvent{
+			BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncError),
+			Folder:    folder.Name,
+			Error:     err,
+		})
+		return nil, fmt.Errorf("failed to fetch emails: %w", err)
+	}
+
+	// Store emails (attachments included from batch!)
+	s.storeEmailsBatch(ctx, account, folder, emails, result)
+
+	return result, nil
+}
+
+// storeEmailsBatch stores emails from batch fetch (includes attachment metadata)
+func (s *SyncService) storeEmailsBatch(ctx context.Context, account *ports.AccountInfo, folder *ports.Folder, emails []ports.IMAPEmail, result *ports.SyncResult) {
+	for _, email := range emails {
 		var content = &ports.EmailContent{
 			EmailMetadata: ports.EmailMetadata{
 				UID:        email.UID,
@@ -185,20 +273,19 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 				References: email.References,
 			},
 			BodyText:       email.BodyText,
-			HasAttachments: hasAttachments,
+			HasAttachments: email.HasAttachments,
 		}
 
 		if err := s.storage.UpsertEmail(ctx, account.ID, folder.ID, content); err != nil {
 			result.Errors = append(result.Errors, err)
+			continue
 		}
 
-		// Store attachments if any
-		if hasAttachments && len(attachments) > 0 {
-			// Get the email ID from storage
+		// Store attachments if any (already fetched in batch!)
+		if email.HasAttachments && len(email.Attachments) > 0 {
 			var storedEmail, emailErr = s.storage.GetEmailByUID(ctx, folder.ID, email.UID)
 			if emailErr == nil && storedEmail != nil {
-				for _, att := range attachments {
-					// Handle ContentID (remove angle brackets if present)
+				for _, att := range email.Attachments {
 					var contentID = att.ContentID
 					if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
 						contentID = contentID[1 : len(contentID)-1]
@@ -230,22 +317,45 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 			Email:     content.EmailMetadata,
 		})
 	}
+}
 
-	// Purge deleted emails (sync deletions from server)
-	var deletedCount, err4 = s.purgeDeleted(ctx, folder.ID)
-	if err4 == nil {
-		result.DeletedEmails = deletedCount
+// InitialSync performs optimized first-time sync for a folder
+// Uses date-based search (last N days) instead of full UID scan
+func (s *SyncService) InitialSync(ctx context.Context, folderName string) (*ports.SyncResult, error) {
+	s.mu.RLock()
+	var account = s.account
+	var config = s.config
+	s.mu.RUnlock()
+
+	if account == nil {
+		return nil, fmt.Errorf("no account set")
 	}
 
-	// NOTE: Attachment backfill removed from sync to avoid slowdown
-	// Call SyncAttachmentsForFolder manually if needed for existing emails
+	s.events.Publish(ports.SyncStartedEvent{
+		BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncStarted),
+		Folder:    folderName,
+	})
 
-	// Conta novos emails desde o último sync (baseado em created_at no DB)
+	var folder, err = s.storage.GetFolderByName(ctx, account.ID, folderName)
+	if err != nil {
+		return nil, fmt.Errorf("folder not found: %w", err)
+	}
+
+	var syncID, _ = storage.LogSyncStart(account.ID, folder.ID)
+
+	if _, err := s.imap.SelectMailbox(ctx, folderName); err != nil {
+		storage.LogSyncComplete(syncID, 0, 0, err)
+		return nil, fmt.Errorf("failed to select mailbox: %w", err)
+	}
+
+	var result, syncErr = s.initialSyncFolder(ctx, account, folder, config, syncID)
+	if syncErr != nil {
+		return nil, syncErr
+	}
+
 	var newCount, _ = storage.CountNewEmailsSinceLastSync(account.ID, folder.ID)
 	result.NewEmails = newCount
-
-	// Registra conclusão do sync
-	storage.LogSyncComplete(syncID, newCount, deletedCount, nil)
+	storage.LogSyncComplete(syncID, newCount, 0, nil)
 
 	s.events.Publish(ports.SyncCompletedEvent{
 		BaseEvent: ports.NewBaseEvent(ports.EventTypeSyncCompleted),
@@ -254,6 +364,61 @@ func (s *SyncService) SyncFolder(ctx context.Context, folderName string) (*ports
 	})
 
 	return result, nil
+}
+
+// InitialSyncEssentialFolders performs optimized first-time sync for essential folders
+func (s *SyncService) InitialSyncEssentialFolders(ctx context.Context) ([]ports.SyncResult, error) {
+	s.mu.RLock()
+	var account = s.account
+	s.mu.RUnlock()
+
+	if account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	var foldersToSync = GetConfiguredFolders(account.ID)
+	var results []ports.SyncResult
+
+	for _, folderName := range foldersToSync {
+		var result, err = s.InitialSync(ctx, folderName)
+		if err != nil {
+			continue // Skip folders that don't exist
+		}
+		if result != nil {
+			results = append(results, *result)
+		}
+	}
+
+	return results, nil
+}
+
+// PurgeDeletedEmails checks for deleted emails and marks them locally
+// This is a SEPARATE job that should run periodically, not on every sync
+func (s *SyncService) PurgeDeletedEmails(ctx context.Context, folderName string) (int, error) {
+	s.mu.RLock()
+	var account = s.account
+	var config = s.config
+	s.mu.RUnlock()
+
+	if account == nil {
+		return 0, fmt.Errorf("no account set")
+	}
+
+	if !config.PurgeEnabled {
+		return 0, nil
+	}
+
+	var folder, err = s.storage.GetFolderByName(ctx, account.ID, folderName)
+	if err != nil {
+		return 0, err
+	}
+
+	// Select mailbox
+	if _, err := s.imap.SelectMailbox(ctx, folderName); err != nil {
+		return 0, err
+	}
+
+	return s.purgeDeleted(ctx, folder.ID)
 }
 
 // purgeDeleted marks emails as deleted that were removed from server

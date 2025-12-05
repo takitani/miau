@@ -126,6 +126,35 @@ type NotificationService interface {
 	TrackSentEmail(ctx context.Context, messageID, recipient string) error
 }
 
+// SyncConfig contains sync configuration parameters
+type SyncConfig struct {
+	// Initial sync settings
+	InitialSyncDays     int // Days to fetch on first sync (default: 30)
+	InitialMaxPerFolder int // Max emails per folder on first sync (default: 500)
+
+	// Incremental sync settings
+	IncrementalBatchSize int // Emails per batch (default: 100)
+
+	// Purge settings
+	PurgeEnabled       bool // Enable purge job (default: true)
+	PurgeMaxFolderSize int  // Skip purge if folder > this size (default: 10000)
+
+	// Folders to skip during sync
+	SkipFolders []string // e.g., "[Gmail]/All Mail", "[Gmail]/Spam"
+}
+
+// DefaultSyncConfig returns the default sync configuration
+func DefaultSyncConfig() SyncConfig {
+	return SyncConfig{
+		InitialSyncDays:      30,
+		InitialMaxPerFolder:  500,
+		IncrementalBatchSize: 100,
+		PurgeEnabled:         true,
+		PurgeMaxFolderSize:   10000,
+		SkipFolders:          []string{"[Gmail]/All Mail", "[Gmail]/Spam"},
+	}
+}
+
 // SyncService defines operations for synchronization.
 type SyncService interface {
 	// Connect establishes connection to the email server
@@ -137,7 +166,7 @@ type SyncService interface {
 	// IsConnected returns true if connected
 	IsConnected() bool
 
-	// SyncFolder syncs a specific folder
+	// SyncFolder syncs a specific folder (incremental, uses batch operations)
 	SyncFolder(ctx context.Context, folder string) (*SyncResult, error)
 
 	// SyncAll syncs all folders
@@ -146,8 +175,25 @@ type SyncService interface {
 	// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash)
 	SyncEssentialFolders(ctx context.Context) ([]SyncResult, error)
 
+	// InitialSync performs optimized first-time sync for a folder
+	// Uses date-based search (last N days) instead of full UID scan
+	InitialSync(ctx context.Context, folder string) (*SyncResult, error)
+
+	// InitialSyncEssentialFolders performs optimized first-time sync for essential folders
+	InitialSyncEssentialFolders(ctx context.Context) ([]SyncResult, error)
+
+	// PurgeDeletedEmails checks for deleted emails and marks them locally
+	// This is a separate job that should run periodically, not on every sync
+	PurgeDeletedEmails(ctx context.Context, folder string) (int, error)
+
 	// GetConnectionStatus returns the current connection status
 	GetConnectionStatus() ConnectionStatus
+
+	// GetSyncConfig returns the current sync configuration
+	GetSyncConfig() SyncConfig
+
+	// SetSyncConfig sets the sync configuration
+	SetSyncConfig(config SyncConfig)
 }
 
 // ConnectionStatus represents the connection state

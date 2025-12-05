@@ -69,6 +69,10 @@ desktop-install:
 desktop-dev:
 	cd cmd/miau-desktop && GODEBUG=asyncpreemptoff=1 wails dev -tags webkit2_41
 
+# Run in dev mode with devtools auto-open
+desktop-dev-debug:
+	cd cmd/miau-desktop && GODEBUG=asyncpreemptoff=1 wails dev -tags webkit2_41 -appargs "--devtools"
+
 # Build desktop app for current platform
 desktop-build:
 	cd cmd/miau-desktop && wails build -tags webkit2_41

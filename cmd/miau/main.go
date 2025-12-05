@@ -179,12 +179,21 @@ func main() {
 		return
 	}
 
-	// Verifica flag --debug
+	// Verifica flag --debug (flag tem prioridade sobre config)
 	var debugMode = false
+	var debugFlagSet = false
 	for _, arg := range os.Args[1:] {
 		if arg == "--debug" || arg == "-d" {
 			debugMode = true
+			debugFlagSet = true
 			break
+		}
+	}
+
+	// Se flag não foi passada, usa config
+	if !debugFlagSet {
+		if cfg, err := config.Load(); err == nil && cfg != nil {
+			debugMode = cfg.UI.Debug
 		}
 	}
 

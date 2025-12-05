@@ -731,8 +731,12 @@ func (a *StorageAdapter) SaveOperation(ctx context.Context, op *ports.OperationR
 func (a *StorageAdapter) RemoveOperation(ctx context.Context, accountID int64, stackType, data string) error {
 	var query = `
 		DELETE FROM operations_history
-		WHERE account_id = ? AND stack_type = ? AND operation_data = ?
-		LIMIT 1
+		WHERE id = (
+			SELECT id FROM operations_history
+			WHERE account_id = ? AND stack_type = ? AND operation_data = ?
+			ORDER BY id DESC
+			LIMIT 1
+		)
 	`
 	var _, err = storage.GetDB().ExecContext(ctx, query, accountID, stackType, data)
 	return err

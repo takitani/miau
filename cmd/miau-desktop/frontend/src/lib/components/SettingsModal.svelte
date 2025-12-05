@@ -1,11 +1,15 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { showSettings } from '../stores/ui.js';
   import { info, error as logError } from '../stores/debug.js';
 
   var activeTab = 'folders';
   var loading = true;
   var saving = false;
+  var syncingThreads = false;
+  var threadSyncResult = null;
+  var threadSyncProgress = null; // { phase, processed, total, found, page }
+  var unsubscribeProgress = null;
 
   // Settings state
   var availableFolders = [];
@@ -29,6 +33,19 @@
 
   onMount(async () => {
     await loadSettings();
+
+    // Listen for thread sync progress events
+    if (window.runtime?.EventsOn) {
+      unsubscribeProgress = window.runtime.EventsOn('thread-sync-progress', (data) => {
+        threadSyncProgress = data;
+      });
+    }
+  });
+
+  onDestroy(() => {
+    if (unsubscribeProgress) {
+      unsubscribeProgress();
+    }
   });
 
   async function loadSettings() {
@@ -75,6 +92,10 @@
   }
 
   function close() {
+    // Cancel any ongoing thread sync when closing
+    if (syncingThreads) {
+      cancelThreadSync();
+    }
     showSettings.set(false);
   }
 
@@ -84,10 +105,46 @@
     }
   }
 
+  async function cancelThreadSync() {
+    if (window.go?.desktop?.App?.CancelThreadSync) {
+      await window.go.desktop.App.CancelThreadSync();
+      syncingThreads = false;
+      threadSyncProgress = null;
+      threadSyncResult = { success: false, error: 'Cancelled by user' };
+    }
+  }
+
   function toggleFolder(folderName) {
     availableFolders = availableFolders.map(f =>
       f.name === folderName ? { ...f, isSelected: !f.isSelected } : f
     );
+  }
+
+  async function syncThreadsFromGmail() {
+    syncingThreads = true;
+    threadSyncResult = null;
+    threadSyncProgress = null;
+    try {
+      var updated = await window.go.desktop.App.SyncThreadsFromGmail();
+      threadSyncResult = { success: true, count: updated };
+      info(`Thread sync completed: ${updated} emails updated`);
+    } catch (err) {
+      threadSyncResult = { success: false, error: err.message || String(err) };
+      logError('Thread sync failed', err);
+    } finally {
+      syncingThreads = false;
+      threadSyncProgress = null;
+    }
+  }
+
+  // Calculate estimated time remaining
+  function getEstimatedTime(processed, total) {
+    if (!processed || !total || processed === 0) return '';
+    var remaining = total - processed;
+    var secondsRemaining = Math.ceil(remaining / 100 * 0.15); // ~150ms per batch of 100
+    if (secondsRemaining < 60) return `~${secondsRemaining}s remaining`;
+    var minutes = Math.ceil(secondsRemaining / 60);
+    return `~${minutes}min remaining`;
   }
 </script>
 
@@ -202,6 +259,64 @@
               <option value="15m">15 minutes</option>
               <option value="30m">30 minutes</option>
             </select>
+          </div>
+
+          <div class="sync-section">
+            <h4>Thread Sync from Gmail</h4>
+            <p class="hint">
+              Synchronize thread IDs from Gmail API to ensure accurate message grouping.
+              This uses Gmail's native thread detection which is more reliable than local algorithms.
+            </p>
+            <div class="sync-action">
+              <button
+                class="btn btn-secondary"
+                on:click={syncThreadsFromGmail}
+                disabled={syncingThreads}
+              >
+                {syncingThreads ? 'Syncing...' : 'Sync Threads from Gmail'}
+              </button>
+            </div>
+
+            {#if syncingThreads && threadSyncProgress}
+              <div class="progress-section">
+                {#if threadSyncProgress.phase === 'listing'}
+                  <div class="progress-label">
+                    <span>Listing messages... Page {threadSyncProgress.page}</span>
+                    <span class="progress-eta">~{threadSyncProgress.found?.toLocaleString()} total</span>
+                  </div>
+                  <div class="progress-bar indeterminate">
+                    <div class="progress-fill"></div>
+                  </div>
+                {:else if threadSyncProgress.phase === 'fetching'}
+                  <div class="progress-label">
+                    <span>Fetching thread IDs: {threadSyncProgress.processed?.toLocaleString()} / {threadSyncProgress.total?.toLocaleString()}</span>
+                    <span class="progress-eta">{getEstimatedTime(threadSyncProgress.processed, threadSyncProgress.total)}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div
+                      class="progress-fill"
+                      style="width: {(threadSyncProgress.processed / threadSyncProgress.total * 100).toFixed(1)}%"
+                    ></div>
+                  </div>
+                  <div class="progress-percent">
+                    {(threadSyncProgress.processed / threadSyncProgress.total * 100).toFixed(1)}%
+                  </div>
+                {/if}
+                <button class="btn btn-cancel" on:click={cancelThreadSync}>
+                  Cancel
+                </button>
+              </div>
+            {/if}
+
+            {#if threadSyncResult}
+              <div class="sync-result" class:success={threadSyncResult.success} class:error={!threadSyncResult.success}>
+                {#if threadSyncResult.success}
+                  ✓ Updated {threadSyncResult.count?.toLocaleString()} email(s)
+                {:else}
+                  ✗ Error: {threadSyncResult.error}
+                {/if}
+              </div>
+            {/if}
           </div>
         </div>
       {:else if activeTab === 'about'}
@@ -452,5 +567,114 @@
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .sync-section {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .sync-section h4 {
+    margin: 0 0 var(--space-xs) 0;
+    font-size: var(--font-sm);
+    font-weight: 600;
+  }
+
+  .sync-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+  }
+
+  .sync-result {
+    font-size: var(--font-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+  }
+
+  .sync-result.success {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+  }
+
+  .sync-result.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+  }
+
+  .progress-section {
+    margin-top: var(--space-md);
+    padding: var(--space-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+  }
+
+  .progress-eta {
+    color: var(--text-muted);
+  }
+
+  .progress-bar {
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+
+  .progress-bar.indeterminate .progress-fill {
+    width: 30%;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+
+  .progress-percent {
+    font-size: var(--font-xs);
+    color: var(--accent-primary);
+    text-align: right;
+    margin-top: var(--space-xs);
+    font-weight: 600;
+  }
+
+  .btn-cancel {
+    margin-top: var(--space-sm);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-xs);
+  }
+
+  .btn-cancel:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+
+  .sync-result {
+    margin-top: var(--space-md);
+    font-size: var(--font-sm);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
   }
 </style>

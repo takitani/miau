@@ -19,6 +19,9 @@ export const loading = writable(false);
 // Threading enabled (groups emails by thread, showing only latest with count)
 export const threadingEnabled = writable(true);
 
+// Stack of recently removed emails (for undo without reload)
+var recentlyRemovedEmails = [];
+
 // Derived: get selected email object
 export const selectedEmail = derived(
   [emails, selectedEmailId],
@@ -75,6 +78,67 @@ export async function toggleThreading() {
   await loadEmails(folder);
 }
 
+// Refresh emails without full reload (merge new emails, preserve selection)
+export async function refreshEmails(folder, limit = 50) {
+  var threaded = get(threadingEnabled);
+  logDebug(`refreshEmails called: folder=${folder}, limit=${limit}, threaded=${threaded}`);
+
+  try {
+    if (typeof window !== 'undefined' && window.go && window.go.desktop && window.go.desktop.App) {
+      var result;
+      if (threaded) {
+        result = await window.go.desktop.App.GetEmailsThreaded(folder, limit);
+      } else {
+        result = await window.go.desktop.App.GetEmails(folder, limit);
+      }
+
+      var newEmails = result || [];
+      var currentEmails = get(emails);
+      var currentSelectedId = get(selectedEmailId);
+
+      // Check if list actually changed
+      var hasChanges = newEmails.length !== currentEmails.length ||
+        newEmails.some((e, i) => !currentEmails[i] || e.id !== currentEmails[i].id);
+
+      if (!hasChanges) {
+        logDebug('No changes detected, skipping update');
+        return 0;
+      }
+
+      // Count new emails (IDs that weren't in the previous list)
+      var oldIds = new Set(currentEmails.map(e => e.id));
+      var newCount = newEmails.filter(e => !oldIds.has(e.id)).length;
+
+      // Update list
+      emails.set(newEmails);
+
+      // Preserve selection if email still exists
+      if (currentSelectedId) {
+        var stillExists = newEmails.find(e => e.id === currentSelectedId);
+        if (stillExists) {
+          var newIndex = newEmails.findIndex(e => e.id === currentSelectedId);
+          selectedIndex.set(newIndex);
+          // Keep selectedEmailId as is
+        } else if (newEmails.length > 0) {
+          // Selected email was removed, select first
+          selectedEmailId.set(newEmails[0].id);
+          selectedIndex.set(0);
+        }
+      } else if (newEmails.length > 0) {
+        // No selection, select first
+        selectedEmailId.set(newEmails[0].id);
+        selectedIndex.set(0);
+      }
+
+      logDebug(`Refreshed: ${newCount} new emails, ${newEmails.length} total`);
+      return newCount;
+    }
+  } catch (err) {
+    logError(`Failed to refresh emails from ${folder}`, err);
+  }
+  return 0;
+}
+
 // Navigate to next email
 export function selectNext() {
   const $emails = get(emails);
@@ -128,6 +192,16 @@ export async function markAsRead(id, read = true) {
 // Archive email
 export async function archiveEmail(id) {
   try {
+    // Save email before removing (for undo)
+    var $emails = get(emails);
+    var email = $emails.find(e => e.id === id);
+    var index = $emails.findIndex(e => e.id === id);
+    if (email) {
+      recentlyRemovedEmails.push({ email, index, action: 'archive' });
+      // Keep max 50 items
+      if (recentlyRemovedEmails.length > 50) recentlyRemovedEmails.shift();
+    }
+
     if (window.go?.desktop?.App) {
       await window.go.desktop.App.Archive(id);
     }
@@ -144,6 +218,16 @@ export async function archiveEmail(id) {
 // Delete email
 export async function deleteEmail(id) {
   try {
+    // Save email before removing (for undo)
+    var $emails = get(emails);
+    var email = $emails.find(e => e.id === id);
+    var index = $emails.findIndex(e => e.id === id);
+    if (email) {
+      recentlyRemovedEmails.push({ email, index, action: 'delete' });
+      // Keep max 50 items
+      if (recentlyRemovedEmails.length > 50) recentlyRemovedEmails.shift();
+    }
+
     if (window.go?.desktop?.App) {
       await window.go.desktop.App.Delete(id);
     }
@@ -155,6 +239,28 @@ export async function deleteEmail(id) {
   } catch (err) {
     console.error('Failed to delete:', err);
   }
+}
+
+// Restore last removed email (for undo without reload)
+export function restoreLastRemovedEmail() {
+  if (recentlyRemovedEmails.length === 0) return null;
+
+  var removed = recentlyRemovedEmails.pop();
+  if (!removed) return null;
+
+  // Insert email back at original position
+  emails.update(list => {
+    var newList = [...list];
+    var insertIndex = Math.min(removed.index, newList.length);
+    newList.splice(insertIndex, 0, removed.email);
+    return newList;
+  });
+
+  // Select the restored email
+  selectedEmailId.set(removed.email.id);
+  selectedIndex.set(removed.index);
+
+  return removed.email;
 }
 
 // Toggle star

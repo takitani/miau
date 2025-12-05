@@ -133,19 +133,10 @@ func UpsertEmail(e *Email) error {
 		}
 	}
 
-	// Detect and update thread_id
-	var messageID, inReplyTo, references string
-	if e.MessageID.Valid {
-		messageID = e.MessageID.String
-	}
-	if e.InReplyTo.Valid {
-		inReplyTo = e.InReplyTo.String
-	}
-	if e.References.Valid {
-		references = e.References.String
-	}
-
-	return DetectAndUpdateThreadID(emailID, messageID, inReplyTo, references, e.Subject)
+	// NOTE: thread_id is NOT set here - it comes from Gmail sync via SyncThreadIDsFromGmail
+	// The old local threading based on In-Reply-To/References was unreliable and created
+	// invalid thread_ids (Message-IDs instead of Gmail's hex thread IDs)
+	return nil
 }
 
 func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
@@ -1750,15 +1741,31 @@ func DetectAndUpdateThreadID(emailID int64, messageID, inReplyTo, references, su
 }
 
 // GetThreadEmails returns all emails in a thread (ordered by date DESC - newest first)
+// Deduplicates by message_id and excludes Trash/Spam folders
 func GetThreadEmails(threadID string, accountID int64) ([]Email, error) {
 	var emails []Email
 	err := db.Select(&emails, `
-		SELECT * FROM emails
-		WHERE thread_id = ?
-		  AND account_id = ?
-		  AND is_deleted = 0
-		ORDER BY date DESC
-	`, threadID, accountID)
+		SELECT e.* FROM emails e
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.thread_id = ?
+		  AND e.account_id = ?
+		  AND e.is_deleted = 0
+		  AND f.name NOT LIKE '%Trash%'
+		  AND f.name NOT LIKE '%Spam%'
+		  AND f.name NOT LIKE '%Lixeira%'
+		  AND e.id IN (
+		    SELECT MIN(e2.id) FROM emails e2
+		    JOIN folders f2 ON e2.folder_id = f2.id
+		    WHERE e2.thread_id = ?
+		      AND e2.account_id = ?
+		      AND e2.is_deleted = 0
+		      AND f2.name NOT LIKE '%Trash%'
+		      AND f2.name NOT LIKE '%Spam%'
+		      AND f2.name NOT LIKE '%Lixeira%'
+		    GROUP BY COALESCE(NULLIF(e2.message_id, ''), CAST(e2.id AS TEXT))
+		  )
+		ORDER BY e.date DESC
+	`, threadID, accountID, threadID, accountID)
 	return emails, err
 }
 
@@ -1839,4 +1846,120 @@ func GetThreadParticipants(threadID string, accountID int64) ([]string, error) {
 		ORDER BY from_email
 	`, threadID, accountID)
 	return participants, err
+}
+
+// EmailForThreadSync contains minimal info needed for thread sync
+type EmailForThreadSync struct {
+	ID        int64  `db:"id"`
+	MessageID string `db:"message_id"`
+	ThreadID  string `db:"thread_id"`
+}
+
+// GetEmailsForThreadSync returns emails that need thread_id sync
+func GetEmailsForThreadSync(accountID int64) ([]EmailForThreadSync, error) {
+	var emails []EmailForThreadSync
+	err := db.Select(&emails, `
+		SELECT id, COALESCE(message_id, '') as message_id, COALESCE(thread_id, '') as thread_id
+		FROM emails
+		WHERE account_id = ?
+		  AND is_deleted = 0
+		  AND message_id IS NOT NULL
+		  AND message_id != ''
+		ORDER BY date DESC
+	`, accountID)
+	return emails, err
+}
+
+// GetEmailsWithoutThreadID returns emails that have message_id but no thread_id
+// Used for incremental sync - only sync emails that need it
+func GetEmailsWithoutThreadID(accountID int64) ([]string, error) {
+	var messageIDs []string
+	err := db.Select(&messageIDs, `
+		SELECT message_id
+		FROM emails
+		WHERE account_id = ?
+		  AND is_deleted = 0
+		  AND message_id IS NOT NULL
+		  AND message_id != ''
+		  AND (thread_id IS NULL OR thread_id = '')
+		ORDER BY date DESC
+	`, accountID)
+	return messageIDs, err
+}
+
+// CountEmailsWithoutThreadID returns count of emails that haven't been thread-synced yet
+// Uses thread_synced_at to track which emails have been checked, even if they don't belong to a thread
+func CountEmailsWithoutThreadID(accountID int64) (int, error) {
+	var count int
+	err := db.Get(&count, `
+		SELECT COUNT(*)
+		FROM emails
+		WHERE account_id = ?
+		  AND is_deleted = 0
+		  AND message_id IS NOT NULL
+		  AND message_id != ''
+		  AND thread_synced_at IS NULL
+	`, accountID)
+	return count, err
+}
+
+// UpdateThreadID updates the thread_id for an email
+func UpdateThreadID(emailID int64, threadID string) error {
+	_, err := db.Exec("UPDATE emails SET thread_id = ? WHERE id = ?", threadID, emailID)
+	return err
+}
+
+// UpdateThreadIDByMessageID updates thread_id for emails matching a message_id
+// Returns the number of rows updated
+func UpdateThreadIDByMessageID(accountID int64, messageID, threadID string) (int64, error) {
+	var result, err = db.Exec(`
+		UPDATE emails SET thread_id = ?
+		WHERE account_id = ? AND message_id = ? AND (thread_id IS NULL OR thread_id != ?)
+	`, threadID, accountID, messageID, threadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// BatchUpdateThreadIDs updates thread_ids for multiple emails by message_id
+// threadMap is message_id -> thread_id
+// Also sets thread_synced_at to mark emails as synced (even if no thread found)
+func BatchUpdateThreadIDs(accountID int64, threadMap map[string]string) (int64, error) {
+	if len(threadMap) == 0 {
+		return 0, nil
+	}
+
+	var tx, err = db.Beginx()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// Update thread_id and mark as synced
+	var stmt, prepErr = tx.Preparex(`
+		UPDATE emails
+		SET thread_id = ?, thread_synced_at = CURRENT_TIMESTAMP
+		WHERE account_id = ? AND message_id = ? AND thread_synced_at IS NULL
+	`)
+	if prepErr != nil {
+		return 0, prepErr
+	}
+	defer stmt.Close()
+
+	var totalUpdated int64 = 0
+	for msgID, threadID := range threadMap {
+		var result, execErr = stmt.Exec(threadID, accountID, msgID)
+		if execErr != nil {
+			continue
+		}
+		var affected, _ = result.RowsAffected()
+		totalUpdated += affected
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return totalUpdated, nil
 }

@@ -529,10 +529,18 @@ func migrateAddThreading() error {
 		return err
 	}
 
+	// Adiciona thread_synced_at para marcar quando o thread foi sincronizado do Gmail
+	// Isso permite emails sem thread (standalone) serem marcados como já verificados
+	_, err = db.Exec("ALTER TABLE emails ADD COLUMN thread_synced_at DATETIME")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+
 	// Cria índices para queries rápidas de threads
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_thread_id ON emails(thread_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_in_reply_to ON emails(in_reply_to)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_thread_synced_at ON emails(thread_synced_at)")
 
 	return nil
 }

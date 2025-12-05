@@ -419,6 +419,74 @@ func (a *App) GetConnectionStatus() ConnectionStatus {
 	}
 }
 
+// SyncThreadsFromGmail syncs thread IDs from Gmail API
+// This is more accurate than local thread detection
+func (a *App) SyncThreadsFromGmail() (updated int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SyncThreadsFromGmail] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	log.Printf("[SyncThreadsFromGmail] starting Gmail thread sync")
+	if a.application == nil {
+		return 0, fmt.Errorf("application not initialized")
+	}
+
+	// Create cancellable context
+	var ctx, cancel = context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.threadSyncCancel = cancel
+	a.mu.Unlock()
+
+	defer func() {
+		a.mu.Lock()
+		a.threadSyncCancel = nil
+		a.mu.Unlock()
+	}()
+
+	var count, syncErr = a.application.SyncThreadIDsFromGmail(ctx, func(processed, total int) {
+		// Negative processed = listing phase (page number), total = accumulated count
+		if processed < 0 {
+			log.Printf("[SyncThreadsFromGmail] listing messages: page %d (%d found)", -processed, total)
+			runtime.EventsEmit(a.ctx, "thread-sync-progress", map[string]interface{}{
+				"phase":     "listing",
+				"page":      -processed,
+				"found":     total, // accumulated count
+				"processed": 0,
+				"total":     0,
+			})
+		} else {
+			log.Printf("[SyncThreadsFromGmail] fetching metadata: %d/%d", processed, total)
+			runtime.EventsEmit(a.ctx, "thread-sync-progress", map[string]interface{}{
+				"phase":     "fetching",
+				"processed": processed,
+				"total":     total,
+			})
+		}
+	})
+
+	if syncErr != nil && ctx.Err() != nil {
+		log.Printf("[SyncThreadsFromGmail] cancelled by user")
+		return count, fmt.Errorf("cancelled")
+	}
+
+	log.Printf("[SyncThreadsFromGmail] completed, updated=%d, err=%v", count, syncErr)
+	return count, syncErr
+}
+
+// CancelThreadSync cancels an ongoing thread sync operation
+func (a *App) CancelThreadSync() {
+	a.mu.RLock()
+	var cancel = a.threadSyncCancel
+	a.mu.RUnlock()
+
+	if cancel != nil {
+		log.Printf("[CancelThreadSync] cancelling thread sync")
+		cancel()
+	}
+}
+
 // ============================================================================
 // SEND EMAIL
 // ============================================================================
@@ -1243,15 +1311,19 @@ func (a *App) GetThread(emailID int64) (result *ThreadDTO, err error) {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
+	log.Printf("[GetThread] called with emailID=%d", emailID)
 	if a.application == nil {
+		log.Printf("[GetThread] application is nil")
 		return nil, nil
 	}
 
 	var thread, ferr = a.application.Thread().GetThread(context.Background(), emailID)
 	if ferr != nil {
+		log.Printf("[GetThread] error: %v", ferr)
 		return nil, ferr
 	}
 
+	log.Printf("[GetThread] got thread with %d messages", len(thread.Messages))
 	return a.threadToDTO(thread), nil
 }
 
@@ -1492,4 +1564,114 @@ func generateSnippetFromHTML(html string, maxLen int) string {
 	}
 
 	return generateSnippet(result.String(), maxLen)
+}
+
+// UndoResult represents the result of an undo/redo operation
+type UndoResult struct {
+	Success     bool   `json:"success"`
+	Description string `json:"description"`
+	CanUndo     bool   `json:"canUndo"`
+	CanRedo     bool   `json:"canRedo"`
+}
+
+// Undo undoes the last operation
+func (a *App) Undo() (result UndoResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Undo] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	if a.application == nil {
+		return UndoResult{Success: false, Description: "App not initialized"}, nil
+	}
+
+	var ctx = context.Background()
+	var undo = a.application.Undo()
+
+	if !undo.CanUndo(ctx) {
+		return UndoResult{
+			Success:     false,
+			Description: "Nada para desfazer",
+			CanUndo:     false,
+			CanRedo:     undo.CanRedo(ctx),
+		}, nil
+	}
+
+	var description = undo.GetUndoDescription(ctx)
+	if undoErr := undo.Undo(ctx); undoErr != nil {
+		return UndoResult{
+			Success:     false,
+			Description: fmt.Sprintf("Erro ao desfazer: %v", undoErr),
+			CanUndo:     undo.CanUndo(ctx),
+			CanRedo:     undo.CanRedo(ctx),
+		}, nil
+	}
+
+	return UndoResult{
+		Success:     true,
+		Description: fmt.Sprintf("Desfeito: %s", description),
+		CanUndo:     undo.CanUndo(ctx),
+		CanRedo:     undo.CanRedo(ctx),
+	}, nil
+}
+
+// Redo redoes the last undone operation
+func (a *App) Redo() (result UndoResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Redo] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
+	if a.application == nil {
+		return UndoResult{Success: false, Description: "App not initialized"}, nil
+	}
+
+	var ctx = context.Background()
+	var undo = a.application.Undo()
+
+	if !undo.CanRedo(ctx) {
+		return UndoResult{
+			Success:     false,
+			Description: "Nada para refazer",
+			CanUndo:     undo.CanUndo(ctx),
+			CanRedo:     false,
+		}, nil
+	}
+
+	var description = undo.GetRedoDescription(ctx)
+	if redoErr := undo.Redo(ctx); redoErr != nil {
+		return UndoResult{
+			Success:     false,
+			Description: fmt.Sprintf("Erro ao refazer: %v", redoErr),
+			CanUndo:     undo.CanUndo(ctx),
+			CanRedo:     undo.CanRedo(ctx),
+		}, nil
+	}
+
+	return UndoResult{
+		Success:     true,
+		Description: fmt.Sprintf("Refeito: %s", description),
+		CanUndo:     undo.CanUndo(ctx),
+		CanRedo:     undo.CanRedo(ctx),
+	}, nil
+}
+
+// CanUndo returns whether undo is available
+func (a *App) CanUndo() bool {
+	if a.application == nil {
+		return false
+	}
+	return a.application.Undo().CanUndo(context.Background())
+}
+
+// CanRedo returns whether redo is available
+func (a *App) CanRedo() bool {
+	if a.application == nil {
+		return false
+	}
+	return a.application.Undo().CanRedo(context.Background())
 }

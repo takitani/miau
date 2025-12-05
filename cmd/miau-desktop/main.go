@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"os"
 
 	"github.com/opik/miau/internal/desktop"
 	"github.com/wailsapp/wails/v2"
@@ -19,6 +20,15 @@ var assets embed.FS
 var icon []byte
 
 func main() {
+	// Check --devtools flag
+	var openDevtools = false
+	for _, arg := range os.Args[1:] {
+		if arg == "--devtools" {
+			openDevtools = true
+			break
+		}
+	}
+
 	// Create an instance of the app structure
 	var app = desktop.NewApp()
 
@@ -40,9 +50,9 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		// Enable devtools (F12 or Ctrl+Shift+I to open)
+		// Enable devtools (F12 to open, --devtools flag to auto-open)
 		Debug: options.Debug{
-			OpenInspectorOnStartup: true,
+			OpenInspectorOnStartup: openDevtools,
 		},
 		// Linux specific options
 		Linux: &linux.Options{

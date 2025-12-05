@@ -37,13 +37,13 @@ func NormalizeSubject(subject string) string {
 	return strings.ToLower(normalized)
 }
 
-// GenerateThreadID generates a thread ID for an email
-// Algorithm:
-// 1. If email has In-Reply-To, use that Message-ID as thread root
-// 2. Else if References exists, use first Message-ID as thread root
-// 3. If subject starts with Re:/Fwd:/etc, use subject-based threading (likely a reply without headers)
-// 4. Else use email's own Message-ID as thread root (starts new thread)
-// 5. Fallback: use normalized subject as thread ID
+// GenerateThreadID generates a thread ID for an email based on headers.
+//
+// DEPRECATED for Gmail accounts! This function creates thread_ids that look like
+// Message-IDs (xxx@yyy.com), not Gmail's hex thread IDs (17062d1764232491).
+// For Gmail accounts, use SyncThreadIDsFromGmail to get proper thread IDs.
+//
+// This function is kept for non-Gmail IMAP servers that don't have native threading.
 func GenerateThreadID(messageID, inReplyTo, references, subject string) string {
 	// Strategy 1: In-Reply-To points to parent, find its thread
 	if inReplyTo != "" {
@@ -103,43 +103,35 @@ func (td *ThreadDetector) DetectAndUpdateThread(emailID int64, messageID, inRepl
 		"UPDATE emails SET thread_id = ? WHERE id = ?",
 		threadID, emailID)
 
-	if err != nil {
-		return err
-	}
-
-	// If using subject-based threading, also update any existing emails
-	// with the same normalized subject that don't have proper threading headers
-	// This links original messages with their replies even when Re: prefix is missing
-	if strings.HasPrefix(threadID, "subject:") {
-		var normalizedSubject = NormalizeSubject(subject)
-		// Update emails with same normalized subject that have their own Message-ID as thread_id
-		// (meaning they were treated as thread starters but are actually part of this thread)
-		td.db.Exec(`
-			UPDATE emails
-			SET thread_id = ?
-			WHERE id <> ?
-			  AND is_deleted = 0
-			  AND (
-			    LOWER(subject) = ?
-			    OR LOWER(subject) LIKE ?
-			  )
-			  AND thread_id NOT LIKE 'subject:%'
-		`, threadID, emailID, normalizedSubject, "re: "+normalizedSubject+"%")
-	}
-
-	return nil
+	return err
 }
 
 // GetThreadEmails returns all emails in a thread, ordered by date DESC (newest first)
+// Deduplicates by message_id and excludes Trash/Spam folders
 func (td *ThreadDetector) GetThreadEmails(threadID string, accountID int64) ([]Email, error) {
 	var emails []Email
 	var err = td.db.Select(&emails, `
-		SELECT * FROM emails
-		WHERE thread_id = ?
-		  AND account_id = ?
-		  AND is_deleted = 0
-		ORDER BY date DESC
-	`, threadID, accountID)
+		SELECT e.* FROM emails e
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.thread_id = ?
+		  AND e.account_id = ?
+		  AND e.is_deleted = 0
+		  AND f.name NOT LIKE '%Trash%'
+		  AND f.name NOT LIKE '%Spam%'
+		  AND f.name NOT LIKE '%Lixeira%'
+		  AND e.id IN (
+		    SELECT MIN(e2.id) FROM emails e2
+		    JOIN folders f2 ON e2.folder_id = f2.id
+		    WHERE e2.thread_id = ?
+		      AND e2.account_id = ?
+		      AND e2.is_deleted = 0
+		      AND f2.name NOT LIKE '%Trash%'
+		      AND f2.name NOT LIKE '%Spam%'
+		      AND f2.name NOT LIKE '%Lixeira%'
+		    GROUP BY COALESCE(NULLIF(e2.message_id, ''), CAST(e2.id AS TEXT))
+		  )
+		ORDER BY e.date DESC
+	`, threadID, accountID, threadID, accountID)
 
 	return emails, err
 }
@@ -162,62 +154,48 @@ func (td *ThreadDetector) GetThreadForEmail(emailID int64) ([]Email, error) {
 }
 
 // CountThreadEmails returns the count of emails in a thread
+// Excludes Trash/Spam and deduplicates by message_id
 func (td *ThreadDetector) CountThreadEmails(threadID string, accountID int64) (int, error) {
 	var count int
 	var err = td.db.Get(&count, `
-		SELECT COUNT(*) FROM emails
-		WHERE thread_id = ?
-		  AND account_id = ?
-		  AND is_deleted = 0
+		SELECT COUNT(DISTINCT COALESCE(NULLIF(e.message_id, ''), e.id))
+		FROM emails e
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.thread_id = ?
+		  AND e.account_id = ?
+		  AND e.is_deleted = 0
+		  AND f.name NOT LIKE '%Trash%'
+		  AND f.name NOT LIKE '%Spam%'
+		  AND f.name NOT LIKE '%Lixeira%'
 	`, threadID, accountID)
 
 	return count, err
 }
 
 // GetThreadParticipants returns unique email addresses participating in a thread
+// Excludes Trash/Spam folders
 func (td *ThreadDetector) GetThreadParticipants(threadID string, accountID int64) ([]string, error) {
 	var participants []string
 	var err = td.db.Select(&participants, `
-		SELECT DISTINCT from_email FROM emails
-		WHERE thread_id = ?
-		  AND account_id = ?
-		  AND is_deleted = 0
-		ORDER BY from_email
+		SELECT DISTINCT e.from_email FROM emails e
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.thread_id = ?
+		  AND e.account_id = ?
+		  AND e.is_deleted = 0
+		  AND f.name NOT LIKE '%Trash%'
+		  AND f.name NOT LIKE '%Spam%'
+		  AND f.name NOT LIKE '%Lixeira%'
+		ORDER BY e.from_email
 	`, threadID, accountID)
 
 	return participants, err
 }
 
-// ReprocessAllThreads reprocesses thread_id for all emails (useful for fixing existing data)
+// ReprocessAllThreads is DEPRECATED - do not use!
+// Thread IDs should come from Gmail sync (SyncThreadIDsFromGmail), not local header analysis.
+// Local threading based on In-Reply-To/References creates invalid thread_ids (Message-IDs).
+// Use SyncThreadIDsFromGmail instead.
 func ReprocessAllThreads() (int, error) {
-	var emails []struct {
-		ID         int64  `db:"id"`
-		MessageID  string `db:"message_id"`
-		InReplyTo  string `db:"in_reply_to"`
-		References string `db:"references"`
-		Subject    string `db:"subject"`
-	}
-
-	var err = db.Select(&emails, `
-		SELECT id, COALESCE(message_id, '') as message_id,
-		       COALESCE(in_reply_to, '') as in_reply_to,
-		       COALESCE("references", '') as "references",
-		       COALESCE(subject, '') as subject
-		FROM emails
-		WHERE is_deleted = 0
-	`)
-	if err != nil {
-		return 0, err
-	}
-
-	var count = 0
-	for _, e := range emails {
-		var threadID = GenerateThreadID(e.MessageID, e.InReplyTo, e.References, e.Subject)
-		_, err := db.Exec("UPDATE emails SET thread_id = ? WHERE id = ?", threadID, e.ID)
-		if err == nil {
-			count++
-		}
-	}
-
-	return count, nil
+	// DO NOT USE - returns 0 intentionally
+	return 0, nil
 }

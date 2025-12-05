@@ -10,6 +10,18 @@ export function AskAI(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['AskAI'](arg1, arg2, arg3);
 }
 
+export function CanRedo() {
+  return window['go']['desktop']['App']['CanRedo']();
+}
+
+export function CanUndo() {
+  return window['go']['desktop']['App']['CanUndo']();
+}
+
+export function CancelThreadSync() {
+  return window['go']['desktop']['App']['CancelThreadSync']();
+}
+
 export function Confirm(arg1, arg2) {
   return window['go']['desktop']['App']['Confirm'](arg1, arg2);
 }
@@ -178,6 +190,10 @@ export function OpenURL(arg1) {
   return window['go']['desktop']['App']['OpenURL'](arg1);
 }
 
+export function Redo() {
+  return window['go']['desktop']['App']['Redo']();
+}
+
 export function SaveAttachment(arg1, arg2) {
   return window['go']['desktop']['App']['SaveAttachment'](arg1, arg2);
 }
@@ -244,4 +260,12 @@ export function SyncEssentialFolders() {
 
 export function SyncFolder(arg1) {
   return window['go']['desktop']['App']['SyncFolder'](arg1);
+}
+
+export function SyncThreadsFromGmail() {
+  return window['go']['desktop']['App']['SyncThreadsFromGmail']();
+}
+
+export function Undo() {
+  return window['go']['desktop']['App']['Undo']();
 }

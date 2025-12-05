@@ -692,6 +692,24 @@ export namespace desktop {
 		    return a;
 		}
 	}
+	export class UndoResult {
+	    success: boolean;
+	    description: string;
+	    canUndo: boolean;
+	    canRedo: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UndoResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.description = source["description"];
+	        this.canUndo = source["canUndo"];
+	        this.canRedo = source["canRedo"];
+	    }
+	}
 
 }
 

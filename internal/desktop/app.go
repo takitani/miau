@@ -24,6 +24,9 @@ type App struct {
 	mu            sync.RWMutex
 	connected     bool
 	currentFolder string
+
+	// Thread sync cancellation
+	threadSyncCancel context.CancelFunc
 }
 
 // NewApp creates a new Wails App instance

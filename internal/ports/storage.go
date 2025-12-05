@@ -124,12 +124,18 @@ type IMAPPort interface {
 	ListMailboxes(ctx context.Context) ([]MailboxInfo, error)
 	SelectMailbox(ctx context.Context, name string) (*MailboxStatus, error)
 
-	// Email fetching
+	// Email fetching (legacy - prefer batch methods)
 	FetchEmails(ctx context.Context, limit int) ([]IMAPEmail, error)
 	FetchNewEmails(ctx context.Context, sinceUID uint32, limit int) ([]IMAPEmail, error)
 	FetchEmailRaw(ctx context.Context, uid uint32) ([]byte, error)
 	FetchEmailBody(ctx context.Context, uid uint32) (string, error)
 	GetAllUIDs(ctx context.Context) ([]uint32, error)
+
+	// Batch email fetching (optimized - 1 request for N emails with attachments)
+	SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error)
+	FetchEmailsBatch(ctx context.Context, uids []uint32) ([]IMAPEmail, error)
+	FetchNewEmailsBatch(ctx context.Context, sinceUID uint32, limit int) ([]IMAPEmail, error)
+	FetchEmailsSinceDateBatch(ctx context.Context, sinceDays int, limit int) ([]IMAPEmail, error)
 
 	// Attachments
 	FetchAttachmentMetadata(ctx context.Context, uid uint32) ([]AttachmentInfo, bool, error)
@@ -178,6 +184,9 @@ type IMAPEmail struct {
 	BodyText   string
 	InReplyTo  string
 	References string
+	// Attachment metadata (populated by batch fetch methods)
+	HasAttachments bool
+	Attachments    []AttachmentInfo
 }
 
 // SMTPPort defines the interface for SMTP operations.

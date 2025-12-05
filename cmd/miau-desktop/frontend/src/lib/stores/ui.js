@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, currentFolder, toggleThreading } from './emails.js';
+import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, loadEmails, refreshEmails, currentFolder, toggleThreading, restoreLastRemovedEmail } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 
 // UI State
@@ -80,6 +80,18 @@ function handleKeydown(e) {
     if (e.key === 'Escape') {
       closeAllModals();
     }
+    return;
+  }
+
+  // Ctrl+Z / Ctrl+Y for undo/redo (works globally)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+    e.preventDefault();
+    performRedo();
     return;
   }
 
@@ -225,17 +237,26 @@ function handleEmailShortcuts(e) {
     case 'Enter':
       if (emailId) {
         e.preventDefault();
-        // Open thread view for the selected email
-        openThreadView(emailId);
         markAsRead(emailId, true);
+        // Open thread view only if email has a thread (threadCount > 1)
+        var emailForEnter = get(selectedEmail);
+        if (emailForEnter && emailForEnter.threadCount > 1) {
+          openThreadView(emailId);
+        }
+        // Otherwise just mark as read (email content shows in preview pane)
       }
       break;
 
     case 't':
       if (emailId && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        // Open thread view
-        openThreadView(emailId);
+        // Open thread view only if email has a thread (threadCount > 1)
+        var emailForThread = get(selectedEmail);
+        if (emailForThread && emailForThread.threadCount > 1) {
+          openThreadView(emailId);
+        } else {
+          info('Email não faz parte de uma thread');
+        }
       }
       break;
 
@@ -313,9 +334,9 @@ export async function syncEmails() {
   try {
     if (window.go?.desktop?.App) {
       var result = await window.go.desktop.App.SyncCurrentFolder();
-      // Reload emails from database after sync
+      // Refresh emails without full reload (preserves selection, no flicker)
       var folder = get(currentFolder);
-      await loadEmails(folder);
+      await refreshEmails(folder);
 
       // Show notification (always, even if 0 new)
       var count = result ? result.newEmails : 0;
@@ -346,9 +367,9 @@ export async function syncEssentialFolders() {
   try {
     if (window.go?.desktop?.App) {
       var results = await window.go.desktop.App.SyncEssentialFolders();
-      // Reload emails from database after sync
+      // Refresh emails without full reload (preserves selection, no flicker)
       var folder = get(currentFolder);
-      await loadEmails(folder);
+      await refreshEmails(folder);
 
       // Sum all new emails
       var totalNew = 0;
@@ -470,4 +491,56 @@ export function setupWailsEvents() {
       console.error('Sync error:', error);
     });
   }
+}
+
+// Undo/Redo state
+export const undoMessage = writable(null);
+
+// Perform undo operation
+async function performUndo() {
+  try {
+    if (window.go?.desktop?.App) {
+      var result = await window.go.desktop.App.Undo();
+      if (result.success) {
+        info(result.description);
+        // Restore email locally (no reload needed)
+        restoreLastRemovedEmail();
+      } else {
+        warn(result.description);
+      }
+      showUndoMessage(result.description, result.success);
+    }
+  } catch (err) {
+    logError('Undo failed', err);
+  }
+}
+
+// Perform redo operation
+async function performRedo() {
+  try {
+    if (window.go?.desktop?.App) {
+      var result = await window.go.desktop.App.Redo();
+      if (result.success) {
+        info(result.description);
+        // Reload emails to reflect the change
+        var folder = get(currentFolder);
+        if (folder) {
+          await loadEmails(folder);
+        }
+      } else {
+        warn(result.description);
+      }
+      showUndoMessage(result.description, result.success);
+    }
+  } catch (err) {
+    logError('Redo failed', err);
+  }
+}
+
+// Show temporary undo/redo message
+function showUndoMessage(message, success) {
+  undoMessage.set({ message, success });
+  setTimeout(() => {
+    undoMessage.set(null);
+  }, 3000);
 }

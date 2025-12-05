@@ -332,3 +332,61 @@ func (a *Application) ReinitializeGmailAdapter() error {
 
 	return nil
 }
+
+// SyncThreadIDsFromGmail syncs thread IDs from Gmail API for existing emails
+// Returns the number of emails updated
+// Uses incremental sync - only fetches for emails without thread_id
+// Supports cancellation via context
+func (a *Application) SyncThreadIDsFromGmail(ctx context.Context, progressCallback func(processed, total int)) (int, error) {
+	a.mu.RLock()
+	var gmailClient = a.gmailAdapter
+	var account = a.accountInfo
+	a.mu.RUnlock()
+
+	if gmailClient == nil {
+		return 0, fmt.Errorf("Gmail API not configured")
+	}
+	if account == nil {
+		return 0, fmt.Errorf("no account configured")
+	}
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+
+	// Check how many emails need thread sync
+	var needSync, countErr = storage.CountEmailsWithoutThreadID(account.ID)
+	if countErr != nil {
+		return 0, fmt.Errorf("failed to count emails: %w", countErr)
+	}
+
+	// If all emails already have thread_id, skip the expensive API calls
+	if needSync == 0 {
+		return 0, nil
+	}
+
+	// Phase 1: Fetch all thread mappings from Gmail API
+	// TODO: In future, could optimize to only query Gmail for specific message IDs
+	var threadMap, err = gmailClient.SyncAllThreadIDs(ctx, progressCallback)
+	if err != nil {
+		return 0, fmt.Errorf("failed to sync thread IDs from Gmail: %w", err)
+	}
+
+	// Check for cancellation before database update
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+
+	if len(threadMap) == 0 {
+		return 0, nil
+	}
+
+	// Phase 2: Batch update local database (only updates where thread_id differs)
+	var updated, updateErr = storage.BatchUpdateThreadIDs(account.ID, threadMap)
+	if updateErr != nil {
+		return int(updated), fmt.Errorf("failed to update thread IDs: %w", updateErr)
+	}
+
+	return int(updated), nil
+}

@@ -1,5 +1,7 @@
 package ports
 
+import "context"
+
 // App is the main application interface that UI layers use.
 // It provides access to all services and manages the application lifecycle.
 type App interface {
@@ -33,6 +35,9 @@ type App interface {
 
 	// SetIMAPClient sets an external IMAP client (for TUI to share connection)
 	SetIMAPClient(client interface{})
+
+	// SyncThreadIDsFromGmail syncs thread IDs from Gmail API for existing emails
+	SyncThreadIDsFromGmail(ctx context.Context, progressCallback func(processed, total int)) (int, error)
 }
 
 // AppConfig contains application configuration

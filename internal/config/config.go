@@ -70,6 +70,7 @@ type UIConfig struct {
 	Theme       string `yaml:"theme" mapstructure:"theme"`
 	ShowPreview bool   `yaml:"show_preview" mapstructure:"show_preview"`
 	PageSize    int    `yaml:"page_size" mapstructure:"page_size"`
+	Debug       bool   `yaml:"debug" mapstructure:"debug"`
 }
 
 type ComposeConfig struct {
@@ -118,6 +119,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("ui.theme", "dark")
 	viper.SetDefault("ui.show_preview", true)
 	viper.SetDefault("ui.page_size", 50)
+	viper.SetDefault("ui.debug", false)
 	viper.SetDefault("compose.format", "html")
 	viper.SetDefault("compose.send_delay_seconds", 30)
 
@@ -165,6 +167,7 @@ func DefaultConfig() *Config {
 			Theme:       "dark",
 			ShowPreview: true,
 			PageSize:    50,
+			Debug:       false,
 		},
 		Compose: ComposeConfig{
 			Format:           "html",

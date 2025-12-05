@@ -6,6 +6,12 @@ export function Archive(arg1:number):Promise<void>;
 
 export function AskAI(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function CanRedo():Promise<boolean>;
+
+export function CanUndo():Promise<boolean>;
+
+export function CancelThreadSync():Promise<void>;
+
 export function Confirm(arg1:string,arg2:string):Promise<boolean>;
 
 export function Connect():Promise<void>;
@@ -90,6 +96,8 @@ export function OpenAttachmentByPart(arg1:number,arg2:string,arg3:string):Promis
 
 export function OpenURL(arg1:string):Promise<void>;
 
+export function Redo():Promise<desktop.UndoResult>;
+
 export function SaveAttachment(arg1:number,arg2:string):Promise<void>;
 
 export function SaveAttachmentByPart(arg1:number,arg2:string,arg3:string):Promise<string>;
@@ -123,3 +131,7 @@ export function SyncCurrentFolder():Promise<desktop.SyncResultDTO>;
 export function SyncEssentialFolders():Promise<Array<desktop.SyncResultDTO>>;
 
 export function SyncFolder(arg1:string):Promise<desktop.SyncResultDTO>;
+
+export function SyncThreadsFromGmail():Promise<number>;
+
+export function Undo():Promise<desktop.UndoResult>;

@@ -15,10 +15,11 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// Scopes necessários para IMAP e Gmail API
+// Scopes necessários para IMAP, Gmail API e People API (contatos)
 var GmailScopes = []string{
-	"https://mail.google.com/",                   // Full access for IMAP
-	"https://www.googleapis.com/auth/gmail.send", // Gmail API send
+	"https://mail.google.com/",                        // Full access for IMAP
+	"https://www.googleapis.com/auth/gmail.send",      // Gmail API send
+	"https://www.googleapis.com/auth/contacts.readonly", // People API contacts (read-only)
 }
 
 type OAuth2Config struct {

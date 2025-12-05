@@ -87,13 +87,16 @@ func UpdateFolderStats(folderID int64, total, unread int) error {
 // === EMAILS ===
 
 func UpsertEmail(e *Email) error {
-	_, err := db.Exec(`
+	// First, insert/update the email
+	var result, err = db.Exec(`
 		INSERT INTO emails (
 			account_id, folder_id, uid, message_id, subject,
 			from_name, from_email, to_addresses, cc_addresses, date,
 			is_read, is_starred, is_deleted, has_attachments, snippet,
-			body_text, body_html, raw_headers, size, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			body_text, body_html, raw_headers, size,
+			in_reply_to, references,
+			updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
 			subject = excluded.subject,
 			from_name = excluded.from_name,
@@ -103,12 +106,46 @@ func UpsertEmail(e *Email) error {
 			is_deleted = excluded.is_deleted,
 			body_text = excluded.body_text,
 			body_html = excluded.body_html,
+			in_reply_to = excluded.in_reply_to,
+			references = excluded.references,
 			updated_at = CURRENT_TIMESTAMP`,
 		e.AccountID, e.FolderID, e.UID, e.MessageID, e.Subject,
 		e.FromName, e.FromEmail, e.ToAddresses, e.CcAddresses, e.Date,
 		e.IsRead, e.IsStarred, e.IsDeleted, e.HasAttachments, e.Snippet,
-		e.BodyText, e.BodyHTML, e.RawHeaders, e.Size)
-	return err
+		e.BodyText, e.BodyHTML, e.RawHeaders, e.Size,
+		e.InReplyTo, e.References)
+	if err != nil {
+		return err
+	}
+
+	// Get email ID (either newly inserted or existing)
+	var emailID int64
+	if result != nil {
+		emailID, err = result.LastInsertId()
+		if err != nil || emailID == 0 {
+			// If LastInsertId fails (conflict/update case), query by unique key
+			err = db.Get(&emailID,
+				"SELECT id FROM emails WHERE account_id = ? AND folder_id = ? AND uid = ?",
+				e.AccountID, e.FolderID, e.UID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Detect and update thread_id
+	var messageID, inReplyTo, references string
+	if e.MessageID.Valid {
+		messageID = e.MessageID.String
+	}
+	if e.InReplyTo.Valid {
+		inReplyTo = e.InReplyTo.String
+	}
+	if e.References.Valid {
+		references = e.References.String
+	}
+
+	return DetectAndUpdateThreadID(emailID, messageID, inReplyTo, references, e.Subject)
 }
 
 func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
@@ -1693,4 +1730,98 @@ func GetUncachedInlineAttachments(accountID int64, maxSize int64, limit int) ([]
 		LIMIT ?`,
 		accountID, maxSize, limit)
 	return attachments, err
+}
+
+// === THREADING ===
+
+// DetectAndUpdateThreadID detects and updates thread_id for an email
+func DetectAndUpdateThreadID(emailID int64, messageID, inReplyTo, references, subject string) error {
+	var detector = NewThreadDetector(db)
+	return detector.DetectAndUpdateThread(emailID, messageID, inReplyTo, references, subject)
+}
+
+// GetThreadEmails returns all emails in a thread (ordered by date DESC - newest first)
+func GetThreadEmails(threadID string, accountID int64) ([]Email, error) {
+	var emails []Email
+	err := db.Select(&emails, `
+		SELECT * FROM emails
+		WHERE thread_id = ?
+		  AND account_id = ?
+		  AND is_deleted = 0
+		ORDER BY date DESC
+	`, threadID, accountID)
+	return emails, err
+}
+
+// GetThreadForEmail returns all emails in the same thread as the given email
+func GetThreadForEmail(emailID int64) ([]Email, error) {
+	// First get the thread_id and account_id of the email
+	var email Email
+	err := db.Get(&email, "SELECT * FROM emails WHERE id = ?", emailID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !email.ThreadID.Valid || email.ThreadID.String == "" {
+		// No thread, return just this email
+		return []Email{email}, nil
+	}
+
+	return GetThreadEmails(email.ThreadID.String, email.AccountID)
+}
+
+// GetThreadSummaries returns thread summaries for inbox view
+// Groups emails by thread_id and returns most recent message per thread
+func GetThreadSummaries(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
+	var summaries []EmailSummary
+	err := db.Select(&summaries, `
+		WITH thread_latest AS (
+			SELECT
+				thread_id,
+				MAX(date) as latest_date,
+				COUNT(*) as thread_count
+			FROM emails
+			WHERE account_id = ?
+			  AND folder_id = ?
+			  AND is_deleted = 0
+			  AND is_archived = 0
+			GROUP BY thread_id
+		)
+		SELECT
+			e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email,
+			e.date, e.is_read, e.is_starred, e.is_replied, e.has_attachments,
+			e.snippet, e.thread_id
+		FROM emails e
+		INNER JOIN thread_latest tl ON e.thread_id = tl.thread_id AND e.date = tl.latest_date
+		WHERE e.account_id = ? AND e.folder_id = ?
+		ORDER BY e.date DESC
+		LIMIT ? OFFSET ?
+	`, accountID, folderID, accountID, folderID, limit, offset)
+
+	return summaries, err
+}
+
+// CountThreadEmails returns the count of emails in a thread
+func CountThreadEmails(threadID string, accountID int64) (int, error) {
+	var count int
+	err := db.Get(&count, `
+		SELECT COUNT(*) FROM emails
+		WHERE thread_id = ?
+		  AND account_id = ?
+		  AND is_deleted = 0
+	`, threadID, accountID)
+	return count, err
+}
+
+// GetThreadParticipants returns unique email addresses in a thread
+func GetThreadParticipants(threadID string, accountID int64) ([]string, error) {
+	var participants []string
+	err := db.Select(&participants, `
+		SELECT DISTINCT from_email FROM emails
+		WHERE thread_id = ?
+		  AND account_id = ?
+		  AND is_deleted = 0
+		ORDER BY from_email
+	`, threadID, accountID)
+	return participants, err
 }

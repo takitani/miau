@@ -312,17 +312,19 @@ func convertIMAPEmails(emails []imap.Email) []ports.IMAPEmail {
 	var result = make([]ports.IMAPEmail, len(emails))
 	for i, e := range emails {
 		result[i] = ports.IMAPEmail{
-			UID:       e.UID,
-			MessageID: e.MessageID,
-			Subject:   e.Subject,
-			FromName:  e.From,
-			FromEmail: e.FromEmail,
-			To:        e.To,
-			Date:      e.Date,
-			Seen:      e.Seen,
-			Flagged:   e.Flagged,
-			Size:      e.Size,
-			BodyText:  e.BodyText,
+			UID:        e.UID,
+			MessageID:  e.MessageID,
+			Subject:    e.Subject,
+			FromName:   e.From,
+			FromEmail:  e.FromEmail,
+			To:         e.To,
+			Date:       e.Date,
+			Seen:       e.Seen,
+			Flagged:    e.Flagged,
+			Size:       e.Size,
+			BodyText:   e.BodyText,
+			InReplyTo:  e.InReplyTo,
+			References: e.References,
 		}
 	}
 	return result

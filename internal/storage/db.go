@@ -365,6 +365,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração body_indexed: %w", err)
 	}
 
+	// Migração: adiciona colunas de threading
+	if err := migrateAddThreading(); err != nil {
+		return fmt.Errorf("erro na migração threading: %w", err)
+	}
+
 	return nil
 }
 
@@ -396,6 +401,34 @@ func migrateAddBodyIndexed() error {
 	}
 	// Adiciona índice para body_indexed
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_body_indexed ON emails(body_indexed)")
+	return nil
+}
+
+// migrateAddThreading adiciona colunas de threading (in_reply_to, references, thread_id)
+func migrateAddThreading() error {
+	// Adiciona in_reply_to (Message-ID do email sendo respondido)
+	var _, err = db.Exec("ALTER TABLE emails ADD COLUMN in_reply_to TEXT")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+
+	// Adiciona references (lista completa de Message-IDs da thread)
+	_, err = db.Exec("ALTER TABLE emails ADD COLUMN references TEXT")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+
+	// Adiciona thread_id (identificador normalizado da thread)
+	_, err = db.Exec("ALTER TABLE emails ADD COLUMN thread_id TEXT")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+
+	// Cria índices para queries rápidas de threads
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_thread_id ON emails(thread_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_emails_in_reply_to ON emails(in_reply_to)")
+
 	return nil
 }
 

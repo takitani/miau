@@ -158,17 +158,19 @@ type MailboxStatus struct {
 
 // IMAPEmail represents an email fetched from IMAP
 type IMAPEmail struct {
-	UID       uint32
-	MessageID string
-	Subject   string
-	FromName  string
-	FromEmail string
-	To        string
-	Date      time.Time
-	Seen      bool
-	Flagged   bool
-	Size      int64
-	BodyText  string
+	UID        uint32
+	MessageID  string
+	Subject    string
+	FromName   string
+	FromEmail  string
+	To         string
+	Date       time.Time
+	Seen       bool
+	Flagged    bool
+	Size       int64
+	BodyText   string
+	InReplyTo  string
+	References string
 }
 
 // SMTPPort defines the interface for SMTP operations.

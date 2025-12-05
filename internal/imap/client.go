@@ -50,17 +50,19 @@ type Mailbox struct {
 }
 
 type Email struct {
-	UID       uint32
-	MessageID string
-	Subject   string
-	From      string
-	FromEmail string
-	To        string
-	Date      time.Time
-	Seen      bool
-	Flagged   bool
-	Size      int64
-	BodyText  string
+	UID        uint32
+	MessageID  string
+	Subject    string
+	From       string
+	FromEmail  string
+	To         string
+	Date       time.Time
+	Seen       bool
+	Flagged    bool
+	Size       int64
+	BodyText   string
+	InReplyTo  string
+	References string
 }
 
 // Connect estabelece conexão IMAP com a conta
@@ -214,6 +216,12 @@ func (c *Client) FetchEmailsSeqNum(selectData *imap.SelectData, limit int) ([]Em
 			email.Subject = msg.Envelope.Subject
 			email.Date = msg.Envelope.Date
 			email.MessageID = msg.Envelope.MessageID
+			email.InReplyTo = msg.Envelope.InReplyTo
+
+			// References é uma lista, concatenamos com espaços
+			if len(msg.Envelope.References) > 0 {
+				email.References = strings.Join(msg.Envelope.References, " ")
+			}
 
 			if len(msg.Envelope.From) > 0 {
 				var from = msg.Envelope.From[0]
@@ -304,6 +312,12 @@ func (c *Client) FetchEmailsSince(sinceDays int) ([]Email, error) {
 			email.Subject = msg.Envelope.Subject
 			email.Date = msg.Envelope.Date
 			email.MessageID = msg.Envelope.MessageID
+			email.InReplyTo = msg.Envelope.InReplyTo
+
+			// References é uma lista, concatenamos com espaços
+			if len(msg.Envelope.References) > 0 {
+				email.References = strings.Join(msg.Envelope.References, " ")
+			}
 
 			if len(msg.Envelope.From) > 0 {
 				var from = msg.Envelope.From[0]

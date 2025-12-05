@@ -118,6 +118,8 @@ func (a *StorageAdapter) UpsertEmail(ctx context.Context, accountID, folderID in
 		BodyHTML:       email.BodyHTML,
 		RawHeaders:     email.RawHeaders,
 		Size:           email.Size,
+		InReplyTo:      sql.NullString{String: email.InReplyTo, Valid: email.InReplyTo != ""},
+		References:     sql.NullString{String: email.References, Valid: email.References != ""},
 	}
 	return storage.UpsertEmail(e)
 }

@@ -63,12 +63,12 @@ type Account struct {
 }
 
 type Folder struct {
-	ID             int64          `db:"id"`
-	AccountID      int64          `db:"account_id"`
-	Name           string         `db:"name"`
-	TotalMessages  int            `db:"total_messages"`
-	UnreadMessages int            `db:"unread_messages"`
-	LastSync       sql.NullTime   `db:"last_sync"`
+	ID             int64        `db:"id"`
+	AccountID      int64        `db:"account_id"`
+	Name           string       `db:"name"`
+	TotalMessages  int          `db:"total_messages"`
+	UnreadMessages int          `db:"unread_messages"`
+	LastSync       sql.NullTime `db:"last_sync"`
 }
 
 type Email struct {
@@ -188,28 +188,28 @@ type EmailArchive struct {
 
 // DraftHistory armazena histórico permanente de drafts
 type DraftHistory struct {
-	ID                int64        `db:"id"`
-	OriginalID        int64        `db:"original_id"`
-	AccountID         int64        `db:"account_id"`
-	ToAddresses       string       `db:"to_addresses"`
-	CcAddresses       string       `db:"cc_addresses"`
-	BccAddresses      string       `db:"bcc_addresses"`
-	Subject           string       `db:"subject"`
-	BodyHTML          string       `db:"body_html"`
-	BodyText          string       `db:"body_text"`
-	Classification    string       `db:"classification"`
-	InReplyTo         string       `db:"in_reply_to"`
-	ReferenceIDs      string       `db:"reference_ids"`
+	ID                int64         `db:"id"`
+	OriginalID        int64         `db:"original_id"`
+	AccountID         int64         `db:"account_id"`
+	ToAddresses       string        `db:"to_addresses"`
+	CcAddresses       string        `db:"cc_addresses"`
+	BccAddresses      string        `db:"bcc_addresses"`
+	Subject           string        `db:"subject"`
+	BodyHTML          string        `db:"body_html"`
+	BodyText          string        `db:"body_text"`
+	Classification    string        `db:"classification"`
+	InReplyTo         string        `db:"in_reply_to"`
+	ReferenceIDs      string        `db:"reference_ids"`
 	ReplyToEmailID    sql.NullInt64 `db:"reply_to_email_id"`
-	FinalStatus       string       `db:"final_status"` // sent, cancelled, deleted, failed
-	ScheduledSendAt   sql.NullTime `db:"scheduled_send_at"`
-	SentAt            sql.NullTime `db:"sent_at"`
-	GenerationSource  string       `db:"generation_source"`
-	AIPrompt          string       `db:"ai_prompt"`
-	ErrorMessage      string       `db:"error_message"`
-	OriginalCreatedAt SQLiteTime   `db:"original_created_at"`
-	OriginalUpdatedAt SQLiteTime   `db:"original_updated_at"`
-	ArchivedAt        SQLiteTime   `db:"archived_at"`
+	FinalStatus       string        `db:"final_status"` // sent, cancelled, deleted, failed
+	ScheduledSendAt   sql.NullTime  `db:"scheduled_send_at"`
+	SentAt            sql.NullTime  `db:"sent_at"`
+	GenerationSource  string        `db:"generation_source"`
+	AIPrompt          string        `db:"ai_prompt"`
+	ErrorMessage      string        `db:"error_message"`
+	OriginalCreatedAt SQLiteTime    `db:"original_created_at"`
+	OriginalUpdatedAt SQLiteTime    `db:"original_updated_at"`
+	ArchivedAt        SQLiteTime    `db:"archived_at"`
 }
 
 // SentEmail registro permanente de emails enviados
@@ -233,17 +233,18 @@ type SentEmail struct {
 
 // PendingBatchOp representa uma operação em lote aguardando confirmação
 type PendingBatchOp struct {
-	ID          int64        `db:"id"`
-	AccountID   int64        `db:"account_id"`
-	Operation   string       `db:"operation"`    // archive, delete, mark_read, mark_unread
-	Description string       `db:"description"`  // "Arquivar 15 emails de newsletter@example.com"
-	FilterQuery string       `db:"filter_query"` // descrição do filtro
-	EmailIDs    string       `db:"email_ids"`    // JSON array de IDs
+	ID          int64          `db:"id"`
+	AccountID   int64          `db:"account_id"`
+	Operation   string         `db:"operation"`    // archive, delete, mark_read, mark_unread, forward
+	Description string         `db:"description"`  // "Arquivar 15 emails de newsletter@example.com"
+	FilterQuery string         `db:"filter_query"` // descrição do filtro
+	EmailIDs    string         `db:"email_ids"`    // JSON array de IDs
 	EmailCount  int            `db:"email_count"`
+	ForwardTo   sql.NullString `db:"forward_to"`   // For forward operation: recipient email
 	PreviewData sql.NullString `db:"preview_data"` // JSON com preview (pode ser NULL)
 	Status      string         `db:"status"`       // pending, confirmed, cancelled, executed
-	CreatedAt   SQLiteTime   `db:"created_at"`
-	ExecutedAt  sql.NullTime `db:"executed_at"`
+	CreatedAt   SQLiteTime     `db:"created_at"`
+	ExecutedAt  sql.NullTime   `db:"executed_at"`
 }
 
 // EmailPreview para exibição no preview de operações

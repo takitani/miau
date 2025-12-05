@@ -19,6 +19,7 @@ type App interface {
 	Analytics() AnalyticsService
 	Attachment() AttachmentService
 	Thread() ThreadService
+	Undo() UndoService
 
 	// Events
 	Events() EventBus

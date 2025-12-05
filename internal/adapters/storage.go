@@ -704,3 +704,79 @@ func convertStorageDraft(d *storage.Draft) *ports.Draft {
 
 	return draft
 }
+
+// ============================================================================
+// UNDO/REDO OPERATIONS
+// ============================================================================
+
+// SaveOperation saves an operation to the history
+func (a *StorageAdapter) SaveOperation(ctx context.Context, op *ports.OperationRecord) error {
+	var query = `
+		INSERT INTO operations_history (
+			account_id, operation_type, operation_data, description, stack_type, stack_position
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`
+	var _, err = storage.GetDB().ExecContext(ctx, query,
+		op.AccountID,
+		op.OperationType,
+		op.OperationData,
+		op.Description,
+		op.StackType,
+		op.StackPosition,
+	)
+	return err
+}
+
+// RemoveOperation removes an operation from the history
+func (a *StorageAdapter) RemoveOperation(ctx context.Context, accountID int64, stackType, data string) error {
+	var query = `
+		DELETE FROM operations_history
+		WHERE account_id = ? AND stack_type = ? AND operation_data = ?
+		LIMIT 1
+	`
+	var _, err = storage.GetDB().ExecContext(ctx, query, accountID, stackType, data)
+	return err
+}
+
+// GetOperations returns all operations for an account and stack type
+func (a *StorageAdapter) GetOperations(ctx context.Context, accountID int64, stackType string) ([]ports.OperationRecord, error) {
+	var query = `
+		SELECT id, account_id, operation_type, operation_data, description, stack_type, stack_position, created_at
+		FROM operations_history
+		WHERE account_id = ? AND stack_type = ?
+		ORDER BY stack_position DESC
+	`
+
+	var rows, err = storage.GetDB().QueryContext(ctx, query, accountID, stackType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var operations []ports.OperationRecord
+	for rows.Next() {
+		var op ports.OperationRecord
+		if err := rows.Scan(
+			&op.ID,
+			&op.AccountID,
+			&op.OperationType,
+			&op.OperationData,
+			&op.Description,
+			&op.StackType,
+			&op.StackPosition,
+			&op.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		operations = append(operations, op)
+	}
+
+	return operations, rows.Err()
+}
+
+// ClearOperationsHistory clears all undo/redo history for an account
+func (a *StorageAdapter) ClearOperationsHistory(ctx context.Context, accountID int64) error {
+	var query = `DELETE FROM operations_history WHERE account_id = ?`
+	var _, err = storage.GetDB().ExecContext(ctx, query, accountID)
+	return err
+}

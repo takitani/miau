@@ -16,16 +16,18 @@ type EmailService struct {
 	imap    ports.IMAPPort
 	storage ports.StoragePort
 	events  ports.EventBus
+	undo    ports.UndoService
 	account *ports.AccountInfo
 	folder  *ports.Folder
 }
 
 // NewEmailService creates a new EmailService
-func NewEmailService(imap ports.IMAPPort, storage ports.StoragePort, events ports.EventBus) *EmailService {
+func NewEmailService(imap ports.IMAPPort, storage ports.StoragePort, events ports.EventBus, undo ports.UndoService) *EmailService {
 	return &EmailService{
 		imap:    imap,
 		storage: storage,
 		events:  events,
+		undo:    undo,
 	}
 }
 
@@ -179,26 +181,31 @@ func (s *EmailService) GetEmailByUID(ctx context.Context, folder string, uid uin
 
 // MarkAsRead marks an email as read/unread
 func (s *EmailService) MarkAsRead(ctx context.Context, id int64, read bool) error {
-	// Get email to get UID
+	// Get email to get UID and current state
 	var email, err = s.storage.GetEmail(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// Mark on IMAP server
-	if read {
-		if err := s.imap.MarkAsRead(ctx, email.UID); err != nil {
-			return err
-		}
-	} else {
-		if err := s.imap.MarkAsUnread(ctx, email.UID); err != nil {
-			return err
-		}
+	// Create operation for undo/redo
+	var op = NewMarkReadOperation(
+		id,
+		read,
+		email.IsRead, // old state
+		email.Subject,
+		email.UID,
+		s.storage,
+		s.imap,
+	)
+
+	// Execute operation
+	if err := op.Execute(ctx); err != nil {
+		return err
 	}
 
-	// Mark in storage
-	if err := s.storage.MarkAsRead(ctx, id, read); err != nil {
-		return err
+	// Record for undo
+	if s.undo != nil {
+		s.undo.RecordOperation(ctx, op)
 	}
 
 	s.events.Publish(ports.EmailReadEvent{
@@ -212,7 +219,32 @@ func (s *EmailService) MarkAsRead(ctx context.Context, id int64, read bool) erro
 
 // MarkAsStarred marks an email as starred/unstarred
 func (s *EmailService) MarkAsStarred(ctx context.Context, id int64, starred bool) error {
-	return s.storage.MarkAsStarred(ctx, id, starred)
+	// Get email to get current state
+	var email, err = s.storage.GetEmail(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Create operation for undo/redo
+	var op = NewMarkStarredOperation(
+		id,
+		starred,
+		email.IsStarred, // old state
+		email.Subject,
+		s.storage,
+	)
+
+	// Execute operation
+	if err := op.Execute(ctx); err != nil {
+		return err
+	}
+
+	// Record for undo
+	if s.undo != nil {
+		s.undo.RecordOperation(ctx, op)
+	}
+
+	return nil
 }
 
 // Archive archives an email
@@ -222,13 +254,27 @@ func (s *EmailService) Archive(ctx context.Context, id int64) error {
 		return err
 	}
 
-	// Archive on IMAP
-	if err := s.imap.Archive(ctx, email.UID); err != nil {
+	// Create operation for undo/redo
+	var op = NewArchiveOperation(
+		id,
+		email.Subject,
+		email.UID,
+		false, // wasArchived (we're archiving now, so it wasn't before)
+		s.storage,
+		s.imap,
+	)
+
+	// Execute operation
+	if err := op.Execute(ctx); err != nil {
 		return err
 	}
 
-	// Mark as archived in storage
-	return s.storage.MarkAsArchived(ctx, id, true)
+	// Record for undo
+	if s.undo != nil {
+		s.undo.RecordOperation(ctx, op)
+	}
+
+	return nil
 }
 
 // Delete marks an email as deleted
@@ -238,13 +284,27 @@ func (s *EmailService) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 
-	// Delete on IMAP
-	if err := s.imap.Delete(ctx, email.UID); err != nil {
+	// Create operation for undo/redo
+	var op = NewDeleteOperation(
+		id,
+		email.Subject,
+		email.UID,
+		false, // wasDeleted (we're deleting now, so it wasn't before)
+		s.storage,
+		s.imap,
+	)
+
+	// Execute operation
+	if err := op.Execute(ctx); err != nil {
 		return err
 	}
 
-	// Mark as deleted in storage
-	return s.storage.MarkAsDeleted(ctx, id, true)
+	// Record for undo
+	if s.undo != nil {
+		s.undo.RecordOperation(ctx, op)
+	}
+
+	return nil
 }
 
 // MoveToFolder moves an email to another folder
@@ -254,7 +314,28 @@ func (s *EmailService) MoveToFolder(ctx context.Context, id int64, folder string
 		return err
 	}
 
-	return s.imap.MoveToFolder(ctx, email.UID, folder)
+	// Create operation for undo/redo
+	var op = NewMoveOperation(
+		id,
+		email.Subject,
+		email.FolderName, // from folder
+		folder,           // to folder
+		email.UID,
+		s.storage,
+		s.imap,
+	)
+
+	// Execute operation
+	if err := op.Execute(ctx); err != nil {
+		return err
+	}
+
+	// Record for undo
+	if s.undo != nil {
+		s.undo.RecordOperation(ctx, op)
+	}
+
+	return nil
 }
 
 // Sync syncs emails for a folder

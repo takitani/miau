@@ -246,6 +246,20 @@ func (a *IMAPAdapter) Delete(ctx context.Context, uid uint32) error {
 	return client.TrashEmail(uid, trashFolder)
 }
 
+// Undelete undeletes an email (moves from trash back to INBOX)
+func (a *IMAPAdapter) Undelete(ctx context.Context, uid uint32) error {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return ErrNotConnected
+	}
+
+	// Move from trash back to INBOX
+	return client.MoveToFolder(uid, "INBOX")
+}
+
 // GetTrashFolder returns the trash folder name
 func (a *IMAPAdapter) GetTrashFolder() string {
 	a.mu.RLock()

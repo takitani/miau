@@ -43,6 +43,7 @@ type Application struct {
 	analyticsService  *services.AnalyticsService
 	attachmentService *services.AttachmentServicePort
 	threadService     *services.ThreadService
+	undoService       *services.UndoServiceImpl
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -114,11 +115,15 @@ func (a *Application) Start() error {
 	}
 	a.accountInfo = accountInfo
 
+	// Create undo service first (needed by other services)
+	a.undoService = services.NewUndoService(a.storageAdapter, a.imapAdapter)
+	a.undoService.SetAccount(accountInfo)
+
 	// Create services
 	a.syncService = services.NewSyncService(a.imapAdapter, a.storageAdapter, a.eventBus)
 	a.syncService.SetAccount(accountInfo)
 
-	a.emailService = services.NewEmailService(a.imapAdapter, a.storageAdapter, a.eventBus)
+	a.emailService = services.NewEmailService(a.imapAdapter, a.storageAdapter, a.eventBus, a.undoService)
 	a.emailService.SetAccount(accountInfo)
 
 	// IMPORTANT: We must explicitly check for nil before assigning to interface
@@ -232,6 +237,11 @@ func (a *Application) Attachment() ports.AttachmentService {
 // Thread returns the thread service
 func (a *Application) Thread() ports.ThreadService {
 	return a.threadService
+}
+
+// Undo returns the undo service
+func (a *Application) Undo() ports.UndoService {
+	return a.undoService
 }
 
 // Events returns the event bus

@@ -1705,6 +1705,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case undoCompleteMsg:
+		if msg.success {
+			m.log("✅ %s", msg.description)
+			m.aiResponse = infoStyle.Render(msg.description)
+			// Recarrega emails para refletir mudanças
+			return m, m.loadEmailsFromDB()
+		} else {
+			m.log("⚠️ %s", msg.description)
+			m.aiResponse = errorStyle.Render(msg.description)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Primeiro verifica se há alerta overlay aberto
 		if m.showAlert && len(m.alerts) > 0 {
@@ -2330,6 +2342,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.state = stateSyncing
 			return m, m.syncEmails()
+
+		case "ctrl+z":
+			// Undo
+			return m, m.performUndo()
+
+		case "ctrl+y":
+			// Redo
+			return m, m.performRedo()
 
 		case "a":
 			// AI geral (sem contexto de email)
@@ -4799,4 +4819,66 @@ func (m Model) viewDraftsPanel(baseView string) string {
 	var modal = panelStyle.Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// performUndo performs an undo operation
+func (m Model) performUndo() tea.Cmd {
+	return func() tea.Msg {
+		var ctx = context.Background()
+		var undo = m.app.Undo()
+
+		if !undo.CanUndo(ctx) {
+			return undoCompleteMsg{
+				success:     false,
+				description: "Nada para desfazer",
+			}
+		}
+
+		var description = undo.GetUndoDescription(ctx)
+		if err := undo.Undo(ctx); err != nil {
+			return undoCompleteMsg{
+				success:     false,
+				description: fmt.Sprintf("Erro ao desfazer: %v", err),
+			}
+		}
+
+		return undoCompleteMsg{
+			success:     true,
+			description: fmt.Sprintf("Desfeito: %s", description),
+		}
+	}
+}
+
+// performRedo performs a redo operation
+func (m Model) performRedo() tea.Cmd {
+	return func() tea.Msg {
+		var ctx = context.Background()
+		var undo = m.app.Undo()
+
+		if !undo.CanRedo(ctx) {
+			return undoCompleteMsg{
+				success:     false,
+				description: "Nada para refazer",
+			}
+		}
+
+		var description = undo.GetRedoDescription(ctx)
+		if err := undo.Redo(ctx); err != nil {
+			return undoCompleteMsg{
+				success:     false,
+				description: fmt.Sprintf("Erro ao refazer: %v", err),
+			}
+		}
+
+		return undoCompleteMsg{
+			success:     true,
+			description: fmt.Sprintf("Refeito: %s", description),
+		}
+	}
+}
+
+// undoCompleteMsg is sent when an undo/redo operation completes
+type undoCompleteMsg struct {
+	success     bool
+	description string
 }

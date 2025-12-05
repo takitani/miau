@@ -1,5 +1,7 @@
 package ports
 
+import "context"
+
 // App is the main application interface that UI layers use.
 // It provides access to all services and manages the application lifecycle.
 type App interface {
@@ -20,6 +22,7 @@ type App interface {
 	Attachment() AttachmentService
 	Thread() ThreadService
 	Undo() UndoService
+	Plugins() PluginService
 
 	// Events
 	Events() EventBus
@@ -33,6 +36,44 @@ type App interface {
 
 	// SetIMAPClient sets an external IMAP client (for TUI to share connection)
 	SetIMAPClient(client interface{})
+}
+
+// PluginService provides high-level plugin operations
+type PluginService interface {
+	// Plugin listing
+	ListPlugins(ctx context.Context) ([]PluginWithState, error)
+
+	// Lifecycle
+	EnablePlugin(ctx context.Context, pluginID PluginID) error
+	DisablePlugin(ctx context.Context, pluginID PluginID) error
+	ConnectPlugin(ctx context.Context, pluginID PluginID) error
+	DisconnectPlugin(ctx context.Context, pluginID PluginID) error
+
+	// State
+	GetPluginState(ctx context.Context, pluginID PluginID) (*PluginState, error)
+
+	// OAuth2
+	GetAuthURL(ctx context.Context, pluginID PluginID, state string) (string, error)
+	HandleAuthCallback(ctx context.Context, pluginID PluginID, code string) error
+
+	// Data access
+	ListProjects(ctx context.Context, pluginID PluginID) ([]ExternalProject, error)
+	ListTasks(ctx context.Context, pluginID PluginID, projectID string, opts TaskListOptions) ([]ExternalTask, error)
+	ListMessages(ctx context.Context, pluginID PluginID, projectID string, opts MessageListOptions) ([]ExternalMessage, error)
+	GetExternalItems(ctx context.Context, pluginID PluginID, query ExternalItemQuery) ([]ExternalItem, error)
+
+	// Sync
+	SyncPlugin(ctx context.Context, pluginID PluginID) (*SyncResult, error)
+
+	// Task operations
+	CreateTask(ctx context.Context, pluginID PluginID, task ExternalTaskCreate) (*ExternalTask, error)
+	CompleteTask(ctx context.Context, pluginID PluginID, taskID string) error
+}
+
+// PluginWithState combines plugin info with its current state
+type PluginWithState struct {
+	Info  PluginInfo   `json:"info"`
+	State *PluginState `json:"state,omitempty"`
 }
 
 // AppConfig contains application configuration

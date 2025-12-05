@@ -10,6 +10,7 @@ import (
 	"github.com/opik/miau/internal/adapters"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/imap"
+	"github.com/opik/miau/internal/plugins/basecamp"
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/storage"
@@ -44,6 +45,11 @@ type Application struct {
 	attachmentService *services.AttachmentServicePort
 	threadService     *services.ThreadService
 	undoService       *services.UndoServiceImpl
+
+	// Plugin system
+	pluginStorage  *storage.PluginStorage
+	pluginRegistry *services.PluginRegistry
+	pluginService  *services.PluginService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -163,6 +169,15 @@ func (a *Application) Start() error {
 	a.threadService.SetAccount(accountInfo)
 	a.threadService.SetEmailService(a.emailService)
 
+	// Initialize plugin system
+	a.pluginStorage = storage.NewPluginStorage()
+	a.pluginRegistry = services.NewPluginRegistry(a.pluginStorage)
+	a.pluginService = services.NewPluginService(a.pluginRegistry, a.pluginStorage, a.eventBus)
+	a.pluginService.SetAccount(accountInfo)
+
+	// Register built-in plugins
+	a.pluginRegistry.Register(basecamp.New())
+
 	a.started = true
 	return nil
 }
@@ -243,6 +258,11 @@ func (a *Application) Thread() ports.ThreadService {
 // Undo returns the undo service
 func (a *Application) Undo() ports.UndoService {
 	return a.undoService
+}
+
+// Plugins returns the plugin service
+func (a *Application) Plugins() ports.PluginService {
+	return a.pluginService
 }
 
 // Events returns the event bus

@@ -474,6 +474,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração forward_to: %w", err)
 	}
 
+	// Migração: tabelas de plugins
+	if err := InitPluginTables(); err != nil {
+		return fmt.Errorf("erro na migração plugins: %w", err)
+	}
+
 	return nil
 }
 

@@ -50,6 +50,10 @@ const (
 	EventTypeIndexStarted   EventType = "index_started"
 	EventTypeIndexProgress  EventType = "index_progress"
 	EventTypeIndexCompleted EventType = "index_completed"
+
+	// Thread events
+	EventTypeThreadMarkedRead   EventType = "thread_marked_read"
+	EventTypeThreadMarkedUnread EventType = "thread_marked_unread"
 )
 
 // BaseEvent provides common event fields
@@ -139,6 +143,19 @@ type IndexProgressEvent struct {
 	BaseEvent
 	Current int
 	Total   int
+}
+
+// ThreadMarkedReadEvent is emitted when a thread is marked as read
+type ThreadMarkedReadEvent struct {
+	BaseEvent
+	ThreadID string
+	Count    int // number of messages marked as read
+}
+
+// ThreadMarkedUnreadEvent is emitted when a thread is marked as unread
+type ThreadMarkedUnreadEvent struct {
+	BaseEvent
+	ThreadID string
 }
 
 // EventHandler is a function that handles events

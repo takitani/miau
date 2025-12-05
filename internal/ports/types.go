@@ -224,6 +224,33 @@ type BounceInfo struct {
 }
 
 // ============================================================================
+// THREADING TYPES
+// ============================================================================
+
+// Thread represents a complete email conversation/thread
+type Thread struct {
+	ThreadID     string
+	Subject      string
+	Participants []string
+	MessageCount int
+	Messages     []EmailContent // Ordered DESC by date (newest first)
+	IsRead       bool           // All messages read?
+}
+
+// ThreadSummary contains thread metadata for inbox display
+type ThreadSummary struct {
+	ThreadID        string
+	Subject         string
+	LastSender      string
+	LastSenderEmail string
+	LastDate        time.Time
+	MessageCount    int
+	UnreadCount     int
+	HasAttachments  bool
+	Participants    []string
+}
+
+// ============================================================================
 // ANALYTICS TYPES
 // ============================================================================
 

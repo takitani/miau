@@ -18,6 +18,7 @@ type App interface {
 	AI() AIService
 	Analytics() AnalyticsService
 	Attachment() AttachmentService
+	Thread() ThreadService
 
 	// Events
 	Events() EventBus

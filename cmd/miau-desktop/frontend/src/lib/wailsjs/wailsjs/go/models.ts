@@ -268,6 +268,125 @@ export namespace desktop {
 		    return a;
 		}
 	}
+	export class ContactPhoneDTO {
+	    phone: string;
+	    type?: string;
+	    isPrimary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContactPhoneDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phone = source["phone"];
+	        this.type = source["type"];
+	        this.isPrimary = source["isPrimary"];
+	    }
+	}
+	export class ContactEmailDTO {
+	    email: string;
+	    type?: string;
+	    isPrimary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContactEmailDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
+	        this.type = source["type"];
+	        this.isPrimary = source["isPrimary"];
+	    }
+	}
+	export class ContactDTO {
+	    id: number;
+	    displayName: string;
+	    givenName?: string;
+	    familyName?: string;
+	    photoUrl?: string;
+	    photoPath?: string;
+	    isStarred: boolean;
+	    interactionCount: number;
+	    emails: ContactEmailDTO[];
+	    phones?: ContactPhoneDTO[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ContactDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.displayName = source["displayName"];
+	        this.givenName = source["givenName"];
+	        this.familyName = source["familyName"];
+	        this.photoUrl = source["photoUrl"];
+	        this.photoPath = source["photoPath"];
+	        this.isStarred = source["isStarred"];
+	        this.interactionCount = source["interactionCount"];
+	        this.emails = this.convertValues(source["emails"], ContactEmailDTO);
+	        this.phones = this.convertValues(source["phones"], ContactPhoneDTO);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ContactSyncStatusDTO {
+	    totalContacts: number;
+	    // Go type: time
+	    lastSync?: any;
+	    status: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContactSyncStatusDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalContacts = source["totalContacts"];
+	        this.lastSync = this.convertValues(source["lastSync"], null);
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class DraftDTO {
 	    id?: number;
@@ -544,6 +663,120 @@ export namespace desktop {
 	        this.newEmails = source["newEmails"];
 	        this.deletedEmails = source["deletedEmails"];
 	    }
+	}
+	export class TaskCountsDTO {
+	    pending: number;
+	    completed: number;
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskCountsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pending = source["pending"];
+	        this.completed = source["completed"];
+	        this.total = source["total"];
+	    }
+	}
+	export class TaskDTO {
+	    id: number;
+	    accountId: number;
+	    title: string;
+	    description?: string;
+	    isCompleted: boolean;
+	    priority: number;
+	    // Go type: time
+	    dueDate?: any;
+	    emailId?: number;
+	    source: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.accountId = source["accountId"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.isCompleted = source["isCompleted"];
+	        this.priority = source["priority"];
+	        this.dueDate = this.convertValues(source["dueDate"], null);
+	        this.emailId = source["emailId"];
+	        this.source = source["source"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskInputDTO {
+	    id?: number;
+	    title: string;
+	    description?: string;
+	    isCompleted: boolean;
+	    priority: number;
+	    // Go type: time
+	    dueDate?: any;
+	    emailId?: number;
+	    source?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskInputDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.isCompleted = source["isCompleted"];
+	        this.priority = source["priority"];
+	        this.dueDate = this.convertValues(source["dueDate"], null);
+	        this.emailId = source["emailId"];
+	        this.source = source["source"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ThreadEmailDTO {
 	    id: number;

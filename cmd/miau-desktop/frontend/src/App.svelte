@@ -12,11 +12,14 @@
   import AnalyticsPanel from './lib/components/AnalyticsPanel.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
   import SelectionBar from './lib/components/SelectionBar.svelte';
+  import ModernSidebar from './lib/components/ModernSidebar.svelte';
+  import LayoutToggle from './lib/components/LayoutToggle.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
   import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders, showThreadView, threadEmailId, closeThreadView } from './lib/stores/ui.js';
   import ThreadView from './lib/components/ThreadView.svelte';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
+  import { layoutMode, initLayoutPreferences } from './lib/stores/layout.js';
 
   // Get email context for AI
   $: emailContext = $aiWithContext && $selectedEmail ? $selectedEmail : null;
@@ -109,6 +112,7 @@
   // Initialize app
   onMount(async () => {
     loadPanelSizes();
+    initLayoutPreferences();
 
     info('App initializing...');
     setupKeyboardShortcuts();
@@ -154,60 +158,117 @@
     <SettingsModal />
   {/if}
 
-  <div class="layout">
-    <!-- Folders Panel -->
-    <aside class="folders-panel" class:active={$activePanel === 'folders'} style="width: {foldersWidth}px">
-      <FolderList />
-    </aside>
+  {#if $layoutMode === 'modern'}
+    <!-- Modern Layout: Sidebar + 2 Panels -->
+    <div class="layout modern">
+      <!-- Modern Sidebar with Tasks, AI, Folders -->
+      <ModernSidebar folders={$folders} selectedFolder={$currentFolder} on:select />
 
-    <!-- Divider 1: Folders | Emails -->
-    <div
-      class="divider"
-      class:dragging={draggingDivider === 'folders'}
-      on:mousedown={(e) => startDrag('folders', e)}
-      on:dblclick={() => resetDivider('folders')}
-      role="separator"
-      aria-orientation="vertical"
-      tabindex="0"
-      title="Arrastar para redimensionar (duplo-clique para resetar)"
-    ></div>
+      <!-- Divider: Sidebar | Emails -->
+      <div
+        class="divider"
+        class:dragging={draggingDivider === 'emails'}
+        on:mousedown={(e) => startDrag('emails', e)}
+        on:dblclick={() => resetDivider('emails')}
+        role="separator"
+        aria-orientation="vertical"
+        tabindex="0"
+        title="Arrastar para redimensionar (duplo-clique para resetar)"
+      ></div>
 
-    <!-- Email List Panel -->
-    <section class="emails-panel" class:active={$activePanel === 'emails'} style="width: {emailsWidth}px">
-      <EmailList />
-    </section>
+      <!-- Email List Panel -->
+      <section class="emails-panel" class:active={$activePanel === 'emails'} style="width: {emailsWidth}px">
+        <EmailList />
+      </section>
 
-    <!-- Divider 2: Emails | Viewer -->
-    <div
-      class="divider"
-      class:dragging={draggingDivider === 'emails'}
-      on:mousedown={(e) => startDrag('emails', e)}
-      on:dblclick={() => resetDivider('emails')}
-      role="separator"
-      aria-orientation="vertical"
-      tabindex="0"
-      title="Arrastar para redimensionar (duplo-clique para resetar)"
-    ></div>
+      <!-- Divider 2: Emails | Viewer -->
+      <div
+        class="divider"
+        class:dragging={draggingDivider === 'viewer'}
+        on:mousedown={(e) => startDrag('viewer', e)}
+        on:dblclick={() => resetDivider('viewer')}
+        role="separator"
+        aria-orientation="vertical"
+        tabindex="0"
+        title="Arrastar para redimensionar (duplo-clique para resetar)"
+      ></div>
 
-    <!-- Email Viewer Panel / Analytics Panel / Thread View -->
-    <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
-      {#if $showThreadView && $threadEmailId}
-        <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
-      {:else if $showAnalytics}
-        <AnalyticsPanel />
-      {:else if $selectedEmail}
-        <EmailViewer email={$selectedEmail} />
-      {:else}
-        <div class="empty-state">
-          <p>Selecione um email para visualizar</p>
-          <p class="hint">Use j/k para navegar, Enter ou t para thread, p para analytics</p>
-        </div>
-      {/if}
-    </section>
-  </div>
+      <!-- Email Viewer Panel / Analytics Panel / Thread View -->
+      <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
+        {#if $showThreadView && $threadEmailId}
+          <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
+        {:else if $showAnalytics}
+          <AnalyticsPanel />
+        {:else if $selectedEmail}
+          <EmailViewer email={$selectedEmail} />
+        {:else}
+          <div class="empty-state">
+            <p>Selecione um email para visualizar</p>
+            <p class="hint">Use j/k para navegar, Enter ou t para thread, p para analytics</p>
+          </div>
+        {/if}
+      </section>
+    </div>
+  {:else}
+    <!-- Legacy Layout: 3 Panels (Folders | Emails | Viewer) -->
+    <div class="layout legacy">
+      <!-- Folders Panel -->
+      <aside class="folders-panel" class:active={$activePanel === 'folders'} style="width: {foldersWidth}px">
+        <FolderList />
+      </aside>
+
+      <!-- Divider 1: Folders | Emails -->
+      <div
+        class="divider"
+        class:dragging={draggingDivider === 'folders'}
+        on:mousedown={(e) => startDrag('folders', e)}
+        on:dblclick={() => resetDivider('folders')}
+        role="separator"
+        aria-orientation="vertical"
+        tabindex="0"
+        title="Arrastar para redimensionar (duplo-clique para resetar)"
+      ></div>
+
+      <!-- Email List Panel -->
+      <section class="emails-panel" class:active={$activePanel === 'emails'} style="width: {emailsWidth}px">
+        <EmailList />
+      </section>
+
+      <!-- Divider 2: Emails | Viewer -->
+      <div
+        class="divider"
+        class:dragging={draggingDivider === 'emails'}
+        on:mousedown={(e) => startDrag('emails', e)}
+        on:dblclick={() => resetDivider('emails')}
+        role="separator"
+        aria-orientation="vertical"
+        tabindex="0"
+        title="Arrastar para redimensionar (duplo-clique para resetar)"
+      ></div>
+
+      <!-- Email Viewer Panel / Analytics Panel / Thread View -->
+      <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
+        {#if $showThreadView && $threadEmailId}
+          <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
+        {:else if $showAnalytics}
+          <AnalyticsPanel />
+        {:else if $selectedEmail}
+          <EmailViewer email={$selectedEmail} />
+        {:else}
+          <div class="empty-state">
+            <p>Selecione um email para visualizar</p>
+            <p class="hint">Use j/k para navegar, Enter ou t para thread, p para analytics</p>
+          </div>
+        {/if}
+      </section>
+    </div>
+  {/if}
 
   <!-- Status Bar -->
   <StatusBar />
+
+  <!-- Layout Toggle (floating bottom-right) -->
+  <LayoutToggle />
 
   <!-- Selection Bar (floating at bottom when emails selected) -->
   <SelectionBar />
@@ -307,5 +368,23 @@
     font-size: 0.875rem;
     margin-top: 0.5rem;
     opacity: 0.7;
+  }
+
+  /* Modern layout transitions */
+  .layout.modern {
+    animation: fadeIn 200ms ease;
+  }
+
+  .layout.legacy {
+    animation: fadeIn 200ms ease;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0.8;
+    }
+    to {
+      opacity: 1;
+    }
   }
 </style>

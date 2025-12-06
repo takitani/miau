@@ -18,8 +18,11 @@
 - **Local-First Architecture** - All emails stored in SQLite, works offline, your data stays on your machine
 - **Fuzzy Search** - Fast trigram-based full-text search across all emails
 - **Terminal UI** - Beautiful TUI built with Bubble Tea, vim-style keybindings
+- **Desktop App** - Modern GUI with Wails + Svelte (3-panel layout, threads, multi-select)
 - **Multi-Account** - Support for Gmail, Google Workspace, and any IMAP provider
 - **Gmail Integration** - OAuth2 authentication, Gmail API for sending (bypasses DLP)
+- **Contact Sync** - Sync contacts from Google People API with autocomplete in compose
+- **Thread View** - Gmail-style conversation view with collapsible messages
 
 ## Why "miau"?
 
@@ -77,6 +80,16 @@
 - [x] Login with password/App Password
 - [x] OAuth2 for Gmail/Google Workspace
 - [x] `miau auth` command for token management
+
+### Desktop App (Wails + Svelte)
+- [x] 3-panel layout (folders, emails, viewer)
+- [x] Thread view with collapsible messages
+- [x] Multi-select with batch operations
+- [x] Contact sync from Google People API
+- [x] Contact autocomplete in compose
+- [x] Analytics dashboard
+- [x] Settings modal
+- [x] Undo/Redo for email operations
 
 ### AI Integration (via Claude Code)
 - [x] Integrated chat in TUI (press `a`)
@@ -139,6 +152,7 @@ go build ./cmd/miau/
 
 ## Usage
 
+### Terminal UI (TUI)
 ```bash
 # Run main TUI
 miau
@@ -151,6 +165,18 @@ miau auth
 
 # Show configured signature
 miau signature
+```
+
+### Desktop App
+```bash
+cd cmd/miau-desktop
+
+# Development mode (hot reload)
+wails dev --devtools
+
+# Build production binary
+wails build
+./build/bin/miau-desktop
 ```
 
 ### Keyboard Shortcuts

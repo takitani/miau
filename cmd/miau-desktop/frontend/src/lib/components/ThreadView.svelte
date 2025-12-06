@@ -2,6 +2,8 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import ThreadMessage from './ThreadMessage.svelte';
   import ThreadMinimap from './ThreadMinimap.svelte';
+  import ThreadTimeline from './ThreadTimeline.svelte';
+  import { layoutMode } from '../stores/layout.js';
 
   export var emailId;
 
@@ -301,15 +303,25 @@
         {/each}
       </div>
 
-      <!-- Minimap -->
+      <!-- Minimap / Timeline (based on layout mode) -->
       {#if showMinimap}
-        <ThreadMinimap
-          messages={thread.messages}
-          {selectedIndex}
-          {participantColors}
-          {scrollProgress}
-          on:navigate={(e) => navigateToMessage(e.detail.index)}
-        />
+        {#if $layoutMode === 'modern'}
+          <ThreadTimeline
+            messages={thread.messages}
+            {selectedIndex}
+            {participantColors}
+            {scrollProgress}
+            on:navigate={(e) => navigateToMessage(e.detail.index)}
+          />
+        {:else}
+          <ThreadMinimap
+            messages={thread.messages}
+            {selectedIndex}
+            {participantColors}
+            {scrollProgress}
+            on:navigate={(e) => navigateToMessage(e.detail.index)}
+          />
+        {/if}
       {/if}
     </div>
 

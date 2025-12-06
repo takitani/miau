@@ -12,10 +12,12 @@ Roadmap de desenvolvimento do miau com status visual de progresso.
 Core Features     [████████████████████████] 100%
 Email Sending     [████████████████████████] 100%
 TUI Interface     [██████████████████████░░] 90%
-Desktop App       [████████████████████░░░░] 80%
+Desktop App       [██████████████████████░░] 92%
 AI Integration    [████████████████░░░░░░░░] 65%
 Modular Arch      [████████████████████████] 100%
-Advanced Features [████████░░░░░░░░░░░░░░░░] 30%
+Contacts System   [████████████████████████] 100%
+Tasks System      [████████████████████░░░░] 80%
+Advanced Features [████████████░░░░░░░░░░░░] 45%
 ```
 
 ---
@@ -47,6 +49,13 @@ Advanced Features [████████░░░░░░░░░░░░�
 | ✅ Arquitetura Modular (Ports/Adapters) | 2024-12-04 | `033e6a6` |
 | ✅ Auto-refresh com timer visual | 2024-12-04 | pending |
 | ✅ Sync logs para contagem correta | 2024-12-04 | pending |
+| ✅ Multi-select com batch operations | 2024-12-05 | `9d44fda` |
+| ✅ Gmail thread sync (API) | 2024-12-05 | `00f9c14` |
+| ✅ Contacts system + Google People API | 2024-12-05 | `1e3eca6` |
+| ✅ Contact autocomplete no compose | 2024-12-06 | `6a0be8d` |
+| ✅ Tasks system (desktop) | 2024-12-06 | pending |
+| ✅ OtherContacts sync (Gmail auto-suggest) | 2024-12-06 | `6a0be8d` |
+| ✅ SQLite busy_timeout fix | 2024-12-06 | pending |
 
 ---
 
@@ -71,12 +80,12 @@ Advanced Features [████████░░░░░░░░░░░░�
 ```
 ┌─ QUEUE ─────────────────────────────────────────────────────────┐
 │                                                                 │
-│  1. [ ] Multi-Select                                            │
-│         └─ Space/Shift para selecionar múltiplos emails         │
+│  1. [x] Multi-Select ✅                                         │
+│         └─ Shift+Click, Ctrl+Click para selecionar              │
 │         └─ Batch actions: archive, delete, mark read            │
-│         └─ Ver: IDEAS.md#multi-select--mouse-support            │
+│         └─ Implementado no Desktop                              │
 │                                                                 │
-│  2. [ ] Mouse Support                                           │
+│  2. [ ] Mouse Support (TUI)                                     │
 │         └─ Click, scroll, double-click, context menu            │
 │         └─ Bubble Tea: WithMouseCellMotion()                    │
 │         └─ Ver: IDEAS.md#multi-select--mouse-support            │
@@ -95,13 +104,18 @@ Advanced Features [████████░░░░░░░░░░░░�
 │         └─ Comandos rápidos estilo Slack                        │
 │         └─ Ver: IDEAS.md#quick-commands                         │
 │                                                                 │
-│  6. [ ] Attachments                                             │
-│         └─ Listar, baixar, salvar anexos                        │
-│         └─ Ver: IDEAS.md#attachments                            │
+│  6. [x] Attachments ✅                                          │
+│         └─ Listar, baixar, salvar, abrir anexos                 │
+│         └─ Implementado no Desktop                              │
 │                                                                 │
-│  7. [ ] Threading/Conversas                                     │
-│         └─ Agrupar emails por thread                            │
-│         └─ Ver: IDEAS.md#email-threading--conversations         │
+│  7. [x] Threading/Conversas ✅                                  │
+│         └─ Gmail thread sync via API                            │
+│         └─ Thread view com timeline colapsável                  │
+│         └─ Implementado no Desktop                              │
+│                                                                 │
+│  8. [x] Contact Autocomplete ✅                                 │
+│         └─ Sync Google People API                               │
+│         └─ Search + autocomplete no compose                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -229,4 +243,4 @@ Nov 2024                              Dez 2024
 
 ---
 
-*Última atualização: 2025-12-04*
+*Última atualização: 2025-12-06*

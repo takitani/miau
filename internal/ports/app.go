@@ -22,6 +22,8 @@ type App interface {
 	Attachment() AttachmentService
 	Thread() ThreadService
 	Undo() UndoService
+	Contacts() ContactService
+	Tasks() TaskService
 
 	// Events
 	Events() EventBus

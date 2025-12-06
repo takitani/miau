@@ -425,6 +425,28 @@ CREATE TABLE IF NOT EXISTS contacts_sync_state (
 	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
+
+-- Tabela de tarefas (tasks para sidebar modern)
+CREATE TABLE IF NOT EXISTS tasks (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	title TEXT NOT NULL,
+	description TEXT,
+	is_completed BOOLEAN DEFAULT 0,
+	priority INTEGER DEFAULT 0, -- 0=normal, 1=high, 2=urgent
+	due_date DATETIME,
+	email_id INTEGER, -- link opcional com email
+	source TEXT NOT NULL DEFAULT 'manual', -- 'manual', 'ai_suggestion'
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(account_id, is_completed);
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(account_id, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_email ON tasks(email_id);
 `
 
 func Init(dbPath string) error {
@@ -434,7 +456,7 @@ func Init(dbPath string) error {
 	}
 
 	var err error
-	db, err = sqlx.Connect("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	db, err = sqlx.Connect("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return fmt.Errorf("erro ao conectar ao banco: %w", err)
 	}

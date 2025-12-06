@@ -46,12 +46,20 @@ export function Connect() {
   return window['go']['desktop']['App']['Connect']();
 }
 
+export function CreateTask(arg1) {
+  return window['go']['desktop']['App']['CreateTask'](arg1);
+}
+
 export function Delete(arg1) {
   return window['go']['desktop']['App']['Delete'](arg1);
 }
 
 export function DeleteDraft(arg1) {
   return window['go']['desktop']['App']['DeleteDraft'](arg1);
+}
+
+export function DeleteTask(arg1) {
+  return window['go']['desktop']['App']['DeleteTask'](arg1);
 }
 
 export function Disconnect() {
@@ -94,6 +102,10 @@ export function GetConnectionStatus() {
   return window['go']['desktop']['App']['GetConnectionStatus']();
 }
 
+export function GetContactSyncStatus() {
+  return window['go']['desktop']['App']['GetContactSyncStatus']();
+}
+
 export function GetCurrentAccount() {
   return window['go']['desktop']['App']['GetCurrentAccount']();
 }
@@ -126,12 +138,24 @@ export function GetFolders() {
   return window['go']['desktop']['App']['GetFolders']();
 }
 
+export function GetPendingTasks() {
+  return window['go']['desktop']['App']['GetPendingTasks']();
+}
+
 export function GetSettings() {
   return window['go']['desktop']['App']['GetSettings']();
 }
 
 export function GetSignature() {
   return window['go']['desktop']['App']['GetSignature']();
+}
+
+export function GetTaskCounts() {
+  return window['go']['desktop']['App']['GetTaskCounts']();
+}
+
+export function GetTasks() {
+  return window['go']['desktop']['App']['GetTasks']();
 }
 
 export function GetThread(arg1) {
@@ -148,6 +172,10 @@ export function GetThreadMessageCount(arg1) {
 
 export function GetThreadSummary(arg1) {
   return window['go']['desktop']['App']['GetThreadSummary'](arg1);
+}
+
+export function GetTopContacts(arg1) {
+  return window['go']['desktop']['App']['GetTopContacts'](arg1);
 }
 
 export function GetTopSenders(arg1, arg2) {
@@ -234,6 +262,10 @@ export function Search(arg1, arg2) {
   return window['go']['desktop']['App']['Search'](arg1, arg2);
 }
 
+export function SearchContacts(arg1, arg2) {
+  return window['go']['desktop']['App']['SearchContacts'](arg1, arg2);
+}
+
 export function SearchInFolder(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['SearchInFolder'](arg1, arg2, arg3);
 }
@@ -266,6 +298,10 @@ export function SwitchToTerminal() {
   return window['go']['desktop']['App']['SwitchToTerminal']();
 }
 
+export function SyncContacts(arg1) {
+  return window['go']['desktop']['App']['SyncContacts'](arg1);
+}
+
 export function SyncCurrentFolder() {
   return window['go']['desktop']['App']['SyncCurrentFolder']();
 }
@@ -282,6 +318,14 @@ export function SyncThreadsFromGmail() {
   return window['go']['desktop']['App']['SyncThreadsFromGmail']();
 }
 
+export function ToggleTaskComplete(arg1) {
+  return window['go']['desktop']['App']['ToggleTaskComplete'](arg1);
+}
+
 export function Undo() {
   return window['go']['desktop']['App']['Undo']();
+}
+
+export function UpdateTask(arg1) {
+  return window['go']['desktop']['App']['UpdateTask'](arg1);
 }

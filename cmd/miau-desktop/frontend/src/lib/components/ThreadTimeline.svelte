@@ -1,0 +1,366 @@
+<script>
+  import { createEventDispatcher } from 'svelte';
+
+  export var messages = [];
+  export var selectedIndex = 0;
+  export var participantColors = {};
+  export var scrollProgress = 0; // 0-1 representing scroll position
+
+  var dispatch = createEventDispatcher();
+
+  // High-contrast color palette for participants
+  var distinctColors = [
+    '#e74c3c', // Red
+    '#3498db', // Blue
+    '#2ecc71', // Green
+    '#9b59b6', // Purple
+    '#f39c12', // Orange
+    '#1abc9c', // Teal
+    '#e91e63', // Pink
+    '#00bcd4', // Cyan
+    '#ff5722', // Deep Orange
+    '#8bc34a', // Light Green
+  ];
+
+  // Build a map of emails to distinct colors
+  $: participantList = [...new Set(messages.map(m => m.fromEmail))];
+  $: colorMap = participantList.reduce((acc, email, i) => {
+    acc[email] = distinctColors[i % distinctColors.length];
+    return acc;
+  }, {});
+
+  // Calculate avatar positions with even spacing
+  $: avatarPositions = messages.map((_, i) => {
+    return (i / Math.max(1, messages.length - 1)) * 100;
+  });
+
+  function handleAvatarClick(index) {
+    dispatch('navigate', { index });
+  }
+
+  function handleTrackClick(e) {
+    var rect = e.currentTarget.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var percentage = y / rect.height;
+    var index = Math.round(percentage * (messages.length - 1));
+    index = Math.max(0, Math.min(messages.length - 1, index));
+    dispatch('navigate', { index });
+  }
+
+  // Get participant initials (2 letters)
+  function getInitials(name) {
+    if (!name) return '??';
+    var parts = name.trim().split(/\s+/);
+    if (parts.length >= 2)
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  }
+
+  // Format relative time
+  function formatRelativeTime(date) {
+    var now = new Date();
+    var msgDate = new Date(date);
+    var diff = now - msgDate;
+    var minutes = Math.floor(diff / 60000);
+    var hours = Math.floor(diff / 3600000);
+    var days = Math.floor(diff / 86400000);
+
+    if (minutes < 60) return minutes + 'm';
+    if (hours < 24) return hours + 'h';
+    if (days < 7) return days + 'd';
+    return msgDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  }
+</script>
+
+<aside class="timeline">
+  <!-- Header with count -->
+  <div class="timeline-header">
+    <span class="count">{messages.length}</span>
+    <span class="label">mensagens</span>
+  </div>
+
+  <!-- Scrollable track with avatars -->
+  <div
+    class="timeline-track"
+    on:click={handleTrackClick}
+    role="slider"
+    aria-label="Thread navigation"
+    aria-valuemin="0"
+    aria-valuemax={messages.length - 1}
+    aria-valuenow={selectedIndex}
+    tabindex="0"
+  >
+    <!-- Scroll indicator -->
+    <div class="scroll-indicator" style="top: {scrollProgress * 100}%"></div>
+
+    <!-- Connection line (thicker, more prominent) -->
+    <div class="connection-line"></div>
+
+    <!-- Avatars (larger, circular) -->
+    {#each messages as msg, i}
+      {@const color = colorMap[msg.fromEmail] || participantColors[msg.fromEmail] || '#666'}
+      {@const isSelected = i === selectedIndex}
+      {@const isUnread = !msg.isRead}
+      <button
+        class="avatar-wrapper"
+        class:selected={isSelected}
+        style="top: {avatarPositions[i]}%;"
+        on:click|stopPropagation={() => handleAvatarClick(i)}
+        title="{msg.fromName || msg.fromEmail} - {new Date(msg.date).toLocaleString('pt-BR')}"
+      >
+        <div
+          class="avatar"
+          class:selected={isSelected}
+          class:unread={isUnread}
+          style="--avatar-color: {color};"
+        >
+          <span class="initials">{getInitials(msg.fromName)}</span>
+          {#if isUnread && !isSelected}
+            <span class="unread-indicator"></span>
+          {/if}
+        </div>
+        {#if isSelected}
+          <div class="time-badge">{formatRelativeTime(msg.date)}</div>
+        {/if}
+      </button>
+    {/each}
+  </div>
+
+  <!-- Participant legend -->
+  {#if participantList.length > 0 && participantList.length <= 6}
+    <div class="legend">
+      {#each participantList as email, i}
+        {@const color = colorMap[email] || '#666'}
+        {@const name = messages.find(m => m.fromEmail === email)?.fromName || email}
+        <div class="legend-item" title={email}>
+          <span class="legend-avatar" style="background: {color}">
+            {getInitials(name)}
+          </span>
+          <span class="legend-name">
+            {name.split(' ')[0].slice(0, 10)}
+          </span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</aside>
+
+<style>
+  .timeline {
+    width: var(--timeline-width, 72px);
+    background: var(--bg-tertiary, #1a1a2e);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-md) 0;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .timeline-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: var(--space-md);
+    border-bottom: 1px solid var(--border-color);
+    margin: 0 var(--space-sm) var(--space-md);
+  }
+
+  .count {
+    font-size: var(--font-xl, 1.5rem);
+    font-weight: 700;
+    color: var(--accent-primary);
+    line-height: 1;
+  }
+
+  .label {
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+
+  .timeline-track {
+    flex: 1;
+    position: relative;
+    margin: 0 var(--space-sm);
+    cursor: pointer;
+    min-height: 100px;
+    padding: 20px 0; /* Space for avatars at edges */
+  }
+
+  .connection-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: var(--timeline-line-width, 3px);
+    background: linear-gradient(
+      to bottom,
+      var(--border-color) 0%,
+      var(--accent-primary) 20%,
+      var(--accent-primary) 80%,
+      var(--border-color) 100%
+    );
+    opacity: 0.5;
+    transform: translateX(-50%);
+    border-radius: 2px;
+  }
+
+  .scroll-indicator {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    height: 3px;
+    background: var(--accent-primary);
+    opacity: 0.8;
+    border-radius: 2px;
+    transition: top 0.1s ease;
+    z-index: 1;
+    box-shadow: 0 0 8px var(--accent-primary);
+  }
+
+  .avatar-wrapper {
+    position: absolute;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    z-index: 2;
+    transition: transform 0.15s ease;
+  }
+
+  .avatar-wrapper:hover {
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+
+  .avatar-wrapper.selected {
+    z-index: 3;
+  }
+
+  .avatar {
+    width: var(--timeline-avatar-size, 36px);
+    height: var(--timeline-avatar-size, 36px);
+    border-radius: 50%;
+    background: var(--avatar-color);
+    transition: all 0.15s ease;
+    box-shadow: 0 0 0 2px var(--bg-tertiary, #1a1a2e);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .avatar.selected {
+    width: calc(var(--timeline-avatar-size, 36px) + 6px);
+    height: calc(var(--timeline-avatar-size, 36px) + 6px);
+    box-shadow:
+      0 0 0 3px var(--accent-primary),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .avatar.unread {
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .avatar.selected.unread {
+    animation: none;
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 2px var(--bg-tertiary, #1a1a2e);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px var(--bg-tertiary, #1a1a2e),
+        0 0 0 8px color-mix(in srgb, var(--avatar-color) 25%, transparent);
+    }
+  }
+
+  .initials {
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    letter-spacing: -0.5px;
+  }
+
+  .avatar.selected .initials {
+    font-size: 12px;
+  }
+
+  .unread-indicator {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 10px;
+    height: 10px;
+    background: var(--accent-primary);
+    border-radius: 50%;
+    border: 2px solid var(--bg-tertiary, #1a1a2e);
+    animation: blink 1.5s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .time-badge {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 9px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .legend {
+    margin-top: var(--space-md);
+    padding: var(--space-md) var(--space-xs) 0;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  }
+
+  .legend-name {
+    font-size: 10px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+</style>

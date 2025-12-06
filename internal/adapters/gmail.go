@@ -123,3 +123,16 @@ func (a *GmailAPIAdapter) SyncAllThreadIDs(ctx context.Context, progressCallback
 
 	return a.client.SyncAllThreadIDs(ctx, progressCallback)
 }
+
+// Client returns the underlying Gmail client
+func (a *GmailAPIAdapter) Client() *gmail.Client {
+	return a.client
+}
+
+// ContactsAdapter returns a GmailContactsPort adapter for the Gmail client
+func (a *GmailAPIAdapter) ContactsAdapter() ports.GmailContactsPort {
+	if a.client == nil {
+		return nil
+	}
+	return gmail.NewContactsAdapter(a.client)
+}

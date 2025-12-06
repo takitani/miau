@@ -1736,3 +1736,350 @@ func (a *App) CanRedo() bool {
 	}
 	return a.application.Undo().CanRedo(context.Background())
 }
+
+// ============================================================================
+// CONTACTS
+// ============================================================================
+
+// SearchContacts searches for contacts by name or email
+func (a *App) SearchContacts(query string, limit int) ([]ContactDTO, error) {
+	if a.application == nil || a.application.Contacts() == nil {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var contacts, err = a.application.Contacts().SearchContacts(ctx, account.ID, query, limit)
+	if err != nil {
+		log.Printf("[SearchContacts] error: %v", err)
+		return nil, err
+	}
+
+	var result []ContactDTO
+	for _, c := range contacts {
+		result = append(result, a.contactToDTO(&c))
+	}
+
+	return result, nil
+}
+
+// GetTopContacts returns the most frequently contacted contacts
+func (a *App) GetTopContacts(limit int) ([]ContactDTO, error) {
+	if a.application == nil || a.application.Contacts() == nil {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var contacts, err = a.application.Contacts().GetTopContacts(ctx, account.ID, limit)
+	if err != nil {
+		log.Printf("[GetTopContacts] error: %v", err)
+		return nil, err
+	}
+
+	var result []ContactDTO
+	for _, c := range contacts {
+		result = append(result, a.contactToDTO(&c))
+	}
+
+	return result, nil
+}
+
+// SyncContacts syncs contacts from Gmail
+func (a *App) SyncContacts(fullSync bool) error {
+	if a.application == nil || a.application.Contacts() == nil {
+		return fmt.Errorf("contacts service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return fmt.Errorf("no account selected")
+	}
+
+	log.Printf("[SyncContacts] starting sync (full=%v) for account %d", fullSync, account.ID)
+	var err = a.application.Contacts().SyncContacts(ctx, account.ID, fullSync)
+	if err != nil {
+		log.Printf("[SyncContacts] sync failed: %v", err)
+		return err
+	}
+	log.Printf("[SyncContacts] sync completed successfully")
+	return nil
+}
+
+// GetContactSyncStatus returns the current contact sync status
+func (a *App) GetContactSyncStatus() (*ContactSyncStatusDTO, error) {
+	if a.application == nil || a.application.Contacts() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var status, err = a.application.Contacts().GetSyncStatus(ctx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == nil {
+		return &ContactSyncStatusDTO{Status: "never_synced"}, nil
+	}
+
+	var result = &ContactSyncStatusDTO{
+		TotalContacts: status.TotalContacts,
+		Status:        status.Status,
+		Error:         status.ErrorMessage,
+	}
+
+	if status.LastFullSync != nil {
+		result.LastSync = *status.LastFullSync
+	} else if status.LastIncrementalSync != nil {
+		result.LastSync = *status.LastIncrementalSync
+	}
+
+	return result, nil
+}
+
+// contactToDTO converts a contact to DTO
+func (a *App) contactToDTO(c *ports.ContactInfo) ContactDTO {
+	var dto = ContactDTO{
+		ID:               c.ID,
+		DisplayName:      c.DisplayName,
+		GivenName:        c.GivenName,
+		FamilyName:       c.FamilyName,
+		PhotoURL:         c.PhotoURL,
+		PhotoPath:        c.PhotoPath,
+		IsStarred:        c.IsStarred,
+		InteractionCount: c.InteractionCount,
+	}
+
+	for _, e := range c.Emails {
+		dto.Emails = append(dto.Emails, ContactEmailDTO{
+			Email:     e.Email,
+			Type:      e.Type,
+			IsPrimary: e.IsPrimary,
+		})
+	}
+
+	for _, p := range c.Phones {
+		dto.Phones = append(dto.Phones, ContactPhoneDTO{
+			Phone:     p.PhoneNumber,
+			Type:      p.Type,
+			IsPrimary: p.IsPrimary,
+		})
+	}
+
+	return dto
+}
+
+// ============================================================================
+// TASKS
+// ============================================================================
+
+// GetTasks returns all tasks for the current account
+func (a *App) GetTasks() ([]TaskDTO, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var tasks, err = a.application.Tasks().GetTasks(ctx, account.ID)
+	if err != nil {
+		log.Printf("[GetTasks] error: %v", err)
+		return nil, err
+	}
+
+	var result []TaskDTO
+	for _, t := range tasks {
+		result = append(result, a.taskToDTO(&t))
+	}
+	return result, nil
+}
+
+// GetPendingTasks returns only incomplete tasks
+func (a *App) GetPendingTasks() ([]TaskDTO, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var tasks, err = a.application.Tasks().GetPendingTasks(ctx, account.ID)
+	if err != nil {
+		log.Printf("[GetPendingTasks] error: %v", err)
+		return nil, err
+	}
+
+	var result []TaskDTO
+	for _, t := range tasks {
+		result = append(result, a.taskToDTO(&t))
+	}
+	return result, nil
+}
+
+// CreateTask creates a new task
+func (a *App) CreateTask(input TaskInputDTO) (*TaskDTO, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return nil, fmt.Errorf("task service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, fmt.Errorf("no account selected")
+	}
+
+	var source = ports.TaskSource(input.Source)
+	if source == "" {
+		source = ports.TaskSourceManual
+	}
+
+	var taskInput = &ports.TaskInput{
+		AccountID:   account.ID,
+		Title:       input.Title,
+		Description: input.Description,
+		IsCompleted: input.IsCompleted,
+		Priority:    ports.TaskPriority(input.Priority),
+		DueDate:     input.DueDate,
+		EmailID:     input.EmailID,
+		Source:      source,
+	}
+
+	var task, err = a.application.Tasks().CreateTask(ctx, taskInput)
+	if err != nil {
+		log.Printf("[CreateTask] error: %v", err)
+		return nil, err
+	}
+
+	var dto = a.taskToDTO(task)
+	return &dto, nil
+}
+
+// UpdateTask updates an existing task
+func (a *App) UpdateTask(input TaskInputDTO) (*TaskDTO, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return nil, fmt.Errorf("task service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, fmt.Errorf("no account selected")
+	}
+
+	var source = ports.TaskSource(input.Source)
+	if source == "" {
+		source = ports.TaskSourceManual
+	}
+
+	var taskInput = &ports.TaskInput{
+		ID:          input.ID,
+		AccountID:   account.ID,
+		Title:       input.Title,
+		Description: input.Description,
+		IsCompleted: input.IsCompleted,
+		Priority:    ports.TaskPriority(input.Priority),
+		DueDate:     input.DueDate,
+		EmailID:     input.EmailID,
+		Source:      source,
+	}
+
+	var task, err = a.application.Tasks().UpdateTask(ctx, taskInput)
+	if err != nil {
+		log.Printf("[UpdateTask] error: %v", err)
+		return nil, err
+	}
+
+	var dto = a.taskToDTO(task)
+	return &dto, nil
+}
+
+// ToggleTaskComplete toggles the completed status of a task
+func (a *App) ToggleTaskComplete(id int64) (bool, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return false, fmt.Errorf("task service not available")
+	}
+
+	var ctx = context.Background()
+	return a.application.Tasks().ToggleTaskCompleted(ctx, id)
+}
+
+// DeleteTask removes a task
+func (a *App) DeleteTask(id int64) error {
+	if a.application == nil || a.application.Tasks() == nil {
+		return fmt.Errorf("task service not available")
+	}
+
+	var ctx = context.Background()
+	return a.application.Tasks().DeleteTask(ctx, id)
+}
+
+// GetTaskCounts returns task count statistics
+func (a *App) GetTaskCounts() (*TaskCountsDTO, error) {
+	if a.application == nil || a.application.Tasks() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var counts, err = a.application.Tasks().CountTasks(ctx, account.ID)
+	if err != nil {
+		log.Printf("[GetTaskCounts] error: %v", err)
+		return nil, err
+	}
+
+	return &TaskCountsDTO{
+		Pending:   counts.Pending,
+		Completed: counts.Completed,
+		Total:     counts.Total,
+	}, nil
+}
+
+// taskToDTO converts ports.TaskInfo to TaskDTO
+func (a *App) taskToDTO(t *ports.TaskInfo) TaskDTO {
+	return TaskDTO{
+		ID:          t.ID,
+		AccountID:   t.AccountID,
+		Title:       t.Title,
+		Description: t.Description,
+		IsCompleted: t.IsCompleted,
+		Priority:    int(t.Priority),
+		DueDate:     t.DueDate,
+		EmailID:     t.EmailID,
+		Source:      string(t.Source),
+		CreatedAt:   t.CreatedAt,
+		UpdatedAt:   t.UpdatedAt,
+	}
+}

@@ -59,6 +59,17 @@
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
+
+  /* Modern Layout - Sidebar */
+  --sidebar-expanded: 280px;
+  --sidebar-collapsed: 56px;
+  --sidebar-transition: 200ms ease;
+
+  /* Modern Layout - Timeline */
+  --timeline-width: 72px;
+  --timeline-avatar-size: 36px;
+  --timeline-line-width: 3px;
+  --timeline-line-color: rgba(78, 205, 196, 0.3);
 }
 
 /* Base styles */

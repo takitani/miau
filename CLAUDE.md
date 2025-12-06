@@ -239,10 +239,19 @@ topContacts, err := contactService.GetTopContacts(ctx, accountID, 20)
 
 ### OAuth Scopes Required
 - `https://www.googleapis.com/auth/contacts.readonly` - Read-only access to contacts
+- `https://www.googleapis.com/auth/contacts.other.readonly` - Access to "Other Contacts" (auto-suggested from emails)
 - Automatically included in `internal/auth/oauth2.go`
 
+### Contact Autocomplete (Desktop)
+The desktop app includes a contact autocomplete component for composing emails:
+- Type 2+ characters in "Para:", "Cc:" or "Bcc:" fields to search contacts
+- Contacts are searched by name AND email
+- Shows contact photo (if available) and primary email
+- Arrow keys to navigate, Enter/Tab to select, Escape to close
+- Automatically loads top contacts on focus
+- Component: `cmd/miau-desktop/frontend/src/lib/components/ContactAutocomplete.svelte`
+
 ### Future Enhancements
-- Contact autocomplete in email compose
 - Contact avatar display in email list
 - Contact groups/labels sync
 - Contact birthday/event reminders
@@ -444,8 +453,78 @@ SELECT * FROM sent_emails ORDER BY sent_at DESC;
 - One-line conditionals when possible (no braces for single statements)
 - Follow Go conventions (gofmt, go vet)
 
+## Desktop App (Wails + Svelte)
+
+The desktop app provides a modern GUI alternative to the TUI, built with Wails and Svelte.
+
+### Running
+```bash
+cd cmd/miau-desktop
+wails dev --devtools  # Development mode with hot reload
+wails build           # Production build
+```
+
+### Features Implemented
+- **3-panel layout**: Folders | Email List | Email Viewer
+- **Thread view**: Collapsible thread timeline with all messages
+- **Multi-select**: Shift+Click, Ctrl+Click for batch operations
+- **Contact autocomplete**: Search contacts while composing
+- **Contact sync**: Full and incremental sync from Google People API
+- **Settings modal**: Configure sync folders, UI preferences
+- **Analytics dashboard**: Email statistics and trends
+- **Attachments**: View, download, open attachments
+- **Keyboard shortcuts**: Same shortcuts as TUI (j/k, c, r, etc.)
+- **Undo/Redo**: For email operations
+
+### Architecture
+- Frontend: Svelte + TypeScript (in `cmd/miau-desktop/frontend/`)
+- Backend: Go bindings via Wails (in `internal/desktop/`)
+- Bindings auto-generated in `frontend/src/lib/wailsjs/`
+
+### Key Components
+- `App.svelte` - Main app container with layout
+- `FolderList.svelte` - Folder navigation sidebar
+- `EmailList.svelte` - Email list with selection
+- `EmailViewer.svelte` - Email content viewer
+- `ComposeModal.svelte` - Email composition with autocomplete
+- `ThreadView.svelte` - Thread conversation view
+- `ContactAutocomplete.svelte` - Contact search for compose
+- `SettingsModal.svelte` - App settings
+
+## Tasks System
+
+The app includes a task management system integrated with emails.
+
+### Database Schema
+```sql
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    account_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    is_completed BOOLEAN DEFAULT 0,
+    priority INTEGER DEFAULT 0,  -- 0=normal, 1=high, 2=urgent
+    due_date DATETIME,
+    email_id INTEGER,  -- optional link to email
+    source TEXT DEFAULT 'manual',  -- 'manual' or 'ai_suggestion'
+    created_at DATETIME,
+    updated_at DATETIME
+);
+```
+
+### Task Sources
+- `manual` - Created by user
+- `ai_suggestion` - Suggested by AI from email content
+
+### Integration Points
+- `internal/services/task.go` - Task business logic
+- `internal/storage/tasks.go` - Task storage adapter
+- `internal/ports/task.go` - Task service interface
+
 ## Debug
 
 - Run with `--debug` flag to show debug panel in TUI
+- Desktop: `wails dev --devtools` opens browser DevTools
 - Bounce detection logs to `/tmp/miau-bounce.log`
 - Sync logs latestUID and found UIDs for troubleshooting
+- SQLite: `busy_timeout(5000)` prevents "database is locked" errors

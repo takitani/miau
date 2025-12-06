@@ -1,6 +1,18 @@
 <script>
-  import { folders, selectFolder, foldersLoading } from '../stores/folders.js';
+  import { createEventDispatcher } from 'svelte';
+  import { folders as foldersStore, selectFolder, foldersLoading } from '../stores/folders.js';
   import { currentFolder } from '../stores/emails.js';
+
+  // Props for flexibility (can override store or use directly)
+  export let folders = null; // If provided, use instead of store
+  export let selectedFolder = null; // If provided, use instead of store
+  export let compact = false; // Compact mode for sidebar
+
+  var dispatch = createEventDispatcher();
+
+  // Use props or store
+  $: folderList = folders || $foldersStore;
+  $: selected = selectedFolder || $currentFolder;
 
   // Folder icon mapping (use simple emojis without variation selectors)
   const folderIcons = {
@@ -33,29 +45,35 @@
   // Handle folder click
   function handleClick(name) {
     selectFolder(name);
+    dispatch('select', { folder: name });
   }
 </script>
 
-<nav class="folder-list">
-  <header class="list-header">
-    <h3>Pastas</h3>
-  </header>
+<nav class="folder-list" class:compact>
+  {#if !compact}
+    <header class="list-header">
+      <h3>Pastas</h3>
+    </header>
+  {/if}
 
   {#if $foldersLoading}
     <div class="loading">Carregando...</div>
   {:else}
     <ul class="folders">
-      {#each $folders as folder (folder.id)}
+      {#each folderList as folder (folder.id)}
         <li>
           <button
             class="folder-item"
-            class:selected={$currentFolder === folder.name}
+            class:selected={selected === folder.name}
             on:click={() => handleClick(folder.name)}
+            title={folder.name}
           >
             <span class="icon">{getIcon(folder.name)}</span>
-            <span class="name truncate">{formatName(folder.name)}</span>
+            {#if !compact}
+              <span class="name truncate">{formatName(folder.name)}</span>
+            {/if}
             {#if folder.unreadMessages > 0}
-              <span class="badge">{folder.unreadMessages}</span>
+              <span class="badge" class:compact>{folder.unreadMessages}</span>
             {/if}
           </button>
         </li>
@@ -136,5 +154,30 @@
     border-radius: 10px;
     min-width: 20px;
     text-align: center;
+  }
+
+  /* Compact mode styles */
+  .folder-list.compact {
+    height: auto;
+  }
+
+  .compact .folders {
+    padding: 0;
+  }
+
+  .compact .folder-item {
+    padding: var(--space-xs) var(--space-sm);
+    justify-content: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .compact .icon {
+    font-size: var(--font-sm);
+  }
+
+  .compact .badge {
+    font-size: 10px;
+    padding: 1px 4px;
+    min-width: 16px;
   }
 </style>

@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/opik/miau/internal/adapters"
@@ -44,6 +45,8 @@ type Application struct {
 	attachmentService *services.AttachmentServicePort
 	threadService     *services.ThreadService
 	undoService       *services.UndoServiceImpl
+	contactService    *services.ContactService
+	taskService       *services.TaskService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -163,6 +166,21 @@ func (a *Application) Start() error {
 	a.threadService.SetAccount(accountInfo)
 	a.threadService.SetEmailService(a.emailService)
 
+	// Create contact service (needs ContactStorageAdapter and GmailContactsPort)
+	var contactStorage = storage.NewContactStorageAdapter()
+	var gmailContactsPort ports.GmailContactsPort
+	if a.gmailAdapter != nil && a.gmailAdapter.Client() != nil {
+		gmailContactsPort = a.gmailAdapter.ContactsAdapter()
+		fmt.Printf("[App.Start] Gmail contacts port created successfully\n")
+	} else {
+		fmt.Printf("[App.Start] Gmail adapter or client is nil, contacts sync will not work\n")
+	}
+	var photoDir = filepath.Join(config.GetConfigPath(), "photos")
+	a.contactService = services.NewContactService(contactStorage, gmailContactsPort, a.eventBus, photoDir)
+
+	// Create task service
+	a.taskService = services.NewTaskService()
+
 	a.started = true
 	return nil
 }
@@ -243,6 +261,16 @@ func (a *Application) Thread() ports.ThreadService {
 // Undo returns the undo service
 func (a *Application) Undo() ports.UndoService {
 	return a.undoService
+}
+
+// Contacts returns the contact service
+func (a *Application) Contacts() ports.ContactService {
+	return a.contactService
+}
+
+// Tasks returns the task service
+func (a *Application) Tasks() ports.TaskService {
+	return a.taskService
 }
 
 // Events returns the event bus

@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRead, selectedEmailId, selectedEmail, emails, selectedIndex, loadEmails, refreshEmails, currentFolder, toggleThreading, restoreLastRemovedEmail } from './emails.js';
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 import { toggleSelectionMode, selectAll, someSelected, exitSelectionMode, toggleSelection } from './selection.js';
+import { toggleLayoutMode, toggleSidebar, layoutMode } from './layout.js';
 
 // UI State
 export const showSearch = writable(false);
@@ -230,6 +231,22 @@ function handleKeydown(e) {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         toggleThreading();
+      }
+      return;
+
+    case 'L':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        toggleLayoutMode();
+        var mode = get(layoutMode);
+        info('Layout: ' + mode);
+      }
+      return;
+
+    case '[':
+      if (!e.ctrlKey && !e.metaKey && get(layoutMode) === 'modern') {
+        e.preventDefault();
+        toggleSidebar();
       }
       return;
   }

@@ -409,3 +409,37 @@ type ContactWithEmails struct {
 	Emails []ContactEmail `db:"-"`
 	Phones []ContactPhone `db:"-"`
 }
+
+// === TASKS ===
+
+// TaskPriority representa a prioridade de uma task
+type TaskPriority int
+
+const (
+	TaskPriorityNormal TaskPriority = 0
+	TaskPriorityHigh   TaskPriority = 1
+	TaskPriorityUrgent TaskPriority = 2
+)
+
+// TaskSource representa a origem de uma task
+type TaskSource string
+
+const (
+	TaskSourceManual       TaskSource = "manual"
+	TaskSourceAISuggestion TaskSource = "ai_suggestion"
+)
+
+// Task representa uma tarefa do usuário
+type Task struct {
+	ID          int64          `db:"id"`
+	AccountID   int64          `db:"account_id"`
+	Title       string         `db:"title"`
+	Description sql.NullString `db:"description"`
+	IsCompleted bool           `db:"is_completed"`
+	Priority    TaskPriority   `db:"priority"`
+	DueDate     sql.NullTime   `db:"due_date"`
+	EmailID     sql.NullInt64  `db:"email_id"` // link opcional com email
+	Source      TaskSource     `db:"source"`
+	CreatedAt   SQLiteTime     `db:"created_at"`
+	UpdatedAt   SQLiteTime     `db:"updated_at"`
+}

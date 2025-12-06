@@ -24,9 +24,13 @@ export function Confirm(arg1:string,arg2:string):Promise<boolean>;
 
 export function Connect():Promise<void>;
 
+export function CreateTask(arg1:desktop.TaskInputDTO):Promise<desktop.TaskDTO>;
+
 export function Delete(arg1:number):Promise<void>;
 
 export function DeleteDraft(arg1:number):Promise<void>;
+
+export function DeleteTask(arg1:number):Promise<void>;
 
 export function Disconnect():Promise<void>;
 
@@ -48,6 +52,8 @@ export function GetAvailableFolders():Promise<Array<desktop.AvailableFolderDTO>>
 
 export function GetConnectionStatus():Promise<desktop.ConnectionStatus>;
 
+export function GetContactSyncStatus():Promise<desktop.ContactSyncStatusDTO>;
+
 export function GetCurrentAccount():Promise<desktop.AccountDTO>;
 
 export function GetCurrentFolder():Promise<string>;
@@ -64,9 +70,15 @@ export function GetEmailsThreaded(arg1:string,arg2:number):Promise<Array<desktop
 
 export function GetFolders():Promise<Array<desktop.FolderDTO>>;
 
+export function GetPendingTasks():Promise<Array<desktop.TaskDTO>>;
+
 export function GetSettings():Promise<desktop.SettingsDTO>;
 
 export function GetSignature():Promise<string>;
+
+export function GetTaskCounts():Promise<desktop.TaskCountsDTO>;
+
+export function GetTasks():Promise<Array<desktop.TaskDTO>>;
 
 export function GetThread(arg1:number):Promise<desktop.ThreadDTO>;
 
@@ -75,6 +87,8 @@ export function GetThreadByID(arg1:string):Promise<desktop.ThreadDTO>;
 export function GetThreadMessageCount(arg1:number):Promise<number>;
 
 export function GetThreadSummary(arg1:string):Promise<desktop.ThreadSummaryDTO>;
+
+export function GetTopContacts(arg1:number):Promise<Array<desktop.ContactDTO>>;
 
 export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.SenderStatsDTO>>;
 
@@ -118,6 +132,8 @@ export function SaveSettings(arg1:desktop.SettingsDTO):Promise<void>;
 
 export function Search(arg1:string,arg2:number):Promise<desktop.SearchResultDTO>;
 
+export function SearchContacts(arg1:string,arg2:number):Promise<Array<desktop.ContactDTO>>;
+
 export function SearchInFolder(arg1:string,arg2:string,arg3:number):Promise<desktop.SearchResultDTO>;
 
 export function SelectFolder(arg1:string):Promise<desktop.FolderDTO>;
@@ -134,6 +150,8 @@ export function StartOAuth2Auth():Promise<void>;
 
 export function SwitchToTerminal():Promise<void>;
 
+export function SyncContacts(arg1:boolean):Promise<void>;
+
 export function SyncCurrentFolder():Promise<desktop.SyncResultDTO>;
 
 export function SyncEssentialFolders():Promise<Array<desktop.SyncResultDTO>>;
@@ -142,4 +160,8 @@ export function SyncFolder(arg1:string):Promise<desktop.SyncResultDTO>;
 
 export function SyncThreadsFromGmail():Promise<number>;
 
+export function ToggleTaskComplete(arg1:number):Promise<boolean>;
+
 export function Undo():Promise<desktop.UndoResult>;
+
+export function UpdateTask(arg1:desktop.TaskInputDTO):Promise<desktop.TaskDTO>;

@@ -239,3 +239,81 @@ type ThreadSummaryDTO struct {
 	HasAttachments  bool      `json:"hasAttachments"`
 	Participants    []string  `json:"participants"`
 }
+
+// ============================================================================
+// CONTACT DTOs
+// ============================================================================
+
+// ContactDTO represents a contact for the frontend
+type ContactDTO struct {
+	ID               int64              `json:"id"`
+	DisplayName      string             `json:"displayName"`
+	GivenName        string             `json:"givenName,omitempty"`
+	FamilyName       string             `json:"familyName,omitempty"`
+	PhotoURL         string             `json:"photoUrl,omitempty"`
+	PhotoPath        string             `json:"photoPath,omitempty"`
+	IsStarred        bool               `json:"isStarred"`
+	InteractionCount int                `json:"interactionCount"`
+	Emails           []ContactEmailDTO  `json:"emails"`
+	Phones           []ContactPhoneDTO  `json:"phones,omitempty"`
+}
+
+// ContactEmailDTO represents an email address for a contact
+type ContactEmailDTO struct {
+	Email     string `json:"email"`
+	Type      string `json:"type,omitempty"`
+	IsPrimary bool   `json:"isPrimary"`
+}
+
+// ContactPhoneDTO represents a phone number for a contact
+type ContactPhoneDTO struct {
+	Phone     string `json:"phone"`
+	Type      string `json:"type,omitempty"`
+	IsPrimary bool   `json:"isPrimary"`
+}
+
+// ContactSyncStatusDTO represents contact sync status
+type ContactSyncStatusDTO struct {
+	TotalContacts int       `json:"totalContacts"`
+	LastSync      time.Time `json:"lastSync,omitempty"`
+	Status        string    `json:"status"`
+	Error         string    `json:"error,omitempty"`
+}
+
+// ============================================================================
+// TASK DTOs
+// ============================================================================
+
+// TaskDTO represents a task for the frontend
+type TaskDTO struct {
+	ID          int64      `json:"id"`
+	AccountID   int64      `json:"accountId"`
+	Title       string     `json:"title"`
+	Description string     `json:"description,omitempty"`
+	IsCompleted bool       `json:"isCompleted"`
+	Priority    int        `json:"priority"` // 0=normal, 1=high, 2=urgent
+	DueDate     *time.Time `json:"dueDate,omitempty"`
+	EmailID     *int64     `json:"emailId,omitempty"`
+	Source      string     `json:"source"` // 'manual' or 'ai_suggestion'
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// TaskInputDTO represents input for creating/updating a task
+type TaskInputDTO struct {
+	ID          int64      `json:"id,omitempty"`
+	Title       string     `json:"title"`
+	Description string     `json:"description,omitempty"`
+	IsCompleted bool       `json:"isCompleted"`
+	Priority    int        `json:"priority"`
+	DueDate     *time.Time `json:"dueDate,omitempty"`
+	EmailID     *int64     `json:"emailId,omitempty"`
+	Source      string     `json:"source,omitempty"`
+}
+
+// TaskCountsDTO represents task count statistics
+type TaskCountsDTO struct {
+	Pending   int `json:"pending"`
+	Completed int `json:"completed"`
+	Total     int `json:"total"`
+}

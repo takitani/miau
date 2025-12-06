@@ -17,9 +17,10 @@ import (
 
 // Scopes necessários para IMAP, Gmail API e People API (contatos)
 var GmailScopes = []string{
-	"https://mail.google.com/",                        // Full access for IMAP
-	"https://www.googleapis.com/auth/gmail.send",      // Gmail API send
-	"https://www.googleapis.com/auth/contacts.readonly", // People API contacts (read-only)
+	"https://mail.google.com/",                              // Full access for IMAP
+	"https://www.googleapis.com/auth/gmail.send",            // Gmail API send
+	"https://www.googleapis.com/auth/contacts.readonly",     // People API contacts (read-only)
+	"https://www.googleapis.com/auth/contacts.other.readonly", // People API "Other Contacts"
 }
 
 type OAuth2Config struct {

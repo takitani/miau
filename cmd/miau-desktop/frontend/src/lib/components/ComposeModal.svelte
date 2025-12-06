@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { showCompose } from '../stores/ui.js';
   import { info, error as logError } from '../stores/debug.js';
+  import ContactAutocomplete from './ContactAutocomplete.svelte';
 
   // Form fields
   let to = '';
@@ -18,7 +19,6 @@
   let showCcBcc = false;
   let signature = '';
   let signatureHtml = '';
-  let toInput;
   let htmlEditor;
 
   // Mode: 'new', 'reply', 'replyAll', 'forward'
@@ -121,10 +121,7 @@
       }
     }, 50);
 
-    // Focus to field
-    setTimeout(() => {
-      if (toInput) toInput.focus();
-    }, 100);
+    // Focus to field (autocomplete handles its own focus)
   });
 
   function buildQuotedBodyText(email) {
@@ -381,12 +378,10 @@
       <!-- To -->
       <div class="field">
         <label for="to">Para:</label>
-        <input
-          bind:this={toInput}
+        <ContactAutocomplete
           id="to"
-          type="text"
           bind:value={to}
-          placeholder="email@exemplo.com"
+          placeholder="Digite um email ou nome..."
         />
       </div>
 
@@ -401,22 +396,20 @@
       {#if showCcBcc}
         <div class="field">
           <label for="cc">Cc:</label>
-          <input
+          <ContactAutocomplete
             id="cc"
-            type="text"
             bind:value={cc}
-            placeholder="email@exemplo.com"
+            placeholder="Digite um email ou nome..."
           />
         </div>
 
         <!-- BCC -->
         <div class="field">
           <label for="bcc">Bcc:</label>
-          <input
+          <ContactAutocomplete
             id="bcc"
-            type="text"
             bind:value={bcc}
-            placeholder="email@exemplo.com"
+            placeholder="Digite um email ou nome..."
           />
         </div>
       {/if}

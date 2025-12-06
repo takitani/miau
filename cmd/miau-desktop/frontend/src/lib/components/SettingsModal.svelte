@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { showSettings } from '../stores/ui.js';
   import { info, error as logError } from '../stores/debug.js';
+  import { syncContacts, syncStatus, contactsSyncing, loadSyncStatus } from '../stores/contacts.js';
 
   var activeTab = 'folders';
   var loading = true;
@@ -10,6 +11,7 @@
   var threadSyncResult = null;
   var threadSyncProgress = null; // { phase, processed, total, found, page }
   var unsubscribeProgress = null;
+  var contactSyncResult = null;
 
   // Settings state
   var availableFolders = [];
@@ -33,6 +35,7 @@
 
   onMount(async () => {
     await loadSettings();
+    await loadSyncStatus();
 
     // Listen for thread sync progress events
     if (window.runtime?.EventsOn) {
@@ -41,6 +44,16 @@
       });
     }
   });
+
+  async function handleContactSync(fullSync) {
+    contactSyncResult = null;
+    try {
+      await syncContacts(fullSync);
+      contactSyncResult = { success: true };
+    } catch (err) {
+      contactSyncResult = { success: false, error: err.message || String(err) };
+    }
+  }
 
   onDestroy(() => {
     if (unsubscribeProgress) {
@@ -314,6 +327,51 @@
                   ✓ Updated {threadSyncResult.count?.toLocaleString()} email(s)
                 {:else}
                   ✗ Error: {threadSyncResult.error}
+                {/if}
+              </div>
+            {/if}
+          </div>
+
+          <div class="sync-section">
+            <h4>Contacts Sync from Gmail</h4>
+            <p class="hint">
+              Synchronize contacts from Google Contacts to enable autocomplete when composing emails.
+            </p>
+
+            {#if $syncStatus}
+              <div class="sync-status-info">
+                <span class="status-label">Status:</span>
+                <span class="status-value">{$syncStatus.status || 'never_synced'}</span>
+                {#if $syncStatus.totalContacts > 0}
+                  <span class="status-count">({$syncStatus.totalContacts} contacts)</span>
+                {/if}
+              </div>
+            {/if}
+
+            <div class="sync-action">
+              <button
+                class="btn btn-secondary"
+                on:click={() => handleContactSync(false)}
+                disabled={$contactsSyncing}
+              >
+                {$contactsSyncing ? 'Syncing...' : 'Sync Contacts'}
+              </button>
+              <button
+                class="btn btn-outline"
+                on:click={() => handleContactSync(true)}
+                disabled={$contactsSyncing}
+                title="Full sync (slower, but more thorough)"
+              >
+                Full Sync
+              </button>
+            </div>
+
+            {#if contactSyncResult}
+              <div class="sync-result" class:success={contactSyncResult.success} class:error={!contactSyncResult.success}>
+                {#if contactSyncResult.success}
+                  ✓ Contacts synchronized successfully
+                {:else}
+                  ✗ Error: {contactSyncResult.error}
                 {/if}
               </div>
             {/if}
@@ -676,5 +734,46 @@
     font-size: var(--font-sm);
     padding: var(--space-sm);
     border-radius: var(--radius-sm);
+  }
+
+  .sync-status-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-sm);
+    margin: var(--space-sm) 0;
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .status-label {
+    color: var(--text-muted);
+  }
+
+  .status-value {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .status-count {
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+  }
+
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+  }
+
+  .btn-outline:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .btn-outline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

@@ -139,6 +139,9 @@ type GmailContactsPort interface {
 	// ListContacts fetches contacts from Gmail People API
 	ListContacts(pageSize int, pageToken string, syncToken string) ([]PersonContact, string, string, error)
 
+	// ListOtherContacts fetches "Other Contacts" (auto-suggested from emails)
+	ListOtherContacts(pageSize int, pageToken string) ([]PersonContact, string, error)
+
 	// GetContact fetches a single contact by resource name
 	GetContact(resourceName string) (*PersonContact, error)
 

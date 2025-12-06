@@ -165,7 +165,11 @@ func (a *ContactStorageAdapter) SearchContacts(ctx context.Context, accountID in
 
 	var result []ports.ContactInfo
 	for i := range contacts {
-		result = append(result, *contactToPort(&contacts[i]))
+		var contact = contactToPort(&contacts[i])
+		// Load emails for each contact
+		var emails, _ = a.GetContactEmails(ctx, contact.ID)
+		contact.Emails = emails
+		result = append(result, *contact)
 	}
 
 	return result, nil
@@ -388,7 +392,11 @@ func (a *ContactStorageAdapter) GetTopContacts(ctx context.Context, accountID in
 
 	var result []ports.ContactInfo
 	for i := range contacts {
-		result = append(result, *contactToPort(&contacts[i]))
+		var contact = contactToPort(&contacts[i])
+		// Load emails for each contact
+		var emails, _ = a.GetContactEmails(ctx, contact.ID)
+		contact.Emails = emails
+		result = append(result, *contact)
 	}
 
 	return result, nil

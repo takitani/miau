@@ -893,6 +893,49 @@ func (c *Client) ListContacts(req *ListContactsRequest) (*ListConnectionsRespons
 	return &result, nil
 }
 
+// ListOtherContacts lista os "Other Contacts" (contatos sugeridos automaticamente)
+// Estes são contatos extraídos automaticamente de emails enviados/recebidos
+func (c *Client) ListOtherContacts(pageSize int, pageToken string) (*ListConnectionsResponse, error) {
+	var url = "https://people.googleapis.com/v1/otherContacts"
+
+	if pageSize == 0 {
+		pageSize = 100
+	}
+
+	var params = fmt.Sprintf("?pageSize=%d&readMask=names,emailAddresses,phoneNumbers,photos", pageSize)
+
+	if pageToken != "" {
+		params += fmt.Sprintf("&pageToken=%s", pageToken)
+	}
+
+	url += params
+
+	var resp, err = c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var body, _ = io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erro da API (%d): %s", resp.StatusCode, string(body))
+	}
+
+	// OtherContacts usa "otherContacts" em vez de "connections"
+	var rawResult struct {
+		OtherContacts []Person `json:"otherContacts"`
+		NextPageToken string   `json:"nextPageToken"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rawResult); err != nil {
+		return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
+	}
+
+	return &ListConnectionsResponse{
+		Connections:   rawResult.OtherContacts,
+		NextPageToken: rawResult.NextPageToken,
+	}, nil
+}
+
 // GetContact busca um contato específico por resourceName
 func (c *Client) GetContact(resourceName string, personFields string) (*Person, error) {
 	if personFields == "" {

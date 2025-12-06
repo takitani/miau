@@ -126,3 +126,56 @@ func (a *ContactsAdapter) GetContact(resourceName string) (*ports.PersonContact,
 func (a *ContactsAdapter) DownloadPhoto(photoURL string) ([]byte, error) {
 	return a.client.DownloadPhoto(photoURL)
 }
+
+// ListOtherContacts fetches "Other Contacts" (auto-suggested from emails)
+func (a *ContactsAdapter) ListOtherContacts(pageSize int, pageToken string) ([]ports.PersonContact, string, error) {
+	var resp, err = a.client.ListOtherContacts(pageSize, pageToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var contacts []ports.PersonContact
+	for _, person := range resp.Connections {
+		var contact = ports.PersonContact{
+			ResourceName: person.ResourceName,
+		}
+
+		// Extract names
+		if len(person.Names) > 0 {
+			var name = person.Names[0]
+			contact.DisplayName = name.DisplayName
+			contact.GivenName = name.GivenName
+			contact.FamilyName = name.FamilyName
+		}
+
+		// Extract emails
+		for _, email := range person.EmailAddresses {
+			contact.EmailAddresses = append(contact.EmailAddresses, ports.PersonEmail{
+				Value:     email.Value,
+				Type:      email.Type,
+				IsPrimary: email.Metadata.Primary,
+			})
+		}
+
+		// Extract phones
+		for _, phone := range person.PhoneNumbers {
+			contact.PhoneNumbers = append(contact.PhoneNumbers, ports.PersonPhone{
+				Value:     phone.Value,
+				Type:      phone.Type,
+				IsPrimary: phone.Metadata.Primary,
+			})
+		}
+
+		// Extract photos
+		for _, photo := range person.Photos {
+			contact.Photos = append(contact.Photos, ports.PersonPhoto{
+				URL:       photo.URL,
+				IsDefault: photo.Default,
+			})
+		}
+
+		contacts = append(contacts, contact)
+	}
+
+	return contacts, resp.NextPageToken, nil
+}

@@ -41,9 +41,18 @@ func (s *ContactService) SyncContacts(ctx context.Context, accountID int64, full
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	log.Printf("[ContactService.SyncContacts] started for account %d (full=%v)", accountID, fullSync)
+
+	// Check if gmail port is available
+	if s.gmail == nil {
+		log.Printf("[ContactService.SyncContacts] gmail port is nil")
+		return fmt.Errorf("gmail contacts API not available")
+	}
+
 	// Get current sync status
 	var syncStatus, err = s.storage.GetSyncStatus(ctx, accountID)
 	if err != nil {
+		log.Printf("[ContactService.SyncContacts] failed to get sync status: %v", err)
 		return fmt.Errorf("failed to get sync status: %w", err)
 	}
 
@@ -108,6 +117,31 @@ func (s *ContactService) SyncContacts(ctx context.Context, accountID int64, full
 		}
 
 		// Check if there are more pages
+		if pageToken == "" {
+			break
+		}
+		nextPageToken = pageToken
+	}
+
+	// Also sync "Other Contacts" (auto-suggested from emails)
+	log.Printf("[ContactService.SyncContacts] syncing OtherContacts...")
+	nextPageToken = ""
+	for {
+		var otherContacts, pageToken, err2 = s.gmail.ListOtherContacts(100, nextPageToken)
+		if err2 != nil {
+			// OtherContacts failure is not critical, just log warning
+			log.Printf("Warning: failed to fetch OtherContacts: %v", err2)
+			break
+		}
+
+		for _, person := range otherContacts {
+			if err := s.savePersonContact(ctx, accountID, &person); err != nil {
+				log.Printf("Warning: failed to save other contact %s: %v", person.ResourceName, err)
+			} else {
+				totalSynced++
+			}
+		}
+
 		if pageToken == "" {
 			break
 		}

@@ -276,6 +276,30 @@ func DeleteEmail(id int64) error {
 	return err
 }
 
+// MarkDeletedByUIDs marks emails as deleted by their UIDs in a specific folder
+func MarkDeletedByUIDs(folderID int64, uids []uint32) error {
+	if len(uids) == 0 {
+		return nil
+	}
+
+	// Build placeholders for IN clause
+	var placeholders = make([]string, len(uids))
+	var args = make([]interface{}, len(uids)+1)
+	args[0] = folderID
+	for i, uid := range uids {
+		placeholders[i] = "?"
+		args[i+1] = uid
+	}
+
+	var query = fmt.Sprintf(
+		"UPDATE emails SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ? AND uid IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+
+	_, err := db.Exec(query, args...)
+	return err
+}
+
 // UpdateHasAttachments updates the has_attachments flag for an email
 func UpdateHasAttachments(id int64, hasAttachments bool) error {
 	_, err := db.Exec("UPDATE emails SET has_attachments = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", hasAttachments, id)

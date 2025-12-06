@@ -94,9 +94,31 @@ func (a *App) GetEmails(folder string, limit int) (result []EmailDTO, err error)
 		limit = 50
 	}
 
-	var emails, ferr = a.application.Email().GetEmails(context.Background(), folder, limit)
+	var ctx = context.Background()
+
+	var emails, ferr = a.application.Email().GetEmails(ctx, folder, limit)
 	if ferr != nil {
 		return nil, ferr
+	}
+
+	// Verify these emails still exist on server (purge deleted ones)
+	if len(emails) > 0 {
+		var uids = make([]uint32, len(emails))
+		for i, e := range emails {
+			uids[i] = e.UID
+		}
+
+		var deletedUIDs, purgeErr = a.application.Sync().PurgeSpecificUIDs(ctx, folder, uids)
+		if purgeErr != nil {
+			log.Printf("[GetEmails] purge check failed (non-fatal): %v", purgeErr)
+		} else if len(deletedUIDs) > 0 {
+			log.Printf("[GetEmails] purged %d deleted emails, reloading list", len(deletedUIDs))
+			// Reload emails after purge
+			emails, ferr = a.application.Email().GetEmails(ctx, folder, limit)
+			if ferr != nil {
+				return nil, ferr
+			}
+		}
 	}
 
 	for _, e := range emails {
@@ -125,6 +147,8 @@ func (a *App) GetEmailsThreaded(folder string, limit int) (result []EmailDTO, er
 		limit = 50
 	}
 
+	var ctx = context.Background()
+
 	// Get account and folder IDs
 	var dbAccount, accountErr = storage.GetOrCreateAccount(a.account.Email, a.account.Name)
 	if accountErr != nil {
@@ -140,6 +164,26 @@ func (a *App) GetEmailsThreaded(folder string, limit int) (result []EmailDTO, er
 	var summaries, sErr = storage.GetThreadSummaries(dbAccount.ID, dbFolder.ID, limit, 0)
 	if sErr != nil {
 		return nil, sErr
+	}
+
+	// Verify these emails still exist on server (purge deleted ones)
+	if len(summaries) > 0 {
+		var uids = make([]uint32, len(summaries))
+		for i, s := range summaries {
+			uids[i] = s.UID
+		}
+
+		var deletedUIDs, purgeErr = a.application.Sync().PurgeSpecificUIDs(ctx, folder, uids)
+		if purgeErr != nil {
+			log.Printf("[GetEmailsThreaded] purge check failed (non-fatal): %v", purgeErr)
+		} else if len(deletedUIDs) > 0 {
+			log.Printf("[GetEmailsThreaded] purged %d deleted emails, reloading list", len(deletedUIDs))
+			// Reload after purge
+			summaries, sErr = storage.GetThreadSummaries(dbAccount.ID, dbFolder.ID, limit, 0)
+			if sErr != nil {
+				return nil, sErr
+			}
+		}
 	}
 
 	// Convert to EmailDTO
@@ -404,7 +448,7 @@ func (a *App) IsConnected() bool {
 	return a.application.Sync().IsConnected()
 }
 
-// SyncFolder syncs a specific folder
+// SyncFolder syncs a specific folder and purges deleted emails
 func (a *App) SyncFolder(folder string) (result *SyncResultDTO, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -416,18 +460,31 @@ func (a *App) SyncFolder(folder string) (result *SyncResultDTO, err error) {
 	if a.application == nil {
 		return nil, nil
 	}
-	var syncResult, syncErr = a.application.Sync().SyncFolder(context.Background(), folder)
+
+	var ctx = context.Background()
+
+	// 1. Sync new emails from server
+	var syncResult, syncErr = a.application.Sync().SyncFolder(ctx, folder)
 	log.Printf("[SyncFolder] sync completed, err=%v", syncErr)
 	if syncErr != nil {
 		return nil, syncErr
 	}
+
+	// 2. Purge emails deleted from server (compare local UIDs with server UIDs)
+	var purged, purgeErr = a.application.Sync().PurgeDeletedEmails(ctx, folder)
+	if purgeErr != nil {
+		log.Printf("[SyncFolder] purge error (non-fatal): %v", purgeErr)
+	} else if purged > 0 {
+		log.Printf("[SyncFolder] purged %d deleted emails", purged)
+	}
+
 	if syncResult != nil {
 		return &SyncResultDTO{
 			NewEmails:     syncResult.NewEmails,
-			DeletedEmails: syncResult.DeletedEmails,
+			DeletedEmails: purged,
 		}, nil
 	}
-	return &SyncResultDTO{}, nil
+	return &SyncResultDTO{DeletedEmails: purged}, nil
 }
 
 // SyncCurrentFolder syncs the currently selected folder
@@ -439,7 +496,7 @@ func (a *App) SyncCurrentFolder() (*SyncResultDTO, error) {
 	return a.SyncFolder(folder)
 }
 
-// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash)
+// SyncEssentialFolders syncs essential folders (INBOX, Sent, Trash) and purges deleted
 func (a *App) SyncEssentialFolders() (results []SyncResultDTO, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -451,15 +508,32 @@ func (a *App) SyncEssentialFolders() (results []SyncResultDTO, err error) {
 	if a.application == nil {
 		return nil, nil
 	}
-	var syncResults, syncErr = a.application.Sync().SyncEssentialFolders(context.Background())
+
+	var ctx = context.Background()
+
+	// 1. Sync new emails from essential folders
+	var syncResults, syncErr = a.application.Sync().SyncEssentialFolders(ctx)
 	log.Printf("[SyncEssentialFolders] sync completed, err=%v", syncErr)
 	if syncErr != nil {
 		return nil, syncErr
 	}
-	for _, r := range syncResults {
+
+	// 2. Purge deleted emails from INBOX (most important folder)
+	var purged, purgeErr = a.application.Sync().PurgeDeletedEmails(ctx, "INBOX")
+	if purgeErr != nil {
+		log.Printf("[SyncEssentialFolders] purge INBOX error (non-fatal): %v", purgeErr)
+	} else if purged > 0 {
+		log.Printf("[SyncEssentialFolders] purged %d deleted emails from INBOX", purged)
+	}
+
+	for i, r := range syncResults {
+		var deletedCount = 0
+		if i == 0 { // INBOX is first
+			deletedCount = purged
+		}
 		results = append(results, SyncResultDTO{
 			NewEmails:     r.NewEmails,
-			DeletedEmails: r.DeletedEmails,
+			DeletedEmails: deletedCount,
 		})
 	}
 	return results, nil

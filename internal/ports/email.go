@@ -186,6 +186,10 @@ type SyncService interface {
 	// This is a separate job that should run periodically, not on every sync
 	PurgeDeletedEmails(ctx context.Context, folder string) (int, error)
 
+	// PurgeSpecificUIDs checks if specific UIDs still exist on server and marks deleted ones
+	// This is used to verify emails before displaying them (more efficient than full purge)
+	PurgeSpecificUIDs(ctx context.Context, folder string, uids []uint32) ([]uint32, error)
+
 	// GetConnectionStatus returns the current connection status
 	GetConnectionStatus() ConnectionStatus
 

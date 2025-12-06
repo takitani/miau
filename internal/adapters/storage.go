@@ -219,9 +219,7 @@ func (a *StorageAdapter) MarkAsReplied(ctx context.Context, id int64, replied bo
 
 // MarkDeletedByUIDs marks emails as deleted by UIDs
 func (a *StorageAdapter) MarkDeletedByUIDs(ctx context.Context, folderID int64, uids []uint32) error {
-	// Use PurgeDeletedFromServer in reverse
-	// This would need implementation
-	return nil
+	return storage.MarkDeletedByUIDs(folderID, uids)
 }
 
 // BulkMarkAsRead marks multiple emails as read

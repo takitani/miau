@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/opik/miau/internal/ports"
@@ -395,30 +396,38 @@ func (s *SyncService) InitialSyncEssentialFolders(ctx context.Context) ([]ports.
 // PurgeDeletedEmails checks for deleted emails and marks them locally
 // This is a SEPARATE job that should run periodically, not on every sync
 func (s *SyncService) PurgeDeletedEmails(ctx context.Context, folderName string) (int, error) {
+	log.Printf("[PurgeDeletedEmails] starting for folder: %s", folderName)
+
 	s.mu.RLock()
 	var account = s.account
 	var config = s.config
 	s.mu.RUnlock()
 
 	if account == nil {
+		log.Printf("[PurgeDeletedEmails] error: no account set")
 		return 0, fmt.Errorf("no account set")
 	}
 
 	if !config.PurgeEnabled {
+		log.Printf("[PurgeDeletedEmails] purge disabled in config")
 		return 0, nil
 	}
 
 	var folder, err = s.storage.GetFolderByName(ctx, account.ID, folderName)
 	if err != nil {
+		log.Printf("[PurgeDeletedEmails] error getting folder: %v", err)
 		return 0, err
 	}
 
 	// Select mailbox
 	if _, err := s.imap.SelectMailbox(ctx, folderName); err != nil {
+		log.Printf("[PurgeDeletedEmails] error selecting mailbox: %v", err)
 		return 0, err
 	}
 
-	return s.purgeDeleted(ctx, folder.ID)
+	var purged, purgeErr = s.purgeDeleted(ctx, folder.ID)
+	log.Printf("[PurgeDeletedEmails] completed: purged=%d, err=%v", purged, purgeErr)
+	return purged, purgeErr
 }
 
 // purgeDeleted marks emails as deleted that were removed from server
@@ -463,6 +472,62 @@ func (s *SyncService) purgeDeleted(ctx context.Context, folderID int64) (int, er
 	}
 
 	return len(deletedUIDs), nil
+}
+
+// PurgeSpecificUIDs checks if specific UIDs still exist on server and marks deleted ones
+// Returns the list of UIDs that were marked as deleted
+func (s *SyncService) PurgeSpecificUIDs(ctx context.Context, folderName string, uids []uint32) ([]uint32, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+
+	s.mu.RLock()
+	var account = s.account
+	s.mu.RUnlock()
+
+	if account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	var folder, err = s.storage.GetFolderByName(ctx, account.ID, folderName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Select mailbox
+	if _, err := s.imap.SelectMailbox(ctx, folderName); err != nil {
+		return nil, err
+	}
+
+	// Get all UIDs from server (we need to check against them)
+	var serverUIDs, err2 = s.imap.GetAllUIDs(ctx)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	// Create a set for fast lookup
+	var serverUIDSet = make(map[uint32]bool)
+	for _, uid := range serverUIDs {
+		serverUIDSet[uid] = true
+	}
+
+	// Find which of the requested UIDs don't exist on server
+	var deletedUIDs []uint32
+	for _, uid := range uids {
+		if !serverUIDSet[uid] {
+			deletedUIDs = append(deletedUIDs, uid)
+		}
+	}
+
+	// Mark them as deleted in storage
+	if len(deletedUIDs) > 0 {
+		log.Printf("[PurgeSpecificUIDs] marking %d emails as deleted in folder %s", len(deletedUIDs), folderName)
+		if err := s.storage.MarkDeletedByUIDs(ctx, folder.ID, deletedUIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	return deletedUIDs, nil
 }
 
 // SyncAll syncs all folders

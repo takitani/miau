@@ -47,6 +47,7 @@ type Application struct {
 	undoService       *services.UndoServiceImpl
 	contactService    *services.ContactService
 	taskService       *services.TaskService
+	calendarService   *services.CalendarService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -181,6 +182,18 @@ func (a *Application) Start() error {
 	// Create task service
 	a.taskService = services.NewTaskService()
 
+	// Create calendar service (depends on task service for sync)
+	a.calendarService = services.NewCalendarService(a.taskService)
+
+	// Wire up bidirectional Task ↔ Calendar sync
+	a.taskService.SetCalendarSync(a.calendarService)
+
+	// Wire up Google Calendar client if available
+	if a.gmailAdapter != nil && a.gmailAdapter.CalendarClient() != nil {
+		a.calendarService.SetGoogleCalendarClient(a.gmailAdapter.CalendarClient())
+		fmt.Printf("[App.Start] Google Calendar client connected\n")
+	}
+
 	a.started = true
 	return nil
 }
@@ -273,6 +286,11 @@ func (a *Application) Tasks() ports.TaskService {
 	return a.taskService
 }
 
+// Calendar returns the calendar service
+func (a *Application) Calendar() ports.CalendarService {
+	return a.calendarService
+}
+
 // Events returns the event bus
 func (a *Application) Events() ports.EventBus {
 	return a.eventBus
@@ -311,6 +329,11 @@ func (a *Application) GetIMAPAdapter() *adapters.IMAPAdapter {
 // GetStorageAdapter returns the storage adapter for direct access (backward compatibility)
 func (a *Application) GetStorageAdapter() *adapters.StorageAdapter {
 	return a.storageAdapter
+}
+
+// GetGmailAdapter returns the Gmail API adapter for direct access
+func (a *Application) GetGmailAdapter() *adapters.GmailAPIAdapter {
+	return a.gmailAdapter
 }
 
 // SetIMAPClient sets an external IMAP client (for TUI to share connection with services)
@@ -358,20 +381,38 @@ func (a *Application) ReinitializeGmailAdapter() error {
 	var gmailPort ports.GmailAPIPort = a.gmailAdapter
 	a.sendService.SetGmailAPI(gmailPort)
 
+	// Update the calendar service with the new calendar client
+	if a.gmailAdapter.CalendarClient() != nil {
+		a.calendarService.SetGoogleCalendarClient(a.gmailAdapter.CalendarClient())
+		fmt.Printf("[ReinitializeGmailAdapter] Google Calendar client updated\n")
+	}
+
+	// Update contact service with new contacts adapter
+	if a.gmailAdapter.Client() != nil && a.contactService != nil {
+		// Contact adapter is already wired in Start()
+		fmt.Printf("[ReinitializeGmailAdapter] Gmail adapter reinitialized with all services\n")
+	}
+
 	return nil
 }
 
 // SyncThreadIDsFromGmail syncs thread IDs from Gmail API for existing emails
 // Returns the number of emails updated
-// Uses incremental sync - only fetches for emails without thread_id
+// Uses TRUE incremental sync - only queries Gmail for emails that haven't been checked yet
 // Supports cancellation via context
+// maxEmails: limit how many emails to process (0 = no limit, but uses default of 500)
 func (a *Application) SyncThreadIDsFromGmail(ctx context.Context, progressCallback func(processed, total int)) (int, error) {
+	return a.SyncThreadIDsFromGmailWithLimit(ctx, 500, progressCallback)
+}
+
+// SyncThreadIDsFromGmailWithLimit syncs thread IDs with a configurable limit
+func (a *Application) SyncThreadIDsFromGmailWithLimit(ctx context.Context, maxEmails int, progressCallback func(processed, total int)) (int, error) {
 	a.mu.RLock()
-	var gmailClient = a.gmailAdapter
+	var gmailAdapter = a.gmailAdapter
 	var account = a.accountInfo
 	a.mu.RUnlock()
 
-	if gmailClient == nil {
+	if gmailAdapter == nil {
 		return 0, fmt.Errorf("Gmail API not configured")
 	}
 	if account == nil {
@@ -383,38 +424,86 @@ func (a *Application) SyncThreadIDsFromGmail(ctx context.Context, progressCallba
 		return 0, ctx.Err()
 	}
 
-	// Check how many emails need thread sync
-	var needSync, countErr = storage.CountEmailsWithoutThreadID(account.ID)
-	if countErr != nil {
-		return 0, fmt.Errorf("failed to count emails: %w", countErr)
-	}
-
-	// If all emails already have thread_id, skip the expensive API calls
-	if needSync == 0 {
-		return 0, nil
-	}
-
-	// Phase 1: Fetch all thread mappings from Gmail API
-	// TODO: In future, could optimize to only query Gmail for specific message IDs
-	var threadMap, err = gmailClient.SyncAllThreadIDs(ctx, progressCallback)
+	// Get emails that need thread sync (haven't been checked yet)
+	// This returns emails where thread_synced_at IS NULL
+	var emails, err = storage.GetEmailsForThreadSync(account.ID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to sync thread IDs from Gmail: %w", err)
+		return 0, fmt.Errorf("failed to get emails for thread sync: %w", err)
 	}
 
-	// Check for cancellation before database update
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
-
-	if len(threadMap) == 0 {
+	if len(emails) == 0 {
 		return 0, nil
 	}
 
-	// Phase 2: Batch update local database (only updates where thread_id differs)
-	var updated, updateErr = storage.BatchUpdateThreadIDs(account.ID, threadMap)
-	if updateErr != nil {
-		return int(updated), fmt.Errorf("failed to update thread IDs: %w", updateErr)
+	// Separate emails that already have thread_id from those that need API lookup
+	var needAPILookup []storage.EmailForThreadSync
+	var alreadyHaveThread []int64
+
+	for _, e := range emails {
+		if e.ThreadID != "" {
+			// Already has thread_id, just mark as synced (no API call needed)
+			alreadyHaveThread = append(alreadyHaveThread, e.ID)
+		} else {
+			needAPILookup = append(needAPILookup, e)
+		}
 	}
 
-	return int(updated), nil
+	// Batch mark emails that already have thread_id as synced
+	if len(alreadyHaveThread) > 0 {
+		storage.MarkEmailsThreadSynced(alreadyHaveThread)
+		fmt.Printf("[SyncThreadIDs] Marked %d emails as synced (already had thread_id)\n", len(alreadyHaveThread))
+	}
+
+	if len(needAPILookup) == 0 {
+		return 0, nil
+	}
+
+	// Apply limit to avoid processing too many at once
+	if maxEmails > 0 && len(needAPILookup) > maxEmails {
+		fmt.Printf("[SyncThreadIDs] Limiting from %d to %d emails (run again for more)\n", len(needAPILookup), maxEmails)
+		needAPILookup = needAPILookup[:maxEmails]
+	}
+
+	var total = len(needAPILookup)
+	var updated = 0
+
+	fmt.Printf("[SyncThreadIDs] Processing %d emails that need API lookup\n", total)
+
+	// Process each email individually - TRUE incremental sync
+	for i, email := range needAPILookup {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return updated, ctx.Err()
+		}
+
+		// Progress callback
+		if progressCallback != nil {
+			progressCallback(i+1, total)
+		}
+
+		if email.MessageID == "" {
+			// Mark as synced even if no message_id (won't retry)
+			storage.UpdateEmailThreadID(email.ID, "")
+			continue
+		}
+
+		// Query Gmail API for this specific message
+		var msgInfo, apiErr = gmailAdapter.GetMessageInfoByRFC822MsgID(email.MessageID)
+		if apiErr != nil {
+			// Mark as synced to avoid retrying failed lookups
+			storage.UpdateEmailThreadID(email.ID, "")
+			continue
+		}
+
+		if msgInfo != nil && msgInfo.ThreadID != "" {
+			if updateErr := storage.UpdateEmailThreadID(email.ID, msgInfo.ThreadID); updateErr == nil {
+				updated++
+			}
+		} else {
+			// Mark as synced even if no thread found
+			storage.UpdateEmailThreadID(email.ID, "")
+		}
+	}
+
+	return updated, nil
 }

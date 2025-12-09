@@ -242,6 +242,105 @@ miau supports two sending methods:
 
 To use Gmail API, set `send_method: gmail_api` and run `miau auth` to authenticate.
 
+## Google Cloud Setup (Gmail API / OAuth2)
+
+To use miau with Gmail API, OAuth2 authentication, Google Contacts sync, or Google Calendar sync, you need to create a Google Cloud project and enable the required APIs.
+
+### Step 1: Create a Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Note down your **Project ID** (you'll see it in the URL and dashboard)
+
+### Step 2: Enable Required APIs
+
+Enable the following APIs in your project (APIs & Services > Library):
+
+| API | Required For | Link |
+|-----|--------------|------|
+| **Gmail API** | Sending emails, reading signatures | [Enable Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com) |
+| **People API** | Contact sync, autocomplete | [Enable People API](https://console.cloud.google.com/apis/library/people.googleapis.com) |
+| **Google Calendar API** | Calendar sync | [Enable Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) |
+
+**Important**: If you see a "403 - API not enabled" error, click the link in the error message to enable the API, wait a few minutes, then retry.
+
+### Step 3: Configure OAuth Consent Screen
+
+1. Go to **APIs & Services > OAuth consent screen**
+2. Choose **External** (or Internal if using Google Workspace)
+3. Fill in the required fields:
+   - App name: `miau` (or any name you prefer)
+   - User support email: your email
+   - Developer contact: your email
+4. Add the following **Scopes**:
+   - `https://mail.google.com/` - Full IMAP access
+   - `https://www.googleapis.com/auth/gmail.send` - Send emails
+   - `https://www.googleapis.com/auth/contacts.readonly` - Read contacts
+   - `https://www.googleapis.com/auth/contacts.other.readonly` - Read "Other Contacts"
+   - `https://www.googleapis.com/auth/calendar.readonly` - Read calendar events
+5. Add your email as a **Test user** (required while app is in "Testing" status)
+6. Save and continue
+
+### Step 4: Create OAuth Credentials
+
+1. Go to **APIs & Services > Credentials**
+2. Click **Create Credentials > OAuth client ID**
+3. Application type: **Desktop app**
+4. Name: `miau-desktop` (or any name)
+5. Click **Create**
+6. Download or copy the **Client ID** and **Client Secret**
+
+### Step 5: Configure miau
+
+Add the credentials to your `~/.config/miau/config.yaml`:
+
+```yaml
+accounts:
+  - name: Your Name
+    email: your.email@gmail.com
+    auth_type: oauth2
+    oauth2:
+      client_id: "YOUR_CLIENT_ID.apps.googleusercontent.com"
+      client_secret: "YOUR_CLIENT_SECRET"
+    send_method: gmail_api
+    imap:
+      host: imap.gmail.com
+      port: 993
+      tls: true
+```
+
+### Step 6: Authenticate
+
+Run `miau auth` to complete the OAuth2 flow:
+
+```bash
+miau auth
+```
+
+This will:
+1. Open your browser to Google's consent screen
+2. Ask you to grant permissions for the enabled APIs
+3. Save the token locally at `~/.config/miau/tokens/your.email@gmail.com.json`
+
+### Troubleshooting
+
+| Error | Solution |
+|-------|----------|
+| `403: Access Not Configured` | Enable the required API in Google Cloud Console |
+| `403: The caller does not have permission` | Add yourself as a test user in OAuth consent screen |
+| `Token has been revoked` | Delete `~/.config/miau/tokens/*.json` and run `miau auth` again |
+| `redirect_uri_mismatch` | Ensure you created a "Desktop app" OAuth client, not "Web application" |
+
+### Features by API
+
+| Feature | Required API |
+|---------|--------------|
+| OAuth2 login (IMAP) | Gmail API |
+| Send via Gmail API | Gmail API |
+| Contact autocomplete | People API |
+| Contact sync | People API |
+| Google Calendar sync | Calendar API |
+
 ## AI Commands
 
 When the AI panel is open (press `a`), you can ask natural language questions about your emails:

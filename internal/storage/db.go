@@ -447,6 +447,39 @@ CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(account_id, is_completed);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(account_id, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_email ON tasks(email_id);
+
+-- Tabela de eventos do calendário
+CREATE TABLE IF NOT EXISTS calendar_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	account_id INTEGER NOT NULL,
+	title TEXT NOT NULL,
+	description TEXT,
+	event_type TEXT NOT NULL DEFAULT 'custom', -- 'custom', 'task_deadline', 'email_followup', 'meeting'
+	start_time DATETIME NOT NULL,
+	end_time DATETIME,
+	all_day BOOLEAN DEFAULT 0,
+	color TEXT,
+	task_id INTEGER, -- link bidirecional com task
+	email_id INTEGER, -- link com email (follow-up)
+	is_completed BOOLEAN DEFAULT 0,
+	source TEXT NOT NULL DEFAULT 'manual', -- 'manual', 'task_sync', 'ai_suggestion'
+	-- Google Calendar sync fields (para integração futura)
+	google_event_id TEXT,
+	google_calendar_id TEXT,
+	last_synced_at DATETIME,
+	sync_status TEXT DEFAULT 'local', -- 'local', 'synced', 'pending_sync', 'conflict'
+	--
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (account_id) REFERENCES accounts(id),
+	FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+	FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_events_account_time ON calendar_events(account_id, start_time);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_task ON calendar_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_email ON calendar_events(email_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_google ON calendar_events(google_event_id);
 `
 
 func Init(dbPath string) error {
@@ -494,6 +527,11 @@ func Init(dbPath string) error {
 	// Migração: adiciona coluna forward_to para batch ops
 	if err := migrateAddForwardTo(); err != nil {
 		return fmt.Errorf("erro na migração forward_to: %w", err)
+	}
+
+	// Migração: cria tabela calendar_events se não existir
+	if err := migrateCalendarEvents(); err != nil {
+		return fmt.Errorf("erro na migração calendar_events: %w", err)
 	}
 
 	return nil
@@ -573,6 +611,45 @@ func migrateAddForwardTo() error {
 	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return err
 	}
+	return nil
+}
+
+// migrateCalendarEvents cria tabela calendar_events para databases existentes
+func migrateCalendarEvents() error {
+	var _, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS calendar_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			title TEXT NOT NULL,
+			description TEXT,
+			event_type TEXT NOT NULL DEFAULT 'custom',
+			start_time DATETIME NOT NULL,
+			end_time DATETIME,
+			all_day BOOLEAN DEFAULT 0,
+			color TEXT,
+			task_id INTEGER,
+			email_id INTEGER,
+			is_completed BOOLEAN DEFAULT 0,
+			source TEXT NOT NULL DEFAULT 'manual',
+			google_event_id TEXT,
+			google_calendar_id TEXT,
+			last_synced_at DATETIME,
+			sync_status TEXT DEFAULT 'local',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (account_id) REFERENCES accounts(id),
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+			FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	// Cria índices
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_events_account_time ON calendar_events(account_id, start_time)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_events_task ON calendar_events(task_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_events_email ON calendar_events(email_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_events_google ON calendar_events(google_event_id)")
 	return nil
 }
 

@@ -15,12 +15,13 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// Scopes necessários para IMAP, Gmail API e People API (contatos)
+// Scopes necessários para IMAP, Gmail API, People API (contatos) e Calendar
 var GmailScopes = []string{
-	"https://mail.google.com/",                              // Full access for IMAP
-	"https://www.googleapis.com/auth/gmail.send",            // Gmail API send
-	"https://www.googleapis.com/auth/contacts.readonly",     // People API contacts (read-only)
+	"https://mail.google.com/",                                // Full access for IMAP
+	"https://www.googleapis.com/auth/gmail.send",              // Gmail API send
+	"https://www.googleapis.com/auth/contacts.readonly",       // People API contacts (read-only)
 	"https://www.googleapis.com/auth/contacts.other.readonly", // People API "Other Contacts"
+	"https://www.googleapis.com/auth/calendar.readonly",       // Google Calendar (read-only)
 }
 
 type OAuth2Config struct {
@@ -79,8 +80,12 @@ func AuthenticateWithBrowser(cfg *oauth2.Config) (*oauth2.Token, error) {
 		}
 	}()
 
-	// Gera URL de autorização
-	var authURL = cfg.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	// Gera URL de autorização com prompt=consent para forçar re-consentimento de todos os scopes
+	var authURL = cfg.AuthCodeURL("state-token",
+		oauth2.AccessTypeOffline,
+		oauth2.ApprovalForce,
+		oauth2.SetAuthURLParam("prompt", "consent"),
+	)
 
 	fmt.Println("\n🔐 Abrindo navegador para autenticação...")
 	fmt.Println("Se não abrir automaticamente, acesse:")

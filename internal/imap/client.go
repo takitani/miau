@@ -110,7 +110,7 @@ func authenticatePassword(client *imapclient.Client, account *config.Account) er
 }
 
 func authenticateOAuth2(client *imapclient.Client, account *config.Account) error {
-	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Name)
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Email)
 	var oauthCfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
 
 	var token, err = auth.GetValidToken(oauthCfg, tokenPath)

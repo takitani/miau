@@ -20,7 +20,7 @@ export const loading = writable(false);
 export const threadingEnabled = writable(true);
 
 // Stack of recently removed emails (for undo without reload)
-var recentlyRemovedEmails = [];
+let recentlyRemovedEmails = [];
 
 // Derived: get selected email object
 export const selectedEmail = derived(
@@ -31,12 +31,12 @@ export const selectedEmail = derived(
 // Load emails from backend
 export async function loadEmails(folder, limit = 50) {
   loading.set(true);
-  var threaded = get(threadingEnabled);
+  const threaded = get(threadingEnabled);
   logDebug(`loadEmails called: folder=${folder}, limit=${limit}, threaded=${threaded}`);
   try {
     // Check if Wails bindings are available
     if (typeof window !== 'undefined' && window.go && window.go.desktop && window.go.desktop.App) {
-      var result;
+      let result;
       if (threaded) {
         logDebug('Calling Go backend GetEmailsThreaded...');
         result = await window.go.desktop.App.GetEmailsThreaded(folder, limit);
@@ -72,32 +72,32 @@ export async function loadEmails(folder, limit = 50) {
 
 // Toggle threading mode and reload emails
 export async function toggleThreading() {
-  var current = get(threadingEnabled);
+  const current = get(threadingEnabled);
   threadingEnabled.set(!current);
-  var folder = get(currentFolder);
+  const folder = get(currentFolder);
   await loadEmails(folder);
 }
 
 // Refresh emails without full reload (merge new emails, preserve selection)
 export async function refreshEmails(folder, limit = 50) {
-  var threaded = get(threadingEnabled);
+  const threaded = get(threadingEnabled);
   logDebug(`refreshEmails called: folder=${folder}, limit=${limit}, threaded=${threaded}`);
 
   try {
     if (typeof window !== 'undefined' && window.go && window.go.desktop && window.go.desktop.App) {
-      var result;
+      let result;
       if (threaded) {
         result = await window.go.desktop.App.GetEmailsThreaded(folder, limit);
       } else {
         result = await window.go.desktop.App.GetEmails(folder, limit);
       }
 
-      var newEmails = result || [];
-      var currentEmails = get(emails);
-      var currentSelectedId = get(selectedEmailId);
+      const newEmails = result || [];
+      const currentEmails = get(emails);
+      const currentSelectedId = get(selectedEmailId);
 
       // Check if list actually changed
-      var hasChanges = newEmails.length !== currentEmails.length ||
+      const hasChanges = newEmails.length !== currentEmails.length ||
         newEmails.some((e, i) => !currentEmails[i] || e.id !== currentEmails[i].id);
 
       if (!hasChanges) {
@@ -106,17 +106,17 @@ export async function refreshEmails(folder, limit = 50) {
       }
 
       // Count new emails (IDs that weren't in the previous list)
-      var oldIds = new Set(currentEmails.map(e => e.id));
-      var newCount = newEmails.filter(e => !oldIds.has(e.id)).length;
+      const oldIds = new Set(currentEmails.map(e => e.id));
+      const newCount = newEmails.filter(e => !oldIds.has(e.id)).length;
 
       // Update list
       emails.set(newEmails);
 
       // Preserve selection if email still exists
       if (currentSelectedId) {
-        var stillExists = newEmails.find(e => e.id === currentSelectedId);
+        const stillExists = newEmails.find(e => e.id === currentSelectedId);
         if (stillExists) {
-          var newIndex = newEmails.findIndex(e => e.id === currentSelectedId);
+          const newIndex = newEmails.findIndex(e => e.id === currentSelectedId);
           selectedIndex.set(newIndex);
           // Keep selectedEmailId as is
         } else if (newEmails.length > 0) {
@@ -193,9 +193,9 @@ export async function markAsRead(id, read = true) {
 export async function archiveEmail(id) {
   try {
     // Save email before removing (for undo)
-    var $emails = get(emails);
-    var email = $emails.find(e => e.id === id);
-    var index = $emails.findIndex(e => e.id === id);
+    const $emails = get(emails);
+    const email = $emails.find(e => e.id === id);
+    const index = $emails.findIndex(e => e.id === id);
     if (email) {
       recentlyRemovedEmails.push({ email, index, action: 'archive' });
       // Keep max 50 items
@@ -219,9 +219,9 @@ export async function archiveEmail(id) {
 export async function deleteEmail(id) {
   try {
     // Save email before removing (for undo)
-    var $emails = get(emails);
-    var email = $emails.find(e => e.id === id);
-    var index = $emails.findIndex(e => e.id === id);
+    const $emails = get(emails);
+    const email = $emails.find(e => e.id === id);
+    const index = $emails.findIndex(e => e.id === id);
     if (email) {
       recentlyRemovedEmails.push({ email, index, action: 'delete' });
       // Keep max 50 items
@@ -245,13 +245,13 @@ export async function deleteEmail(id) {
 export function restoreLastRemovedEmail() {
   if (recentlyRemovedEmails.length === 0) return null;
 
-  var removed = recentlyRemovedEmails.pop();
+  const removed = recentlyRemovedEmails.pop();
   if (!removed) return null;
 
   // Insert email back at original position
   emails.update(list => {
-    var newList = [...list];
-    var insertIndex = Math.min(removed.index, newList.length);
+    const newList = [...list];
+    const insertIndex = Math.min(removed.index, newList.length);
     newList.splice(insertIndex, 0, removed.email);
     return newList;
   });

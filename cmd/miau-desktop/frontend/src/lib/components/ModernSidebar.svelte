@@ -1,6 +1,8 @@
 <script>
   import { sidebarExpanded, toggleSidebar, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_EXPANDED_WIDTH } from '../stores/layout.js';
+  import { showCalendarPanel } from '../stores/calendar.js';
   import TasksWidget from './TasksWidget.svelte';
+  import CalendarWidget from './CalendarWidget.svelte';
   import FolderList from './FolderList.svelte';
 
   export let folders = [];
@@ -8,6 +10,7 @@
 
   var sectionsExpanded = {
     tasks: true,
+    calendar: true,
     ai: true,
     folders: true
   };
@@ -69,6 +72,42 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 11l3 3L22 4"/>
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+        </button>
+      {/if}
+    </section>
+
+    <!-- Calendar Section -->
+    <section class="sidebar-section">
+      {#if $sidebarExpanded}
+        <button class="section-header" on:click={() => toggleSection('calendar')}>
+          <span class="section-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </span>
+          <span class="section-title">Calendar</span>
+          <span class="section-chevron" class:rotated={!sectionsExpanded.calendar}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </span>
+        </button>
+        {#if sectionsExpanded.calendar}
+          <div class="section-content">
+            <CalendarWidget />
+          </div>
+        {/if}
+      {:else}
+        <button class="icon-btn" title="Calendar" on:click={() => showCalendarPanel.set(true)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
         </button>
       {/if}

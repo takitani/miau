@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/opik/miau/internal/app"
 	"github.com/opik/miau/internal/ports"
+	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/storage"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -478,6 +481,12 @@ func (a *App) SyncFolder(folder string) (result *SyncResultDTO, err error) {
 		log.Printf("[SyncFolder] purged %d deleted emails", purged)
 	}
 
+	// 3. Sync thread IDs for NEW emails specifically (not random 50)
+	if syncResult != nil && len(syncResult.NewEmailIDs) > 0 {
+		log.Printf("[SyncFolder] syncing thread IDs for %d new emails", len(syncResult.NewEmailIDs))
+		go a.syncThreadIDsForEmails(ctx, syncResult.NewEmailIDs)
+	}
+
 	if syncResult != nil {
 		return &SyncResultDTO{
 			NewEmails:     syncResult.NewEmails,
@@ -485,6 +494,114 @@ func (a *App) SyncFolder(folder string) (result *SyncResultDTO, err error) {
 		}, nil
 	}
 	return &SyncResultDTO{DeletedEmails: purged}, nil
+}
+
+// syncThreadIDsForEmails syncs thread IDs for specific email IDs via Gmail API
+func (a *App) syncThreadIDsForEmails(ctx context.Context, emailIDs []int64) {
+	if a.application == nil || len(emailIDs) == 0 {
+		return
+	}
+
+	// Get Gmail adapter
+	var coreApp, ok = a.application.(*app.Application)
+	if !ok {
+		return
+	}
+	var gmailAdapter = coreApp.GetGmailAdapter()
+	if gmailAdapter == nil {
+		log.Printf("[syncThreadIDsForEmails] Gmail adapter not available, skipping thread sync")
+		return
+	}
+
+	// Get emails by IDs
+	var emails, err = storage.GetEmailsByIDs(emailIDs)
+	if err != nil || len(emails) == 0 {
+		log.Printf("[syncThreadIDsForEmails] Failed to get emails: %v", err)
+		return
+	}
+
+	log.Printf("[syncThreadIDsForEmails] Syncing thread IDs for %d emails", len(emails))
+
+	var updated = 0
+	for _, email := range emails {
+		// Skip if no message_id or already has thread_id
+		if !email.MessageID.Valid || email.MessageID.String == "" {
+			continue
+		}
+		if email.ThreadID.Valid && email.ThreadID.String != "" {
+			continue
+		}
+
+		// Get thread ID from Gmail API
+		var msgInfo, apiErr = gmailAdapter.GetMessageInfoByRFC822MsgID(email.MessageID.String)
+		if apiErr != nil {
+			log.Printf("[syncThreadIDsForEmails] Failed to get thread for %s: %v", email.MessageID.String, apiErr)
+			continue
+		}
+
+		if msgInfo != nil && msgInfo.ThreadID != "" {
+			// Update thread_id in database
+			if updateErr := storage.UpdateEmailThreadID(email.ID, msgInfo.ThreadID); updateErr == nil {
+				updated++
+			}
+		}
+	}
+
+	log.Printf("[syncThreadIDsForEmails] Updated %d thread IDs", updated)
+}
+
+// syncNewEmailThreadIDs syncs thread IDs for emails that don't have one yet (legacy/fallback)
+func (a *App) syncNewEmailThreadIDs(ctx context.Context) {
+	if a.application == nil {
+		return
+	}
+
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return
+	}
+
+	// Get emails without thread_id (limit to recent ones for performance)
+	var emails, err = storage.GetEmailsNeedingThreadSync(account.ID, 50)
+	if err != nil || len(emails) == 0 {
+		return
+	}
+
+	log.Printf("[syncNewEmailThreadIDs] Found %d emails needing thread_id sync", len(emails))
+
+	// Get Gmail adapter through the app
+	var coreApp, ok = a.application.(*app.Application)
+	if !ok {
+		return
+	}
+	var gmailAdapter = coreApp.GetGmailAdapter()
+	if gmailAdapter == nil {
+		return
+	}
+
+	var updated = 0
+	for _, email := range emails {
+		if email.MessageID == "" {
+			continue
+		}
+
+		// Get thread ID from Gmail API
+		var msgInfo, apiErr = gmailAdapter.GetMessageInfoByRFC822MsgID(email.MessageID)
+		if apiErr != nil {
+			continue
+		}
+
+		if msgInfo != nil && msgInfo.ThreadID != "" {
+			// Update thread_id in database
+			if updateErr := storage.UpdateEmailThreadID(email.ID, msgInfo.ThreadID); updateErr == nil {
+				updated++
+			}
+		}
+	}
+
+	if updated > 0 {
+		log.Printf("[syncNewEmailThreadIDs] Updated %d thread IDs", updated)
+	}
 }
 
 // SyncCurrentFolder syncs the currently selected folder
@@ -526,6 +643,8 @@ func (a *App) SyncEssentialFolders() (results []SyncResultDTO, err error) {
 		log.Printf("[SyncEssentialFolders] purged %d deleted emails from INBOX", purged)
 	}
 
+	// 3. Collect all new email IDs for thread sync
+	var allNewEmailIDs []int64
 	for i, r := range syncResults {
 		var deletedCount = 0
 		if i == 0 { // INBOX is first
@@ -535,7 +654,17 @@ func (a *App) SyncEssentialFolders() (results []SyncResultDTO, err error) {
 			NewEmails:     r.NewEmails,
 			DeletedEmails: deletedCount,
 		})
+		// Collect IDs for thread sync
+		log.Printf("[SyncEssentialFolders] folder %d: NewEmails=%d, NewEmailIDs=%d", i, r.NewEmails, len(r.NewEmailIDs))
+		allNewEmailIDs = append(allNewEmailIDs, r.NewEmailIDs...)
 	}
+
+	// 4. Sync thread IDs for ALL new emails from all folders (SYNCHRONOUS - must complete before returning)
+	if len(allNewEmailIDs) > 0 {
+		log.Printf("[SyncEssentialFolders] syncing thread IDs for %d new emails", len(allNewEmailIDs))
+		a.syncThreadIDsForEmails(ctx, allNewEmailIDs)
+	}
+
 	return results, nil
 }
 
@@ -2156,4 +2285,393 @@ func (a *App) taskToDTO(t *ports.TaskInfo) TaskDTO {
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
+}
+
+// ============================================================================
+// CALENDAR
+// ============================================================================
+
+// GetCalendarEvents returns all calendar events for the current account
+func (a *App) GetCalendarEvents() ([]CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var events, err = a.application.Calendar().GetEvents(ctx, account.ID)
+	if err != nil {
+		log.Printf("[GetCalendarEvents] error: %v", err)
+		return nil, err
+	}
+
+	var dtos = make([]CalendarEventDTO, len(events))
+	for i, e := range events {
+		dtos[i] = a.calendarEventToDTO(&e)
+	}
+	return dtos, nil
+}
+
+// GetCalendarEventsForWeek returns events for a specific week
+func (a *App) GetCalendarEventsForWeek(weekStartDate string) ([]CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	// Parse week start date (format: YYYY-MM-DD)
+	weekStart, err := time.Parse("2006-01-02", weekStartDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date format: %w", err)
+	}
+
+	var events, fetchErr = a.application.Calendar().GetEventsForWeek(ctx, account.ID, weekStart)
+	if fetchErr != nil {
+		log.Printf("[GetCalendarEventsForWeek] error: %v", fetchErr)
+		return nil, fetchErr
+	}
+
+	var dtos = make([]CalendarEventDTO, len(events))
+	for i, e := range events {
+		dtos[i] = a.calendarEventToDTO(&e)
+	}
+	return dtos, nil
+}
+
+// GetUpcomingCalendarEvents returns upcoming events
+func (a *App) GetUpcomingCalendarEvents(limit int) ([]CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var events, err = a.application.Calendar().GetUpcomingEvents(ctx, account.ID, limit)
+	if err != nil {
+		log.Printf("[GetUpcomingCalendarEvents] error: %v", err)
+		return nil, err
+	}
+
+	var dtos = make([]CalendarEventDTO, len(events))
+	for i, e := range events {
+		dtos[i] = a.calendarEventToDTO(&e)
+	}
+	return dtos, nil
+}
+
+// CreateCalendarEvent creates a new calendar event
+func (a *App) CreateCalendarEvent(input CalendarEventInputDTO) (*CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, fmt.Errorf("no account selected")
+	}
+
+	var eventInput = &ports.CalendarEventInput{
+		AccountID:   account.ID,
+		Title:       input.Title,
+		Description: input.Description,
+		EventType:   ports.CalendarEventType(input.EventType),
+		StartTime:   input.StartTime,
+		EndTime:     input.EndTime,
+		AllDay:      input.AllDay,
+		Color:       input.Color,
+		TaskID:      input.TaskID,
+		EmailID:     input.EmailID,
+		IsCompleted: input.IsCompleted,
+		Source:      ports.CalendarEventSource(input.Source),
+	}
+
+	var event, err = a.application.Calendar().CreateEvent(ctx, eventInput)
+	if err != nil {
+		log.Printf("[CreateCalendarEvent] error: %v", err)
+		return nil, err
+	}
+
+	var dto = a.calendarEventToDTO(event)
+	return &dto, nil
+}
+
+// UpdateCalendarEvent updates an existing calendar event
+func (a *App) UpdateCalendarEvent(input CalendarEventInputDTO) (*CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, fmt.Errorf("no account selected")
+	}
+
+	var eventInput = &ports.CalendarEventInput{
+		ID:          input.ID,
+		AccountID:   account.ID,
+		Title:       input.Title,
+		Description: input.Description,
+		EventType:   ports.CalendarEventType(input.EventType),
+		StartTime:   input.StartTime,
+		EndTime:     input.EndTime,
+		AllDay:      input.AllDay,
+		Color:       input.Color,
+		TaskID:      input.TaskID,
+		EmailID:     input.EmailID,
+		IsCompleted: input.IsCompleted,
+		Source:      ports.CalendarEventSource(input.Source),
+	}
+
+	var event, err = a.application.Calendar().UpdateEvent(ctx, eventInput)
+	if err != nil {
+		log.Printf("[UpdateCalendarEvent] error: %v", err)
+		return nil, err
+	}
+
+	var dto = a.calendarEventToDTO(event)
+	return &dto, nil
+}
+
+// DeleteCalendarEvent deletes a calendar event
+func (a *App) DeleteCalendarEvent(id int64) error {
+	if a.application == nil || a.application.Calendar() == nil {
+		return fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	return a.application.Calendar().DeleteEvent(ctx, id)
+}
+
+// ToggleCalendarEventComplete toggles the completed status of an event
+func (a *App) ToggleCalendarEventComplete(id int64) (bool, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return false, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	return a.application.Calendar().ToggleEventCompleted(ctx, id)
+}
+
+// GetCalendarEventCounts returns calendar event statistics
+func (a *App) GetCalendarEventCounts() (*CalendarEventCountsDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, nil
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return nil, nil
+	}
+
+	var counts, err = a.application.Calendar().CountEvents(ctx, account.ID)
+	if err != nil {
+		log.Printf("[GetCalendarEventCounts] error: %v", err)
+		return nil, err
+	}
+
+	return &CalendarEventCountsDTO{
+		Upcoming:  counts.Upcoming,
+		Completed: counts.Completed,
+		Total:     counts.Total,
+	}, nil
+}
+
+// CreateFollowUpEvent creates a follow-up event for an email
+func (a *App) CreateFollowUpEvent(emailID int64, followUpDate string, title string) (*CalendarEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+
+	// Parse follow-up date
+	followUpTime, err := time.Parse("2006-01-02T15:04:05", followUpDate)
+	if err != nil {
+		// Try date-only format
+		followUpTime, err = time.Parse("2006-01-02", followUpDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date format: %w", err)
+		}
+		// Set default time to 9:00 AM
+		followUpTime = followUpTime.Add(9 * time.Hour)
+	}
+
+	var event, createErr = a.application.Calendar().CreateFollowUpEvent(ctx, emailID, followUpTime, title)
+	if createErr != nil {
+		log.Printf("[CreateFollowUpEvent] error: %v", createErr)
+		return nil, createErr
+	}
+
+	var dto = a.calendarEventToDTO(event)
+	return &dto, nil
+}
+
+// SyncTasksToCalendar syncs all tasks with due dates to calendar
+func (a *App) SyncTasksToCalendar() error {
+	if a.application == nil || a.application.Calendar() == nil {
+		return fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		return fmt.Errorf("no account selected")
+	}
+
+	return a.application.Calendar().SyncTasksToCalendar(ctx, account.ID)
+}
+
+// calendarEventToDTO converts ports.CalendarEventInfo to CalendarEventDTO
+func (a *App) calendarEventToDTO(e *ports.CalendarEventInfo) CalendarEventDTO {
+	return CalendarEventDTO{
+		ID:               e.ID,
+		AccountID:        e.AccountID,
+		Title:            e.Title,
+		Description:      e.Description,
+		EventType:        string(e.EventType),
+		StartTime:        e.StartTime,
+		EndTime:          e.EndTime,
+		AllDay:           e.AllDay,
+		Color:            e.Color,
+		TaskID:           e.TaskID,
+		EmailID:          e.EmailID,
+		IsCompleted:      e.IsCompleted,
+		Source:           string(e.Source),
+		GoogleEventID:    e.GoogleEventID,
+		GoogleCalendarID: e.GoogleCalendarID,
+		LastSyncedAt:     e.LastSyncedAt,
+		SyncStatus:       string(e.SyncStatus),
+		CreatedAt:        e.CreatedAt,
+		UpdatedAt:        e.UpdatedAt,
+	}
+}
+
+// ============================================================================
+// GOOGLE CALENDAR SYNC
+// ============================================================================
+
+// IsGoogleCalendarConnected returns true if Google Calendar is connected
+func (a *App) IsGoogleCalendarConnected() bool {
+	if a.application == nil {
+		log.Printf("[IsGoogleCalendarConnected] application is nil")
+		return false
+	}
+	if a.application.Calendar() == nil {
+		log.Printf("[IsGoogleCalendarConnected] calendar service is nil")
+		return false
+	}
+	var calService = a.application.Calendar().(*services.CalendarService)
+	var connected = calService.IsGoogleCalendarConnected()
+	log.Printf("[IsGoogleCalendarConnected] connected=%v", connected)
+	return connected
+}
+
+// ListGoogleCalendars returns all Google Calendars for the user
+func (a *App) ListGoogleCalendars() ([]GoogleCalendarDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var calService = a.application.Calendar().(*services.CalendarService)
+
+	calendars, err := calService.ListGoogleCalendars(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []GoogleCalendarDTO
+	for _, cal := range calendars {
+		result = append(result, GoogleCalendarDTO{
+			ID:              cal.ID,
+			Summary:         cal.Summary,
+			Description:     cal.Description,
+			Primary:         cal.Primary,
+			BackgroundColor: cal.BackgroundColor,
+			AccessRole:      cal.AccessRole,
+		})
+	}
+
+	return result, nil
+}
+
+// SyncFromGoogleCalendar syncs events from Google Calendar to local storage
+func (a *App) SyncFromGoogleCalendar(calendarID string) (int, error) {
+	log.Printf("[SyncFromGoogleCalendar] Starting sync for calendar: %s", calendarID)
+
+	if a.application == nil || a.application.Calendar() == nil {
+		log.Printf("[SyncFromGoogleCalendar] calendar service not available")
+		return 0, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var account = a.application.GetCurrentAccount()
+	if account == nil {
+		log.Printf("[SyncFromGoogleCalendar] no account selected")
+		return 0, fmt.Errorf("no account selected")
+	}
+
+	var calService = a.application.Calendar().(*services.CalendarService)
+	count, err := calService.SyncFromGoogleCalendar(ctx, account.ID, calendarID)
+	if err != nil {
+		log.Printf("[SyncFromGoogleCalendar] Error: %v", err)
+		return 0, err
+	}
+	log.Printf("[SyncFromGoogleCalendar] Synced %d events", count)
+	return count, nil
+}
+
+// GetGoogleCalendarEvents returns events from Google Calendar for a week
+func (a *App) GetGoogleCalendarEvents(calendarID, weekStartDate string) ([]GoogleEventDTO, error) {
+	if a.application == nil || a.application.Calendar() == nil {
+		return nil, fmt.Errorf("calendar service not available")
+	}
+
+	var ctx = context.Background()
+	var calService = a.application.Calendar().(*services.CalendarService)
+
+	weekStart, err := time.Parse("2006-01-02", weekStartDate)
+	if err != nil {
+		weekStart = time.Now()
+	}
+
+	events, err := calService.GetGoogleCalendarEvents(ctx, calendarID, weekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []GoogleEventDTO
+	for _, e := range events {
+		result = append(result, GoogleEventDTO{
+			ID:          e.ID,
+			CalendarID:  e.CalendarID,
+			Summary:     e.Summary,
+			Description: e.Description,
+			Location:    e.Location,
+			StartTime:   e.StartTime,
+			EndTime:     e.EndTime,
+			AllDay:      e.AllDay,
+			Status:      e.Status,
+			HtmlLink:    e.HtmlLink,
+			ColorID:     e.ColorID,
+		})
+	}
+
+	return result, nil
 }

@@ -277,34 +277,37 @@ func (s *SyncService) storeEmailsBatch(ctx context.Context, account *ports.Accou
 			HasAttachments: email.HasAttachments,
 		}
 
-		if err := s.storage.UpsertEmail(ctx, account.ID, folder.ID, content); err != nil {
-			result.Errors = append(result.Errors, err)
+		var emailID, messageID, upsertErr = s.storage.UpsertEmail(ctx, account.ID, folder.ID, content)
+		if upsertErr != nil {
+			result.Errors = append(result.Errors, upsertErr)
 			continue
+		}
+
+		// Collect ID for thread sync (only emails with message_id can have thread_id)
+		if messageID != "" {
+			result.NewEmailIDs = append(result.NewEmailIDs, emailID)
 		}
 
 		// Store attachments if any (already fetched in batch!)
 		if email.HasAttachments && len(email.Attachments) > 0 {
-			var storedEmail, emailErr = s.storage.GetEmailByUID(ctx, folder.ID, email.UID)
-			if emailErr == nil && storedEmail != nil {
-				for _, att := range email.Attachments {
-					var contentID = att.ContentID
-					if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
-						contentID = contentID[1 : len(contentID)-1]
-					}
-
-					var attachment = &ports.Attachment{
-						EmailID:     storedEmail.ID,
-						Filename:    att.Filename,
-						ContentType: att.ContentType,
-						ContentID:   contentID,
-						Size:        att.Size,
-						IsInline:    att.IsInline,
-						PartNumber:  att.PartNumber,
-						Encoding:    att.Encoding,
-					}
-
-					s.storage.UpsertAttachment(ctx, attachment)
+			for _, att := range email.Attachments {
+				var contentID = att.ContentID
+				if len(contentID) > 2 && contentID[0] == '<' && contentID[len(contentID)-1] == '>' {
+					contentID = contentID[1 : len(contentID)-1]
 				}
+
+				var attachment = &ports.Attachment{
+					EmailID:     emailID,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					ContentID:   contentID,
+					Size:        att.Size,
+					IsInline:    att.IsInline,
+					PartNumber:  att.PartNumber,
+					Encoding:    att.Encoding,
+				}
+
+				s.storage.UpsertAttachment(ctx, attachment)
 			}
 		}
 

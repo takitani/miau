@@ -98,7 +98,7 @@ func (a *StorageAdapter) UpdateFolderStats(ctx context.Context, folderID int64, 
 }
 
 // UpsertEmail creates or updates an email
-func (a *StorageAdapter) UpsertEmail(ctx context.Context, accountID, folderID int64, email *ports.EmailContent) error {
+func (a *StorageAdapter) UpsertEmail(ctx context.Context, accountID, folderID int64, email *ports.EmailContent) (int64, string, error) {
 	var e = &storage.Email{
 		AccountID:      accountID,
 		FolderID:       folderID,

@@ -46,12 +46,24 @@ export function Connect() {
   return window['go']['desktop']['App']['Connect']();
 }
 
+export function CreateCalendarEvent(arg1) {
+  return window['go']['desktop']['App']['CreateCalendarEvent'](arg1);
+}
+
+export function CreateFollowUpEvent(arg1, arg2, arg3) {
+  return window['go']['desktop']['App']['CreateFollowUpEvent'](arg1, arg2, arg3);
+}
+
 export function CreateTask(arg1) {
   return window['go']['desktop']['App']['CreateTask'](arg1);
 }
 
 export function Delete(arg1) {
   return window['go']['desktop']['App']['Delete'](arg1);
+}
+
+export function DeleteCalendarEvent(arg1) {
+  return window['go']['desktop']['App']['DeleteCalendarEvent'](arg1);
 }
 
 export function DeleteDraft(arg1) {
@@ -98,6 +110,18 @@ export function GetAvailableFolders() {
   return window['go']['desktop']['App']['GetAvailableFolders']();
 }
 
+export function GetCalendarEventCounts() {
+  return window['go']['desktop']['App']['GetCalendarEventCounts']();
+}
+
+export function GetCalendarEvents() {
+  return window['go']['desktop']['App']['GetCalendarEvents']();
+}
+
+export function GetCalendarEventsForWeek(arg1) {
+  return window['go']['desktop']['App']['GetCalendarEventsForWeek'](arg1);
+}
+
 export function GetConnectionStatus() {
   return window['go']['desktop']['App']['GetConnectionStatus']();
 }
@@ -136,6 +160,10 @@ export function GetEmailsThreaded(arg1, arg2) {
 
 export function GetFolders() {
   return window['go']['desktop']['App']['GetFolders']();
+}
+
+export function GetGoogleCalendarEvents(arg1, arg2) {
+  return window['go']['desktop']['App']['GetGoogleCalendarEvents'](arg1, arg2);
 }
 
 export function GetPendingTasks() {
@@ -182,8 +210,16 @@ export function GetTopSenders(arg1, arg2) {
   return window['go']['desktop']['App']['GetTopSenders'](arg1, arg2);
 }
 
+export function GetUpcomingCalendarEvents(arg1) {
+  return window['go']['desktop']['App']['GetUpcomingCalendarEvents'](arg1);
+}
+
 export function IsConnected() {
   return window['go']['desktop']['App']['IsConnected']();
+}
+
+export function IsGoogleCalendarConnected() {
+  return window['go']['desktop']['App']['IsGoogleCalendarConnected']();
 }
 
 export function IsReady() {
@@ -192,6 +228,10 @@ export function IsReady() {
 
 export function ListDrafts() {
   return window['go']['desktop']['App']['ListDrafts']();
+}
+
+export function ListGoogleCalendars() {
+  return window['go']['desktop']['App']['ListGoogleCalendars']();
 }
 
 export function MarkAsRead(arg1, arg2) {
@@ -314,8 +354,20 @@ export function SyncFolder(arg1) {
   return window['go']['desktop']['App']['SyncFolder'](arg1);
 }
 
+export function SyncFromGoogleCalendar(arg1) {
+  return window['go']['desktop']['App']['SyncFromGoogleCalendar'](arg1);
+}
+
+export function SyncTasksToCalendar() {
+  return window['go']['desktop']['App']['SyncTasksToCalendar']();
+}
+
 export function SyncThreadsFromGmail() {
   return window['go']['desktop']['App']['SyncThreadsFromGmail']();
+}
+
+export function ToggleCalendarEventComplete(arg1) {
+  return window['go']['desktop']['App']['ToggleCalendarEventComplete'](arg1);
 }
 
 export function ToggleTaskComplete(arg1) {
@@ -324,6 +376,10 @@ export function ToggleTaskComplete(arg1) {
 
 export function Undo() {
   return window['go']['desktop']['App']['Undo']();
+}
+
+export function UpdateCalendarEvent(arg1) {
+  return window['go']['desktop']['App']['UpdateCalendarEvent'](arg1);
 }
 
 export function UpdateTask(arg1) {

@@ -218,7 +218,7 @@ func (m Model) syncEmails() tea.Cmd {
 				IsStarred:   email.Flagged,
 				Size:        email.Size,
 			}
-			storage.UpsertEmail(dbEmail)
+			_, _, _ = storage.UpsertEmail(dbEmail)
 		}
 
 		// Detecta emails deletados no servidor
@@ -716,7 +716,7 @@ func (m Model) sendEmail() tea.Cmd {
 }
 
 func (m Model) sendViaGmailAPI(to, subject, body string, isHTML bool, inReplyTo, references string) tea.Msg {
-	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Email)
 	var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
 
 	var token, err = auth.GetValidToken(oauthCfg, tokenPath)
@@ -807,7 +807,7 @@ func (m Model) checkForBounces() tea.Cmd {
 							IsRead:    email.Seen,
 							Size:      email.Size,
 						}
-						storage.UpsertEmail(dbEmail)
+						_, _, _ = storage.UpsertEmail(dbEmail)
 					}
 				}
 			}
@@ -1033,7 +1033,7 @@ func (m Model) archiveEmail(emailID int64, uid uint32, messageID string) tea.Cmd
 
 		// Gmail API se OAuth2 configurado (mais confiável, funciona com DLP)
 		if m.account.AuthType == config.AuthTypeOAuth2 {
-			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Email)
 			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
 			if token, err := auth.GetValidToken(oauthCfg, tokenPath); err == nil {
 				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
@@ -1071,7 +1071,7 @@ func (m Model) deleteEmail(emailID int64, uid uint32, messageID string) tea.Cmd 
 
 		// Gmail API se OAuth2 configurado (mais confiável, funciona com DLP)
 		if m.account.AuthType == config.AuthTypeOAuth2 {
-			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Email)
 			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
 			if token, err := auth.GetValidToken(oauthCfg, tokenPath); err == nil {
 				var gmailClient = gmail.NewClient(token, oauthCfg, m.account.Email)
@@ -1254,7 +1254,7 @@ func (m Model) sendDraft(draftID int64) tea.Cmd {
 		var backend = "smtp"
 		if m.account.SendMethod == config.SendMethodGmailAPI {
 			// Gmail API
-			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+			var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Email)
 			var oauthCfg = auth.GetOAuth2Config(m.account.OAuth2.ClientID, m.account.OAuth2.ClientSecret)
 			var token, err = auth.GetValidToken(oauthCfg, tokenPath)
 			if err != nil {

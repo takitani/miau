@@ -317,3 +317,76 @@ type TaskCountsDTO struct {
 	Completed int `json:"completed"`
 	Total     int `json:"total"`
 }
+
+// === CALENDAR DTOs ===
+
+// CalendarEventDTO represents a calendar event for the frontend
+type CalendarEventDTO struct {
+	ID               int64      `json:"id"`
+	AccountID        int64      `json:"accountId"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description,omitempty"`
+	EventType        string     `json:"eventType"` // 'custom', 'task_deadline', 'email_followup', 'meeting'
+	StartTime        time.Time  `json:"startTime"`
+	EndTime          *time.Time `json:"endTime,omitempty"`
+	AllDay           bool       `json:"allDay"`
+	Color            string     `json:"color,omitempty"`
+	TaskID           *int64     `json:"taskId,omitempty"`
+	EmailID          *int64     `json:"emailId,omitempty"`
+	IsCompleted      bool       `json:"isCompleted"`
+	Source           string     `json:"source"` // 'manual', 'task_sync', 'ai_suggestion'
+	GoogleEventID    string     `json:"googleEventId,omitempty"`
+	GoogleCalendarID string     `json:"googleCalendarId,omitempty"`
+	LastSyncedAt     *time.Time `json:"lastSyncedAt,omitempty"`
+	SyncStatus       string     `json:"syncStatus"` // 'local', 'synced', 'pending_sync', 'conflict'
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
+}
+
+// CalendarEventInputDTO represents input for creating/updating a calendar event
+type CalendarEventInputDTO struct {
+	ID               int64      `json:"id,omitempty"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description,omitempty"`
+	EventType        string     `json:"eventType,omitempty"`
+	StartTime        time.Time  `json:"startTime"`
+	EndTime          *time.Time `json:"endTime,omitempty"`
+	AllDay           bool       `json:"allDay"`
+	Color            string     `json:"color,omitempty"`
+	TaskID           *int64     `json:"taskId,omitempty"`
+	EmailID          *int64     `json:"emailId,omitempty"`
+	IsCompleted      bool       `json:"isCompleted"`
+	Source           string     `json:"source,omitempty"`
+}
+
+// CalendarEventCountsDTO represents calendar event count statistics
+type CalendarEventCountsDTO struct {
+	Upcoming  int `json:"upcoming"`
+	Completed int `json:"completed"`
+	Total     int `json:"total"`
+}
+
+// GoogleCalendarDTO represents a Google Calendar
+type GoogleCalendarDTO struct {
+	ID              string `json:"id"`
+	Summary         string `json:"summary"`
+	Description     string `json:"description,omitempty"`
+	Primary         bool   `json:"primary"`
+	BackgroundColor string `json:"backgroundColor,omitempty"`
+	AccessRole      string `json:"accessRole"`
+}
+
+// GoogleEventDTO represents a Google Calendar event
+type GoogleEventDTO struct {
+	ID          string    `json:"id"`
+	CalendarID  string    `json:"calendarId"`
+	Summary     string    `json:"summary"`
+	Description string    `json:"description,omitempty"`
+	Location    string    `json:"location,omitempty"`
+	StartTime   time.Time `json:"startTime"`
+	EndTime     time.Time `json:"endTime"`
+	AllDay      bool      `json:"allDay"`
+	Status      string    `json:"status"` // confirmed, tentative, cancelled
+	HtmlLink    string    `json:"htmlLink,omitempty"`
+	ColorID     string    `json:"colorId,omitempty"`
+}

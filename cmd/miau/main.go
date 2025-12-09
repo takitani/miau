@@ -215,7 +215,7 @@ func showSignature() {
 
 	// Tenta OAuth2 primeiro (Gmail API)
 	if account.AuthType == config.AuthTypeOAuth2 {
-		var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Name)
+		var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Email)
 		var oauthCfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
 		var token, err2 = auth.GetValidToken(oauthCfg, tokenPath)
 		if err2 == nil {
@@ -448,7 +448,7 @@ func runOAuth2Auth() {
 	fmt.Printf("📧 Conta: %s\n", account.Email)
 	fmt.Printf("🔑 Client ID: %s...\n", account.OAuth2.ClientID[:20])
 
-	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Name)
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), account.Email)
 	var oauthCfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
 
 	// Verifica se já tem token válido

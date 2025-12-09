@@ -51,6 +51,11 @@ func NewClient(token *oauth2.Token, cfg *oauth2.Config, email string) *Client {
 	}
 }
 
+// HTTPClient returns the underlying HTTP client for use with other Google APIs
+func (c *Client) HTTPClient() *http.Client {
+	return c.httpClient
+}
+
 // GetSignature busca a assinatura do email primário do usuário
 func (c *Client) GetSignature() (string, error) {
 	var sendAsList, err = c.listSendAs()

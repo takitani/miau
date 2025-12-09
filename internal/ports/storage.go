@@ -19,7 +19,8 @@ type StoragePort interface {
 	UpdateFolderStats(ctx context.Context, folderID int64, total, unread int) error
 
 	// Email operations
-	UpsertEmail(ctx context.Context, accountID, folderID int64, email *EmailContent) error
+	// UpsertEmail inserts or updates an email, returns (id, messageID, error)
+	UpsertEmail(ctx context.Context, accountID, folderID int64, email *EmailContent) (int64, string, error)
 	GetEmails(ctx context.Context, folderID int64, limit int) ([]EmailMetadata, error)
 	GetEmail(ctx context.Context, id int64) (*EmailContent, error)
 	GetEmailByUID(ctx context.Context, folderID int64, uid uint32) (*EmailContent, error)

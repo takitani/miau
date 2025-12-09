@@ -3,6 +3,7 @@ import { selectNext, selectPrev, archiveEmail, deleteEmail, toggleStar, markAsRe
 import { toggleDebug, info, warn, error as logError, debug as logDebug } from './debug.js';
 import { toggleSelectionMode, selectAll, someSelected, exitSelectionMode, toggleSelection } from './selection.js';
 import { toggleLayoutMode, toggleSidebar, layoutMode } from './layout.js';
+import { showCalendarPanel } from './calendar.js';
 
 // UI State
 export const showSearch = writable(false);
@@ -35,9 +36,9 @@ export function closeThreadView() {
 //   - If new email has no thread: close thread view, show email
 // If thread view is closed: just select the email
 export function selectEmailSmart(id) {
-  var $emails = get(emails);
-  var email = $emails.find(e => e.id === id);
-  var index = $emails.findIndex(e => e.id === id);
+  const $emails = get(emails);
+  const email = $emails.find(e => e.id === id);
+  const index = $emails.findIndex(e => e.id === id);
 
   if (index < 0 || !email) return;
 
@@ -46,7 +47,7 @@ export function selectEmailSmart(id) {
   selectedEmailId.set(id);
 
   // Handle thread view
-  var isThreadViewOpen = get(showThreadView);
+  const isThreadViewOpen = get(showThreadView);
   if (isThreadViewOpen) {
     if (email.threadCount > 1) {
       // Switch to new thread
@@ -70,7 +71,7 @@ export const syncing = writable(false);
 export const autoRefreshInterval = 60; // seconds
 export const autoRefreshStart = writable(Date.now());
 export const autoRefreshEnabled = writable(false);
-var autoRefreshTimer = null;
+let autoRefreshTimer = null;
 
 // New email notification
 export const newEmailCount = writable(0);
@@ -93,7 +94,7 @@ export function setupKeyboardShortcuts() {
 // Handle keyboard events
 function handleKeydown(e) {
   // Ignore if typing in an input field
-  var isEditing = e.target.tagName === 'INPUT' ||
+  const isEditing = e.target.tagName === 'INPUT' ||
                   e.target.tagName === 'TEXTAREA' ||
                   e.target.isContentEditable;
 
@@ -156,8 +157,8 @@ function handleKeydown(e) {
       // Space toggles current email selection
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        var emailId = get(selectedEmailId);
-        var idx = get(selectedIndex);
+        const emailId = get(selectedEmailId);
+        const idx = get(selectedIndex);
         if (emailId) {
           toggleSelection(emailId, idx);
         }
@@ -227,6 +228,14 @@ function handleKeydown(e) {
       }
       return;
 
+    case 'l':
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showCalendarPanel.update(v => !v);
+        info('Calendar panel: ' + (get(showCalendarPanel) ? 'open' : 'closed'));
+      }
+      return;
+
     case 'g':
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
@@ -238,7 +247,7 @@ function handleKeydown(e) {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         toggleLayoutMode();
-        var mode = get(layoutMode);
+        const mode = get(layoutMode);
         info('Layout: ' + mode);
       }
       return;
@@ -318,7 +327,7 @@ function handleEmailShortcuts(e) {
         e.preventDefault();
         markAsRead(emailId, true);
         // Open thread view only if email has a thread (threadCount > 1)
-        var emailForEnter = get(selectedEmail);
+        const emailForEnter = get(selectedEmail);
         if (emailForEnter && emailForEnter.threadCount > 1) {
           openThreadView(emailId);
         }
@@ -330,7 +339,7 @@ function handleEmailShortcuts(e) {
       if (emailId && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         // Open thread view only if email has a thread (threadCount > 1)
-        var emailForThread = get(selectedEmail);
+        const emailForThread = get(selectedEmail);
         if (emailForThread && emailForThread.threadCount > 1) {
           openThreadView(emailId);
         } else {
@@ -343,10 +352,10 @@ function handleEmailShortcuts(e) {
     case 'r':
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        var email = get(selectedEmail);
-        if (email) {
+        const emailReply = get(selectedEmail);
+        if (emailReply) {
           // Reply to selected email
-          window.composeContext = { mode: 'reply', replyTo: email };
+          window.composeContext = { mode: 'reply', replyTo: emailReply };
           showCompose.set(true);
         } else {
           // No email selected, sync
@@ -359,9 +368,9 @@ function handleEmailShortcuts(e) {
     case 'R':
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        var email = get(selectedEmail);
-        if (email) {
-          window.composeContext = { mode: 'replyAll', replyTo: email };
+        const emailReplyAll = get(selectedEmail);
+        if (emailReplyAll) {
+          window.composeContext = { mode: 'replyAll', replyTo: emailReplyAll };
           showCompose.set(true);
         }
       }
@@ -371,9 +380,9 @@ function handleEmailShortcuts(e) {
     case 'f':
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        var email = get(selectedEmail);
-        if (email) {
-          window.composeContext = { mode: 'forward', forwardEmail: email };
+        const emailForward = get(selectedEmail);
+        if (emailForward) {
+          window.composeContext = { mode: 'forward', forwardEmail: emailForward };
           showCompose.set(true);
         }
       }
@@ -412,13 +421,13 @@ export async function syncEmails() {
   info('Starting sync...');
   try {
     if (window.go?.desktop?.App) {
-      var result = await window.go.desktop.App.SyncCurrentFolder();
+      const result = await window.go.desktop.App.SyncCurrentFolder();
       // Refresh emails without full reload (preserves selection, no flicker)
-      var folder = get(currentFolder);
+      const folder = get(currentFolder);
       await refreshEmails(folder);
 
       // Show notification (always, even if 0 new)
-      var count = result ? result.newEmails : 0;
+      const count = result ? result.newEmails : 0;
       newEmailCount.set(count);
       newEmailShowUntil.set(Date.now() + 3000); // 3 seconds
       if (count > 0) {
@@ -445,15 +454,15 @@ export async function syncEssentialFolders() {
   info('Syncing essential folders (INBOX, Sent, Trash)...');
   try {
     if (window.go?.desktop?.App) {
-      var results = await window.go.desktop.App.SyncEssentialFolders();
+      const results = await window.go.desktop.App.SyncEssentialFolders();
       // Refresh emails without full reload (preserves selection, no flicker)
-      var folder = get(currentFolder);
+      const folder = get(currentFolder);
       await refreshEmails(folder);
 
       // Sum all new emails
-      var totalNew = 0;
+      let totalNew = 0;
       if (results) {
-        for (var r of results) {
+        for (const r of results) {
           totalNew += r.newEmails || 0;
         }
       }
@@ -483,7 +492,7 @@ function startAutoRefreshTimer() {
   autoRefreshTimer = setInterval(() => {
     if (!get(autoRefreshEnabled) || get(syncing)) return;
 
-    var elapsed = (Date.now() - get(autoRefreshStart)) / 1000;
+    const elapsed = (Date.now() - get(autoRefreshStart)) / 1000;
     // Add 1 second buffer to let progress bar complete visually
     if (elapsed >= autoRefreshInterval + 1) {
       info('Auto-refresh triggered');
@@ -579,7 +588,7 @@ export const undoMessage = writable(null);
 async function performUndo() {
   try {
     if (window.go?.desktop?.App) {
-      var result = await window.go.desktop.App.Undo();
+      const result = await window.go.desktop.App.Undo();
       if (result.success) {
         info(result.description);
         // Restore email locally (no reload needed)
@@ -598,11 +607,11 @@ async function performUndo() {
 async function performRedo() {
   try {
     if (window.go?.desktop?.App) {
-      var result = await window.go.desktop.App.Redo();
+      const result = await window.go.desktop.App.Redo();
       if (result.success) {
         info(result.description);
         // Reload emails to reflect the change
-        var folder = get(currentFolder);
+        const folder = get(currentFolder);
         if (folder) {
           await loadEmails(folder);
         }

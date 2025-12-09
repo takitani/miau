@@ -446,12 +446,35 @@ SELECT * FROM sent_emails ORDER BY sent_at DESC;
 
 ## Code Conventions
 
+### Go (Backend)
 - Code and comments in English
 - User-facing documentation in Portuguese (pt-BR)
 - Commit messages in English
 - Use `var` for declarations when possible
 - One-line conditionals when possible (no braces for single statements)
 - Follow Go conventions (gofmt, go vet)
+
+### JavaScript/Svelte (Frontend)
+- Use `const` for all declarations (preferred) or `let` when mutation is needed
+- NEVER use `var` in JavaScript - it's hoisted and can cause bugs
+- Use optional chaining (`?.`) instead of `&&` chains for property access
+- Remove unused imports
+- Use arrow functions for callbacks
+- Follow ES6+ modern patterns
+
+```javascript
+// ERRADO
+var emails = writable([]);
+export var selectedEmail = writable(null);
+if (data && data.user && data.user.name) { ... }
+
+// CORRETO
+const emails = writable([]);
+export const selectedEmail = writable(null);
+if (data?.user?.name) { ... }
+```
+
+**Nota**: A regra "use var" do arquivo global se aplica apenas a Go, não JavaScript!
 
 ## Desktop App (Wails + Svelte)
 

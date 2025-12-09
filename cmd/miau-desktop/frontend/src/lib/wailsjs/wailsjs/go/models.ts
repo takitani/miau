@@ -233,6 +233,147 @@ export namespace desktop {
 	        this.isSelected = source["isSelected"];
 	    }
 	}
+	export class CalendarEventCountsDTO {
+	    upcoming: number;
+	    completed: number;
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarEventCountsDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.upcoming = source["upcoming"];
+	        this.completed = source["completed"];
+	        this.total = source["total"];
+	    }
+	}
+	export class CalendarEventDTO {
+	    id: number;
+	    accountId: number;
+	    title: string;
+	    description?: string;
+	    eventType: string;
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    allDay: boolean;
+	    color?: string;
+	    taskId?: number;
+	    emailId?: number;
+	    isCompleted: boolean;
+	    source: string;
+	    googleEventId?: string;
+	    googleCalendarId?: string;
+	    // Go type: time
+	    lastSyncedAt?: any;
+	    syncStatus: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarEventDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.accountId = source["accountId"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.eventType = source["eventType"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.allDay = source["allDay"];
+	        this.color = source["color"];
+	        this.taskId = source["taskId"];
+	        this.emailId = source["emailId"];
+	        this.isCompleted = source["isCompleted"];
+	        this.source = source["source"];
+	        this.googleEventId = source["googleEventId"];
+	        this.googleCalendarId = source["googleCalendarId"];
+	        this.lastSyncedAt = this.convertValues(source["lastSyncedAt"], null);
+	        this.syncStatus = source["syncStatus"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CalendarEventInputDTO {
+	    id?: number;
+	    title: string;
+	    description?: string;
+	    eventType?: string;
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    allDay: boolean;
+	    color?: string;
+	    taskId?: number;
+	    emailId?: number;
+	    isCompleted: boolean;
+	    source?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarEventInputDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.eventType = source["eventType"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.allDay = source["allDay"];
+	        this.color = source["color"];
+	        this.taskId = source["taskId"];
+	        this.emailId = source["emailId"];
+	        this.isCompleted = source["isCompleted"];
+	        this.source = source["source"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConnectionStatus {
 	    connected: boolean;
 	    // Go type: time
@@ -548,6 +689,80 @@ export namespace desktop {
 	        this.totalMessages = source["totalMessages"];
 	        this.unreadMessages = source["unreadMessages"];
 	    }
+	}
+	export class GoogleCalendarDTO {
+	    id: string;
+	    summary: string;
+	    description?: string;
+	    primary: boolean;
+	    backgroundColor?: string;
+	    accessRole: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GoogleCalendarDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.summary = source["summary"];
+	        this.description = source["description"];
+	        this.primary = source["primary"];
+	        this.backgroundColor = source["backgroundColor"];
+	        this.accessRole = source["accessRole"];
+	    }
+	}
+	export class GoogleEventDTO {
+	    id: string;
+	    calendarId: string;
+	    summary: string;
+	    description?: string;
+	    location?: string;
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime: any;
+	    allDay: boolean;
+	    status: string;
+	    htmlLink?: string;
+	    colorId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GoogleEventDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.calendarId = source["calendarId"];
+	        this.summary = source["summary"];
+	        this.description = source["description"];
+	        this.location = source["location"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.allDay = source["allDay"];
+	        this.status = source["status"];
+	        this.htmlLink = source["htmlLink"];
+	        this.colorId = source["colorId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	

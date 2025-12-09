@@ -86,7 +86,8 @@ func UpdateFolderStats(folderID int64, total, unread int) error {
 
 // === EMAILS ===
 
-func UpsertEmail(e *Email) error {
+// UpsertEmail inserts or updates an email and returns (id, message_id, error)
+func UpsertEmail(e *Email) (int64, string, error) {
 	// First, insert/update the email
 	var result, err = db.Exec(`
 		INSERT INTO emails (
@@ -115,7 +116,7 @@ func UpsertEmail(e *Email) error {
 		e.BodyText, e.BodyHTML, e.RawHeaders, e.Size,
 		e.InReplyTo, e.References)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 
 	// Get email ID (either newly inserted or existing)
@@ -128,7 +129,7 @@ func UpsertEmail(e *Email) error {
 				"SELECT id FROM emails WHERE account_id = ? AND folder_id = ? AND uid = ?",
 				e.AccountID, e.FolderID, e.UID)
 			if err != nil {
-				return err
+				return 0, "", err
 			}
 		}
 	}
@@ -136,7 +137,11 @@ func UpsertEmail(e *Email) error {
 	// NOTE: thread_id is NOT set here - it comes from Gmail sync via SyncThreadIDsFromGmail
 	// The old local threading based on In-Reply-To/References was unreliable and created
 	// invalid thread_ids (Message-IDs instead of Gmail's hex thread IDs)
-	return nil
+	var messageID string
+	if e.MessageID.Valid {
+		messageID = e.MessageID.String
+	}
+	return emailID, messageID, nil
 }
 
 func GetEmails(accountID, folderID int64, limit, offset int) ([]EmailSummary, error) {
@@ -990,7 +995,7 @@ func GetEmailsByIDs(emailIDs []int64) ([]EmailSummary, error) {
 	}
 
 	var query = fmt.Sprintf(`
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet, thread_id
 		FROM emails
 		WHERE id IN (%s)
 		ORDER BY date DESC`,
@@ -1905,6 +1910,7 @@ type EmailForThreadSync struct {
 }
 
 // GetEmailsForThreadSync returns emails that need thread_id sync
+// Only returns emails where thread_synced_at IS NULL (haven't been checked yet)
 func GetEmailsForThreadSync(accountID int64) ([]EmailForThreadSync, error) {
 	var emails []EmailForThreadSync
 	err := db.Select(&emails, `
@@ -1914,12 +1920,13 @@ func GetEmailsForThreadSync(accountID int64) ([]EmailForThreadSync, error) {
 		  AND is_deleted = 0
 		  AND message_id IS NOT NULL
 		  AND message_id != ''
+		  AND thread_synced_at IS NULL
 		ORDER BY date DESC
 	`, accountID)
 	return emails, err
 }
 
-// GetEmailsWithoutThreadID returns emails that have message_id but no thread_id
+// GetEmailsWithoutThreadID returns message_ids of emails that have message_id but no thread_id
 // Used for incremental sync - only sync emails that need it
 func GetEmailsWithoutThreadID(accountID int64) ([]string, error) {
 	var messageIDs []string
@@ -1934,6 +1941,71 @@ func GetEmailsWithoutThreadID(accountID int64) ([]string, error) {
 		ORDER BY date DESC
 	`, accountID)
 	return messageIDs, err
+}
+
+// GetEmailsNeedingThreadSync returns emails without thread_id (limited for performance)
+func GetEmailsNeedingThreadSync(accountID int64, limit int) ([]EmailForThreadSync, error) {
+	var emails []EmailForThreadSync
+	err := db.Select(&emails, `
+		SELECT id, COALESCE(message_id, '') as message_id, COALESCE(thread_id, '') as thread_id
+		FROM emails
+		WHERE account_id = ?
+		  AND is_deleted = 0
+		  AND message_id IS NOT NULL
+		  AND message_id != ''
+		  AND (thread_id IS NULL OR thread_id = '')
+		ORDER BY date DESC
+		LIMIT ?
+	`, accountID, limit)
+	return emails, err
+}
+
+
+// UpdateEmailThreadID updates thread_id for a specific email by ID
+func UpdateEmailThreadID(emailID int64, threadID string) error {
+	_, err := db.Exec(`
+		UPDATE emails
+		SET thread_id = ?, thread_synced_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, threadID, emailID)
+	return err
+}
+
+// MarkEmailsThreadSynced marks multiple emails as thread-synced without changing their thread_id
+// Used for emails that already have thread_id but haven't been marked as synced
+func MarkEmailsThreadSynced(emailIDs []int64) error {
+	if len(emailIDs) == 0 {
+		return nil
+	}
+
+	// Process in batches to avoid SQLite limits
+	const batchSize = 500
+	for i := 0; i < len(emailIDs); i += batchSize {
+		var end = i + batchSize
+		if end > len(emailIDs) {
+			end = len(emailIDs)
+		}
+		var batch = emailIDs[i:end]
+
+		// Build placeholders
+		var placeholders = make([]string, len(batch))
+		var args = make([]interface{}, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		var query = fmt.Sprintf(`
+			UPDATE emails
+			SET thread_synced_at = CURRENT_TIMESTAMP
+			WHERE id IN (%s)
+		`, strings.Join(placeholders, ","))
+
+		if _, err := db.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CountEmailsWithoutThreadID returns count of emails that haven't been thread-synced yet

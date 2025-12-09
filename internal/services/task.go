@@ -12,11 +12,17 @@ import (
 
 // TaskService implements ports.TaskService
 type TaskService struct {
+	calendarSync ports.CalendarSyncCallback
 }
 
 // NewTaskService creates a new TaskService
 func NewTaskService() *TaskService {
 	return &TaskService{}
+}
+
+// SetCalendarSync sets the calendar sync callback for bidirectional sync
+func (s *TaskService) SetCalendarSync(callback ports.CalendarSyncCallback) {
+	s.calendarSync = callback
 }
 
 // CreateTask creates a new task
@@ -43,6 +49,11 @@ func (s *TaskService) CreateTask(ctx context.Context, input *ports.TaskInput) (*
 	err := storage.CreateTask(task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
+	}
+
+	// Sync to calendar if task has due_date
+	if s.calendarSync != nil && task.DueDate.Valid {
+		go s.calendarSync.OnTaskCreated(ctx, task.ID)
 	}
 
 	return storageTaskToInfo(task), nil
@@ -125,6 +136,11 @@ func (s *TaskService) UpdateTask(ctx context.Context, input *ports.TaskInput) (*
 		return nil, fmt.Errorf("failed to update task: %w", err)
 	}
 
+	// Sync to calendar
+	if s.calendarSync != nil {
+		go s.calendarSync.OnTaskUpdated(ctx, input.ID)
+	}
+
 	// Fetch updated task
 	return s.GetTask(ctx, input.ID)
 }
@@ -135,11 +151,22 @@ func (s *TaskService) ToggleTaskCompleted(ctx context.Context, id int64) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("failed to toggle task: %w", err)
 	}
+
+	// Sync to calendar
+	if s.calendarSync != nil {
+		go s.calendarSync.OnTaskCompletedToggled(ctx, id, newStatus)
+	}
+
 	return newStatus, nil
 }
 
 // DeleteTask removes a task
 func (s *TaskService) DeleteTask(ctx context.Context, id int64) error {
+	// Sync to calendar before deleting task
+	if s.calendarSync != nil {
+		s.calendarSync.OnTaskDeleted(ctx, id)
+	}
+
 	err := storage.DeleteTask(id)
 	if err != nil {
 		return fmt.Errorf("failed to delete task: %w", err)

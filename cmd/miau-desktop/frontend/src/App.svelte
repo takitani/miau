@@ -14,12 +14,46 @@
   import SelectionBar from './lib/components/SelectionBar.svelte';
   import ModernSidebar from './lib/components/ModernSidebar.svelte';
   import LayoutToggle from './lib/components/LayoutToggle.svelte';
+  import CalendarPanel from './lib/components/CalendarPanel.svelte';
+  import CalendarEventModal from './lib/components/CalendarEventModal.svelte';
+  import AuthOverlay from './lib/components/AuthOverlay.svelte';
   import { emails, selectedEmail, loadEmails, currentFolder } from './lib/stores/emails.js';
   import { folders, loadFolders } from './lib/stores/folders.js';
   import { showSearch, showHelp, showAI, showCompose, showAnalytics, showSettings, aiWithContext, activePanel, setupKeyboardShortcuts, connect, syncEssentialFolders, showThreadView, threadEmailId, closeThreadView } from './lib/stores/ui.js';
+  import { showCalendarPanel } from './lib/stores/calendar.js';
   import ThreadView from './lib/components/ThreadView.svelte';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
   import { layoutMode, initLayoutPreferences } from './lib/stores/layout.js';
+  import { NeedsOAuth2Auth, StartOAuth2Auth } from './lib/wailsjs/wailsjs/go/desktop/App.js';
+
+  // Auth state
+  var needsAuth = false;
+  var authInProgress = false;
+  var authError = null;
+
+  async function checkAuth() {
+    try {
+      needsAuth = await NeedsOAuth2Auth();
+      if (needsAuth) {
+        info('OAuth2 authentication required...');
+        authInProgress = true;
+        authError = null;
+        try {
+          await StartOAuth2Auth();
+          needsAuth = false;
+          authInProgress = false;
+          info('Authentication successful!');
+          // Reload app after auth
+          window.location.reload();
+        } catch (err) {
+          authError = err.message || 'Authentication failed';
+          authInProgress = false;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check auth:', err);
+    }
+  }
 
   // Get email context for AI
   $: emailContext = $aiWithContext && $selectedEmail ? $selectedEmail : null;
@@ -118,6 +152,10 @@
     setupKeyboardShortcuts();
     setupDebugEvents();
 
+    // Check if OAuth2 auth is needed first
+    await checkAuth();
+    if (needsAuth) return; // Wait for auth to complete
+
     info('Connecting to IMAP server...');
     await connect();
 
@@ -137,6 +175,11 @@
 <svelte:window on:mousemove={handleMouseMove} on:mouseup={handleMouseUp} />
 
 <main class="app">
+  <!-- Auth Overlay (blocks everything when authenticating) -->
+  {#if needsAuth || authInProgress}
+    <AuthOverlay inProgress={authInProgress} error={authError} on:retry={checkAuth} />
+  {/if}
+
   <!-- Overlays -->
   {#if $showSearch}
     <SearchPanel />
@@ -157,6 +200,9 @@
   {#if $showSettings}
     <SettingsModal />
   {/if}
+
+  <!-- Calendar Event Modal -->
+  <CalendarEventModal />
 
   {#if $layoutMode === 'modern'}
     <!-- Modern Layout: Sidebar + 2 Panels -->
@@ -193,9 +239,11 @@
         title="Arrastar para redimensionar (duplo-clique para resetar)"
       ></div>
 
-      <!-- Email Viewer Panel / Analytics Panel / Thread View -->
+      <!-- Email Viewer Panel / Analytics Panel / Thread View / Calendar Panel -->
       <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
-        {#if $showThreadView && $threadEmailId}
+        {#if $showCalendarPanel}
+          <CalendarPanel />
+        {:else if $showThreadView && $threadEmailId}
           <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
         {:else if $showAnalytics}
           <AnalyticsPanel />
@@ -246,9 +294,11 @@
         title="Arrastar para redimensionar (duplo-clique para resetar)"
       ></div>
 
-      <!-- Email Viewer Panel / Analytics Panel / Thread View -->
+      <!-- Email Viewer Panel / Analytics Panel / Thread View / Calendar Panel -->
       <section class="viewer-panel" class:active={$activePanel === 'viewer'}>
-        {#if $showThreadView && $threadEmailId}
+        {#if $showCalendarPanel}
+          <CalendarPanel />
+        {:else if $showThreadView && $threadEmailId}
           <ThreadView emailId={$threadEmailId} on:close={closeThreadView} />
         {:else if $showAnalytics}
           <AnalyticsPanel />

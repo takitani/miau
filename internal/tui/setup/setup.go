@@ -268,7 +268,7 @@ func (m Model) doOAuth2Auth() tea.Cmd {
 		}
 
 		// Salva token
-		var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Name)
+		var tokenPath = auth.GetTokenPath(config.GetConfigPath(), m.account.Email)
 		if err := auth.SaveToken(tokenPath, token); err != nil {
 			return authResultMsg{err: fmt.Errorf("erro ao salvar token: %w", err)}
 		}
@@ -617,7 +617,7 @@ func (m Model) viewDone() string {
 	var header = successStyle.Render("✓ Configuração salva!")
 	var info = fmt.Sprintf("\nArquivo: %s", config.GetConfigFile())
 	if m.account.AuthType == config.AuthTypeOAuth2 {
-		info += fmt.Sprintf("\nToken:   %s", auth.GetTokenPath(config.GetConfigPath(), m.account.Name))
+		info += fmt.Sprintf("\nToken:   %s", auth.GetTokenPath(config.GetConfigPath(), m.account.Email))
 	}
 	var hint = "\n\n" + subtitleStyle.Render("Pressione Enter para continuar")
 

@@ -24,6 +24,7 @@ type App interface {
 	Undo() UndoService
 	Contacts() ContactService
 	Tasks() TaskService
+	Calendar() CalendarService
 
 	// Events
 	Events() EventBus

@@ -443,3 +443,55 @@ type Task struct {
 	CreatedAt   SQLiteTime     `db:"created_at"`
 	UpdatedAt   SQLiteTime     `db:"updated_at"`
 }
+
+// CalendarEventType represents the type of calendar event
+type CalendarEventType string
+
+const (
+	CalendarEventTypeCustom       CalendarEventType = "custom"
+	CalendarEventTypeTaskDeadline CalendarEventType = "task_deadline"
+	CalendarEventTypeEmailFollowup CalendarEventType = "email_followup"
+	CalendarEventTypeMeeting      CalendarEventType = "meeting"
+)
+
+// CalendarEventSource represents the source of the event
+type CalendarEventSource string
+
+const (
+	CalendarEventSourceManual       CalendarEventSource = "manual"
+	CalendarEventSourceTaskSync     CalendarEventSource = "task_sync"
+	CalendarEventSourceAISuggestion CalendarEventSource = "ai_suggestion"
+)
+
+// CalendarSyncStatus represents sync status with Google Calendar
+type CalendarSyncStatus string
+
+const (
+	CalendarSyncStatusLocal       CalendarSyncStatus = "local"
+	CalendarSyncStatusSynced      CalendarSyncStatus = "synced"
+	CalendarSyncStatusPendingSync CalendarSyncStatus = "pending_sync"
+	CalendarSyncStatusConflict    CalendarSyncStatus = "conflict"
+)
+
+// CalendarEvent represents a calendar event in the database
+type CalendarEvent struct {
+	ID               int64              `db:"id"`
+	AccountID        int64              `db:"account_id"`
+	Title            string             `db:"title"`
+	Description      sql.NullString     `db:"description"`
+	EventType        CalendarEventType  `db:"event_type"`
+	StartTime        SQLiteTime         `db:"start_time"`
+	EndTime          sql.NullTime       `db:"end_time"`
+	AllDay           bool               `db:"all_day"`
+	Color            sql.NullString     `db:"color"`
+	TaskID           sql.NullInt64      `db:"task_id"`
+	EmailID          sql.NullInt64      `db:"email_id"`
+	IsCompleted      bool               `db:"is_completed"`
+	Source           CalendarEventSource `db:"source"`
+	GoogleEventID    sql.NullString     `db:"google_event_id"`
+	GoogleCalendarID sql.NullString     `db:"google_calendar_id"`
+	LastSyncedAt     sql.NullTime       `db:"last_synced_at"`
+	SyncStatus       CalendarSyncStatus `db:"sync_status"`
+	CreatedAt        SQLiteTime         `db:"created_at"`
+	UpdatedAt        SQLiteTime         `db:"updated_at"`
+}

@@ -58,9 +58,9 @@ func (m *StoragePort) UpdateFolderStats(ctx context.Context, folderID int64, tot
 }
 
 // Email operations
-func (m *StoragePort) UpsertEmail(ctx context.Context, accountID, folderID int64, email *ports.EmailContent) error {
+func (m *StoragePort) UpsertEmail(ctx context.Context, accountID, folderID int64, email *ports.EmailContent) (int64, string, error) {
 	var args = m.Called(ctx, accountID, folderID, email)
-	return args.Error(0)
+	return args.Get(0).(int64), args.String(1), args.Error(2)
 }
 
 func (m *StoragePort) GetEmails(ctx context.Context, folderID int64, limit int) ([]ports.EmailMetadata, error) {

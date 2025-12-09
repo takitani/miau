@@ -24,9 +24,15 @@ export function Confirm(arg1:string,arg2:string):Promise<boolean>;
 
 export function Connect():Promise<void>;
 
+export function CreateCalendarEvent(arg1:desktop.CalendarEventInputDTO):Promise<desktop.CalendarEventDTO>;
+
+export function CreateFollowUpEvent(arg1:number,arg2:string,arg3:string):Promise<desktop.CalendarEventDTO>;
+
 export function CreateTask(arg1:desktop.TaskInputDTO):Promise<desktop.TaskDTO>;
 
 export function Delete(arg1:number):Promise<void>;
+
+export function DeleteCalendarEvent(arg1:number):Promise<void>;
 
 export function DeleteDraft(arg1:number):Promise<void>;
 
@@ -50,6 +56,12 @@ export function GetAttachments(arg1:number):Promise<Array<desktop.AttachmentDTO>
 
 export function GetAvailableFolders():Promise<Array<desktop.AvailableFolderDTO>>;
 
+export function GetCalendarEventCounts():Promise<desktop.CalendarEventCountsDTO>;
+
+export function GetCalendarEvents():Promise<Array<desktop.CalendarEventDTO>>;
+
+export function GetCalendarEventsForWeek(arg1:string):Promise<Array<desktop.CalendarEventDTO>>;
+
 export function GetConnectionStatus():Promise<desktop.ConnectionStatus>;
 
 export function GetContactSyncStatus():Promise<desktop.ContactSyncStatusDTO>;
@@ -69,6 +81,8 @@ export function GetEmails(arg1:string,arg2:number):Promise<Array<desktop.EmailDT
 export function GetEmailsThreaded(arg1:string,arg2:number):Promise<Array<desktop.EmailDTO>>;
 
 export function GetFolders():Promise<Array<desktop.FolderDTO>>;
+
+export function GetGoogleCalendarEvents(arg1:string,arg2:string):Promise<Array<desktop.GoogleEventDTO>>;
 
 export function GetPendingTasks():Promise<Array<desktop.TaskDTO>>;
 
@@ -92,11 +106,17 @@ export function GetTopContacts(arg1:number):Promise<Array<desktop.ContactDTO>>;
 
 export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.SenderStatsDTO>>;
 
+export function GetUpcomingCalendarEvents(arg1:number):Promise<Array<desktop.CalendarEventDTO>>;
+
 export function IsConnected():Promise<boolean>;
+
+export function IsGoogleCalendarConnected():Promise<boolean>;
 
 export function IsReady():Promise<boolean>;
 
 export function ListDrafts():Promise<Array<desktop.DraftDTO>>;
+
+export function ListGoogleCalendars():Promise<Array<desktop.GoogleCalendarDTO>>;
 
 export function MarkAsRead(arg1:number,arg2:boolean):Promise<void>;
 
@@ -158,10 +178,18 @@ export function SyncEssentialFolders():Promise<Array<desktop.SyncResultDTO>>;
 
 export function SyncFolder(arg1:string):Promise<desktop.SyncResultDTO>;
 
+export function SyncFromGoogleCalendar(arg1:string):Promise<number>;
+
+export function SyncTasksToCalendar():Promise<void>;
+
 export function SyncThreadsFromGmail():Promise<number>;
+
+export function ToggleCalendarEventComplete(arg1:number):Promise<boolean>;
 
 export function ToggleTaskComplete(arg1:number):Promise<boolean>;
 
 export function Undo():Promise<desktop.UndoResult>;
+
+export function UpdateCalendarEvent(arg1:desktop.CalendarEventInputDTO):Promise<desktop.CalendarEventDTO>;
 
 export function UpdateTask(arg1:desktop.TaskInputDTO):Promise<desktop.TaskDTO>;

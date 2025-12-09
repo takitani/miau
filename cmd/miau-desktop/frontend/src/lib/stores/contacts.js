@@ -16,7 +16,7 @@ export async function searchContacts(query, limit = 20) {
 
   try {
     if (window.go?.desktop?.App?.SearchContacts) {
-      var results = await window.go.desktop.App.SearchContacts(query, limit);
+      const results = await window.go.desktop.App.SearchContacts(query, limit);
       return results || [];
     }
   } catch (err) {
@@ -31,7 +31,7 @@ export async function loadTopContacts(limit = 10) {
   contactsLoading.set(true);
   try {
     if (window.go?.desktop?.App?.GetTopContacts) {
-      var results = await window.go.desktop.App.GetTopContacts(limit);
+      const results = await window.go.desktop.App.GetTopContacts(limit);
       topContacts.set(results || []);
       info(`Loaded ${(results || []).length} top contacts`);
     }
@@ -64,7 +64,7 @@ export async function syncContacts(fullSync = false) {
 export async function loadSyncStatus() {
   try {
     if (window.go?.desktop?.App?.GetContactSyncStatus) {
-      var status = await window.go.desktop.App.GetContactSyncStatus();
+      const status = await window.go.desktop.App.GetContactSyncStatus();
       syncStatus.set(status);
     }
   } catch (err) {
@@ -76,8 +76,8 @@ export async function loadSyncStatus() {
 export function formatContact(contact) {
   if (!contact) return '';
 
-  var email = contact.emails?.[0]?.email || '';
-  var name = contact.displayName || '';
+  const email = contact.emails?.[0]?.email || '';
+  const name = contact.displayName || '';
 
   if (name && email) {
     return `${name} <${email}>`;
@@ -89,6 +89,6 @@ export function formatContact(contact) {
 export function getPrimaryEmail(contact) {
   if (!contact?.emails?.length) return null;
 
-  var primary = contact.emails.find(e => e.isPrimary);
+  const primary = contact.emails.find(e => e.isPrimary);
   return primary || contact.emails[0];
 }

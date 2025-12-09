@@ -2,15 +2,15 @@ import { writable, get } from 'svelte/store';
 import { GetTasks, GetPendingTasks, CreateTask, UpdateTask, ToggleTaskComplete, DeleteTask, GetTaskCounts } from '../wailsjs/wailsjs/go/desktop/App.js';
 
 // Task list store
-export var tasks = writable([]);
-export var tasksLoading = writable(false);
-export var taskCounts = writable({ pending: 0, completed: 0, total: 0 });
+export const tasks = writable([]);
+export const tasksLoading = writable(false);
+export const taskCounts = writable({ pending: 0, completed: 0, total: 0 });
 
 // Load all tasks
 export async function loadTasks() {
   tasksLoading.set(true);
   try {
-    var result = await GetTasks();
+    const result = await GetTasks();
     tasks.set(result || []);
     await loadTaskCounts();
   } catch (err) {
@@ -25,7 +25,7 @@ export async function loadTasks() {
 export async function loadPendingTasks() {
   tasksLoading.set(true);
   try {
-    var result = await GetPendingTasks();
+    const result = await GetPendingTasks();
     tasks.set(result || []);
     await loadTaskCounts();
   } catch (err) {
@@ -39,7 +39,7 @@ export async function loadPendingTasks() {
 // Load task counts
 export async function loadTaskCounts() {
   try {
-    var counts = await GetTaskCounts();
+    const counts = await GetTaskCounts();
     if (counts)
       taskCounts.set(counts);
   } catch (err) {
@@ -50,7 +50,7 @@ export async function loadTaskCounts() {
 // Create a new task
 export async function createTask(title, description = '', priority = 0, dueDate = null, emailId = null, source = 'manual') {
   try {
-    var input = {
+    const input = {
       title,
       description,
       isCompleted: false,
@@ -59,7 +59,7 @@ export async function createTask(title, description = '', priority = 0, dueDate 
       emailId,
       source
     };
-    var newTask = await CreateTask(input);
+    const newTask = await CreateTask(input);
     if (newTask) {
       tasks.update(list => [newTask, ...list]);
       await loadTaskCounts();
@@ -74,12 +74,12 @@ export async function createTask(title, description = '', priority = 0, dueDate 
 // Update an existing task
 export async function updateTask(id, updates) {
   try {
-    var currentTasks = get(tasks);
-    var existing = currentTasks.find(t => t.id === id);
+    const currentTasks = get(tasks);
+    const existing = currentTasks.find(t => t.id === id);
     if (!existing)
       throw new Error('Task not found');
 
-    var input = {
+    const input = {
       id,
       title: updates.title ?? existing.title,
       description: updates.description ?? existing.description,
@@ -90,7 +90,7 @@ export async function updateTask(id, updates) {
       source: updates.source ?? existing.source
     };
 
-    var updated = await UpdateTask(input);
+    const updated = await UpdateTask(input);
     if (updated) {
       tasks.update(list => list.map(t => t.id === id ? updated : t));
       await loadTaskCounts();
@@ -105,7 +105,7 @@ export async function updateTask(id, updates) {
 // Toggle task completion
 export async function toggleTask(id) {
   try {
-    var newStatus = await ToggleTaskComplete(id);
+    const newStatus = await ToggleTaskComplete(id);
     tasks.update(list => list.map(t => {
       if (t.id === id)
         return { ...t, isCompleted: newStatus };
@@ -137,13 +137,13 @@ export function getTask(id) {
 }
 
 // Priority labels
-export var priorityLabels = {
+export const priorityLabels = {
   0: 'Normal',
   1: 'High',
   2: 'Urgent'
 };
 
-export var priorityColors = {
+export const priorityColors = {
   0: 'var(--text-secondary)',
   1: 'var(--accent-warning)',
   2: 'var(--accent-error)'

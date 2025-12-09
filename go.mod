@@ -18,11 +18,14 @@ require (
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.33.0
 	golang.org/x/text v0.31.0
+	google.golang.org/api v0.257.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1
 )
 
 require (
+	cloud.google.com/go/auth v0.17.0 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -37,11 +40,17 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
+	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.7 // indirect
+	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
@@ -64,7 +73,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -79,11 +87,18 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
+	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251124214823-79d6a2a48846 // indirect
+	google.golang.org/grpc v1.77.0 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

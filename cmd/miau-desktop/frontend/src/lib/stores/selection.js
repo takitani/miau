@@ -52,7 +52,7 @@ export function exitSelectionMode() {
 // Toggle single email selection
 export function toggleSelection(id, index = -1) {
   selectedIds.update(ids => {
-    var newIds = new Set(ids);
+    const newIds = new Set(ids);
     if (newIds.has(id)) {
       newIds.delete(id);
     } else {
@@ -82,16 +82,16 @@ export function selectSingle(id, index = -1) {
 
 // Range selection (shift+click)
 export function selectRange(toIndex) {
-  var fromIndex = get(lastSelectedIndex);
+  let fromIndex = get(lastSelectedIndex);
   if (fromIndex < 0) fromIndex = 0;
 
-  var $emails = get(emails);
-  var start = Math.min(fromIndex, toIndex);
-  var end = Math.max(fromIndex, toIndex);
+  const $emails = get(emails);
+  const start = Math.min(fromIndex, toIndex);
+  const end = Math.max(fromIndex, toIndex);
 
   selectedIds.update(ids => {
-    var newIds = new Set(ids);
-    for (var i = start; i <= end; i++) {
+    const newIds = new Set(ids);
+    for (let i = start; i <= end; i++) {
       if ($emails[i]) {
         newIds.add($emails[i].id);
       }
@@ -105,7 +105,7 @@ export function selectRange(toIndex) {
 
 // Select all visible emails
 export function selectAll() {
-  var $emails = get(emails);
+  const $emails = get(emails);
   selectedIds.set(new Set($emails.map(e => e.id)));
   selectionMode.set(true);
   info(`Selected all ${$emails.length} emails`);
@@ -119,11 +119,11 @@ export function clearSelection() {
 
 // Invert selection
 export function invertSelection() {
-  var $emails = get(emails);
-  var $selectedIds = get(selectedIds);
+  const $emails = get(emails);
+  const $selectedIds = get(selectedIds);
 
-  var newIds = new Set();
-  for (var e of $emails) {
+  const newIds = new Set();
+  for (const e of $emails) {
     if (!$selectedIds.has(e.id)) {
       newIds.add(e.id);
     }
@@ -137,12 +137,12 @@ export function invertSelection() {
 
 // Smart selection: by sender
 export function selectBySender(senderEmail) {
-  var $emails = get(emails);
-  var matching = $emails.filter(e => e.fromEmail === senderEmail);
+  const $emails = get(emails);
+  const matching = $emails.filter(e => e.fromEmail === senderEmail);
 
   selectedIds.update(ids => {
-    var newIds = new Set(ids);
-    for (var e of matching) {
+    const newIds = new Set(ids);
+    for (const e of matching) {
       newIds.add(e.id);
     }
     return newIds;
@@ -154,8 +154,8 @@ export function selectBySender(senderEmail) {
 
 // Smart selection: unread
 export function selectUnread() {
-  var $emails = get(emails);
-  var unread = $emails.filter(e => !e.isRead);
+  const $emails = get(emails);
+  const unread = $emails.filter(e => !e.isRead);
 
   selectedIds.set(new Set(unread.map(e => e.id)));
   selectionMode.set(true);
@@ -164,8 +164,8 @@ export function selectUnread() {
 
 // Smart selection: read
 export function selectRead() {
-  var $emails = get(emails);
-  var read = $emails.filter(e => e.isRead);
+  const $emails = get(emails);
+  const read = $emails.filter(e => e.isRead);
 
   selectedIds.set(new Set(read.map(e => e.id)));
   selectionMode.set(true);
@@ -174,8 +174,8 @@ export function selectRead() {
 
 // Smart selection: with attachments
 export function selectWithAttachments() {
-  var $emails = get(emails);
-  var withAtt = $emails.filter(e => e.hasAttachments);
+  const $emails = get(emails);
+  const withAtt = $emails.filter(e => e.hasAttachments);
 
   selectedIds.set(new Set(withAtt.map(e => e.id)));
   selectionMode.set(true);
@@ -184,8 +184,8 @@ export function selectWithAttachments() {
 
 // Smart selection: starred
 export function selectStarred() {
-  var $emails = get(emails);
-  var starred = $emails.filter(e => e.isStarred);
+  const $emails = get(emails);
+  const starred = $emails.filter(e => e.isStarred);
 
   selectedIds.set(new Set(starred.map(e => e.id)));
   selectionMode.set(true);
@@ -194,12 +194,12 @@ export function selectStarred() {
 
 // Smart selection: today
 export function selectToday() {
-  var $emails = get(emails);
-  var today = new Date();
+  const $emails = get(emails);
+  const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  var todayEmails = $emails.filter(e => {
-    var emailDate = new Date(e.date);
+  const todayEmails = $emails.filter(e => {
+    const emailDate = new Date(e.date);
     emailDate.setHours(0, 0, 0, 0);
     return emailDate.getTime() === today.getTime();
   });
@@ -211,11 +211,11 @@ export function selectToday() {
 
 // Smart selection: this week
 export function selectThisWeek() {
-  var $emails = get(emails);
-  var now = new Date();
-  var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const $emails = get(emails);
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  var weekEmails = $emails.filter(e => new Date(e.date) >= weekAgo);
+  const weekEmails = $emails.filter(e => new Date(e.date) >= weekAgo);
 
   selectedIds.set(new Set(weekEmails.map(e => e.id)));
   selectionMode.set(true);
@@ -224,11 +224,11 @@ export function selectThisWeek() {
 
 // Smart selection: older than a week
 export function selectOlderThanWeek() {
-  var $emails = get(emails);
-  var now = new Date();
-  var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const $emails = get(emails);
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  var oldEmails = $emails.filter(e => new Date(e.date) < weekAgo);
+  const oldEmails = $emails.filter(e => new Date(e.date) < weekAgo);
 
   selectedIds.set(new Set(oldEmails.map(e => e.id)));
   selectionMode.set(true);
@@ -239,7 +239,7 @@ export function selectOlderThanWeek() {
 export function startDragSelection(index) {
   dragSelecting.set(true);
   dragStartIndex.set(index);
-  var $emails = get(emails);
+  const $emails = get(emails);
   if ($emails[index]) {
     selectedIds.set(new Set([$emails[index].id]));
   }
@@ -249,13 +249,13 @@ export function startDragSelection(index) {
 export function updateDragSelection(currentIndex) {
   if (!get(dragSelecting)) return;
 
-  var startIdx = get(dragStartIndex);
-  var $emails = get(emails);
-  var start = Math.min(startIdx, currentIndex);
-  var end = Math.max(startIdx, currentIndex);
+  const startIdx = get(dragStartIndex);
+  const $emails = get(emails);
+  const start = Math.min(startIdx, currentIndex);
+  const end = Math.max(startIdx, currentIndex);
 
-  var newIds = new Set();
-  for (var i = start; i <= end; i++) {
+  const newIds = new Set();
+  for (let i = start; i <= end; i++) {
     if ($emails[i]) {
       newIds.add($emails[i].id);
     }
@@ -272,7 +272,7 @@ export function endDragSelection() {
 
 // Batch operations (call backend)
 export async function batchArchive() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {
@@ -291,7 +291,7 @@ export async function batchArchive() {
 }
 
 export async function batchDelete() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {
@@ -309,7 +309,7 @@ export async function batchDelete() {
 }
 
 export async function batchMarkRead() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {
@@ -329,7 +329,7 @@ export async function batchMarkRead() {
 }
 
 export async function batchMarkUnread() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {
@@ -349,7 +349,7 @@ export async function batchMarkUnread() {
 }
 
 export async function batchStar() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {
@@ -367,7 +367,7 @@ export async function batchStar() {
 }
 
 export async function batchUnstar() {
-  var ids = Array.from(get(selectedIds));
+  const ids = Array.from(get(selectedIds));
   if (ids.length === 0) return;
 
   try {

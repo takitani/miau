@@ -109,6 +109,7 @@ type SyncResult struct {
 	DeletedEmails int
 	LatestUID     uint32
 	Errors        []error
+	NewEmailIDs   []int64 // IDs of newly synced emails (for thread sync)
 }
 
 // SendRequest contains all data needed to send an email

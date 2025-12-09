@@ -12,34 +12,54 @@ import (
 
 // GmailAPIAdapter wraps gmail.Client to implement ports.GmailAPIPort
 type GmailAPIAdapter struct {
-	client  *gmail.Client
-	account *config.Account
+	client         *gmail.Client
+	calendarClient *gmail.CalendarClient
+	account        *config.Account
 }
 
 // NewGmailAPIAdapter creates a new GmailAPIAdapter
 // Returns nil if OAuth2 is not configured or token is not available
 func NewGmailAPIAdapter(account *config.Account, configDir string) *GmailAPIAdapter {
+	fmt.Printf("[NewGmailAPIAdapter] Starting for account %s\n", account.Email)
+
 	if account.AuthType != config.AuthTypeOAuth2 {
+		fmt.Printf("[NewGmailAPIAdapter] Not OAuth2, skipping\n")
 		return nil
 	}
 
 	if account.OAuth2 == nil {
+		fmt.Printf("[NewGmailAPIAdapter] OAuth2 config is nil\n")
 		return nil
 	}
 
 	var oauth2Cfg = auth.GetOAuth2Config(account.OAuth2.ClientID, account.OAuth2.ClientSecret)
 	var tokenPath = auth.GetTokenPath(configDir, account.Email)
+	fmt.Printf("[NewGmailAPIAdapter] Token path: %s\n", tokenPath)
 
 	var token, err = auth.GetValidToken(oauth2Cfg, tokenPath)
 	if err != nil {
+		fmt.Printf("[NewGmailAPIAdapter] Failed to get valid token: %v\n", err)
 		return nil
 	}
+	fmt.Printf("[NewGmailAPIAdapter] Token obtained successfully\n")
 
 	var client = gmail.NewClient(token, oauth2Cfg, account.Email)
 
+	// Create Calendar client (optional, may fail if scope not granted)
+	var calendarClient *gmail.CalendarClient
+	calendarClient, calErr := gmail.NewCalendarClient(context.Background(), client.HTTPClient())
+	if calErr != nil {
+		fmt.Printf("[GmailAPIAdapter] Failed to create Calendar client: %v\n", calErr)
+	} else if calendarClient == nil {
+		fmt.Printf("[GmailAPIAdapter] Calendar client is nil\n")
+	} else {
+		fmt.Printf("[GmailAPIAdapter] Calendar client created successfully\n")
+	}
+
 	return &GmailAPIAdapter{
-		client:  client,
-		account: account,
+		client:         client,
+		calendarClient: calendarClient,
+		account:        account,
 	}
 }
 
@@ -135,4 +155,9 @@ func (a *GmailAPIAdapter) ContactsAdapter() ports.GmailContactsPort {
 		return nil
 	}
 	return gmail.NewContactsAdapter(a.client)
+}
+
+// CalendarClient returns the Google Calendar API client
+func (a *GmailAPIAdapter) CalendarClient() *gmail.CalendarClient {
+	return a.calendarClient
 }

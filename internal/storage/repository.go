@@ -305,6 +305,29 @@ func MarkDeletedByUIDs(folderID int64, uids []uint32) error {
 	return err
 }
 
+// MarkDeletedByEmailIDs marks emails as deleted by their database IDs
+func MarkDeletedByEmailIDs(ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// Build placeholders for IN clause
+	var placeholders = make([]string, len(ids))
+	var args = make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	var query = fmt.Sprintf(
+		"UPDATE emails SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+
+	_, err := db.Exec(query, args...)
+	return err
+}
+
 // UpdateHasAttachments updates the has_attachments flag for an email
 func UpdateHasAttachments(id int64, hasAttachments bool) error {
 	_, err := db.Exec("UPDATE emails SET has_attachments = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", hasAttachments, id)
@@ -995,7 +1018,7 @@ func GetEmailsByIDs(emailIDs []int64) ([]EmailSummary, error) {
 	}
 
 	var query = fmt.Sprintf(`
-		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet, thread_id
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, is_deleted, has_attachments, snippet, thread_id
 		FROM emails
 		WHERE id IN (%s)
 		ORDER BY date DESC`,

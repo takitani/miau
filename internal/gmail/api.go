@@ -10,6 +10,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -478,10 +479,11 @@ func (c *Client) GetMessageInfoByRFC822MsgID(rfc822MsgID string) (*MessageInfo, 
 	// Remove < e > se presentes
 	var msgID = strings.Trim(rfc822MsgID, "<>")
 
-	// Busca pelo rfc822msgid
-	var url = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=rfc822msgid:%s", msgID)
+	// Busca pelo rfc822msgid (URL encode para caracteres especiais como +, =, etc)
+	var query = neturl.QueryEscape(fmt.Sprintf("rfc822msgid:%s", msgID))
+	var apiURL = fmt.Sprintf("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=%s", query)
 
-	var resp, err = c.httpClient.Get(url)
+	var resp, err = c.httpClient.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}

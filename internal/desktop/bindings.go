@@ -513,29 +513,52 @@ func (a *App) syncThreadIDsForEmails(ctx context.Context, emailIDs []int64) {
 		return
 	}
 
-	// Get emails by IDs
+	// Get emails by IDs (excluding deleted ones)
 	var emails, err = storage.GetEmailsByIDs(emailIDs)
 	if err != nil || len(emails) == 0 {
 		log.Printf("[syncThreadIDsForEmails] Failed to get emails: %v", err)
 		return
 	}
 
-	log.Printf("[syncThreadIDsForEmails] Syncing thread IDs for %d emails", len(emails))
+	// Filter out deleted emails
+	var activeEmails []storage.EmailSummary
+	for _, email := range emails {
+		if !email.IsDeleted {
+			activeEmails = append(activeEmails, email)
+		}
+	}
+
+	if len(activeEmails) == 0 {
+		log.Printf("[syncThreadIDsForEmails] No active emails to sync")
+		return
+	}
+
+	log.Printf("[syncThreadIDsForEmails] Syncing thread IDs for %d emails (%d deleted skipped)", len(activeEmails), len(emails)-len(activeEmails))
 
 	var updated = 0
-	for _, email := range emails {
+	var notFound = 0
+	var skipped = 0
+	var notFoundIDs []int64
+
+	for _, email := range activeEmails {
 		// Skip if no message_id or already has thread_id
 		if !email.MessageID.Valid || email.MessageID.String == "" {
+			skipped++
 			continue
 		}
 		if email.ThreadID.Valid && email.ThreadID.String != "" {
+			skipped++
 			continue
 		}
 
 		// Get thread ID from Gmail API
 		var msgInfo, apiErr = gmailAdapter.GetMessageInfoByRFC822MsgID(email.MessageID.String)
 		if apiErr != nil {
-			log.Printf("[syncThreadIDsForEmails] Failed to get thread for %s: %v", email.MessageID.String, apiErr)
+			// Track not found errors (likely deleted from Gmail)
+			if strings.Contains(apiErr.Error(), "não encontrada") || strings.Contains(apiErr.Error(), "not found") {
+				notFound++
+				notFoundIDs = append(notFoundIDs, email.ID)
+			}
 			continue
 		}
 
@@ -547,7 +570,13 @@ func (a *App) syncThreadIDsForEmails(ctx context.Context, emailIDs []int64) {
 		}
 	}
 
-	log.Printf("[syncThreadIDsForEmails] Updated %d thread IDs", updated)
+	// Mark "not found" emails as deleted (they were deleted from Gmail)
+	if len(notFoundIDs) > 0 {
+		storage.MarkDeletedByEmailIDs(notFoundIDs)
+		log.Printf("[syncThreadIDsForEmails] Marked %d emails as deleted (not found in Gmail)", len(notFoundIDs))
+	}
+
+	log.Printf("[syncThreadIDsForEmails] Updated %d thread IDs, %d not found, %d skipped", updated, notFound, skipped)
 }
 
 // syncNewEmailThreadIDs syncs thread IDs for emails that don't have one yet (legacy/fallback)

@@ -115,6 +115,7 @@ type EmailSummary struct {
 	IsRead         bool           `db:"is_read"`
 	IsStarred      bool           `db:"is_starred"`
 	IsReplied      bool           `db:"is_replied"`
+	IsDeleted      bool           `db:"is_deleted"`
 	HasAttachments bool           `db:"has_attachments"`
 	Snippet        string         `db:"snippet"`
 	ThreadID       sql.NullString `db:"thread_id"`

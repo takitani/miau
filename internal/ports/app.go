@@ -26,6 +26,7 @@ type App interface {
 	Tasks() TaskService
 	Calendar() CalendarService
 	Basecamp() BasecampService
+	Plugins() PluginService
 
 	// Events
 	Events() EventBus
@@ -42,6 +43,44 @@ type App interface {
 
 	// SyncThreadIDsFromGmail syncs thread IDs from Gmail API for existing emails
 	SyncThreadIDsFromGmail(ctx context.Context, progressCallback func(processed, total int)) (int, error)
+}
+
+// PluginService provides high-level plugin operations
+type PluginService interface {
+	// Plugin listing
+	ListPlugins(ctx context.Context) ([]PluginWithState, error)
+
+	// Lifecycle
+	EnablePlugin(ctx context.Context, pluginID PluginID) error
+	DisablePlugin(ctx context.Context, pluginID PluginID) error
+	ConnectPlugin(ctx context.Context, pluginID PluginID) error
+	DisconnectPlugin(ctx context.Context, pluginID PluginID) error
+
+	// State
+	GetPluginState(ctx context.Context, pluginID PluginID) (*PluginState, error)
+
+	// OAuth2
+	GetAuthURL(ctx context.Context, pluginID PluginID, state string) (string, error)
+	HandleAuthCallback(ctx context.Context, pluginID PluginID, code string) error
+
+	// Data access
+	ListProjects(ctx context.Context, pluginID PluginID) ([]ExternalProject, error)
+	ListTasks(ctx context.Context, pluginID PluginID, projectID string, opts TaskListOptions) ([]ExternalTask, error)
+	ListMessages(ctx context.Context, pluginID PluginID, projectID string, opts MessageListOptions) ([]ExternalMessage, error)
+	GetExternalItems(ctx context.Context, pluginID PluginID, query ExternalItemQuery) ([]ExternalItem, error)
+
+	// Sync
+	SyncPlugin(ctx context.Context, pluginID PluginID) (*SyncResult, error)
+
+	// Task operations
+	CreateTask(ctx context.Context, pluginID PluginID, task ExternalTaskCreate) (*ExternalTask, error)
+	CompleteTask(ctx context.Context, pluginID PluginID, taskID string) error
+}
+
+// PluginWithState combines plugin info with its current state
+type PluginWithState struct {
+	Info  PluginInfo   `json:"info"`
+	State *PluginState `json:"state,omitempty"`
 }
 
 // AppConfig contains application configuration

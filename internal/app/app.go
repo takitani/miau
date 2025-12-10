@@ -11,6 +11,7 @@ import (
 	"github.com/opik/miau/internal/adapters"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/imap"
+	"github.com/opik/miau/internal/plugins/basecamp"
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/storage"
@@ -50,6 +51,11 @@ type Application struct {
 	calendarService   *services.CalendarService
 	aiService         *services.AIService
 	basecampService   *services.BasecampService
+
+	// Plugin system
+	pluginStorage  *storage.PluginStorage
+	pluginRegistry *services.PluginRegistry
+	pluginService  *services.PluginService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -203,6 +209,15 @@ func (a *Application) Start() error {
 		fmt.Printf("[App.Start] Google Calendar client connected\n")
 	}
 
+	// Initialize plugin system
+	a.pluginStorage = storage.NewPluginStorage()
+	a.pluginRegistry = services.NewPluginRegistry(a.pluginStorage)
+	a.pluginService = services.NewPluginService(a.pluginRegistry, a.pluginStorage, a.eventBus)
+	a.pluginService.SetAccount(accountInfo)
+
+	// Register built-in plugins
+	a.pluginRegistry.Register(basecamp.New())
+
 	a.started = true
 	return nil
 }
@@ -303,6 +318,11 @@ func (a *Application) Calendar() ports.CalendarService {
 // Basecamp returns the Basecamp service
 func (a *Application) Basecamp() ports.BasecampService {
 	return a.basecampService
+}
+
+// Plugins returns the plugin service
+func (a *Application) Plugins() ports.PluginService {
+	return a.pluginService
 }
 
 // Events returns the event bus

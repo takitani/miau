@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 
 	"github.com/opik/miau/internal/ports"
@@ -88,7 +89,8 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 			if len(newUIDs) > 0 {
 				log.Printf("[search] Fetching %d new emails from IMAP", len(newUIDs))
 
-				// Check if we have these emails in DB (maybe just not matching local search)
+				// Separate UIDs into those we have locally vs need to fetch
+				var uidsToFetch []uint32
 				for _, uid := range newUIDs {
 					var email, err = s.storage.GetEmailByUIDGlobal(ctx, account.ID, uid)
 					if err == nil && email != nil {
@@ -113,16 +115,77 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 							localIDs[email.ID] = true
 						}
 					} else {
-						// Email not in DB - need to fetch from IMAP and save
-						// For now, just log it - could implement on-demand fetch
-						log.Printf("[search] Email UID %d not in local DB", uid)
+						// Email not in DB - need to fetch from IMAP
+						uidsToFetch = append(uidsToFetch, uid)
+					}
+				}
+
+				// Fetch missing emails from IMAP in batch
+				if len(uidsToFetch) > 0 {
+					log.Printf("[search] Fetching %d emails from IMAP (not in local DB)", len(uidsToFetch))
+					var imapEmails, fetchErr = imapClient.FetchEmailsBatch(ctx, uidsToFetch)
+					if fetchErr != nil {
+						log.Printf("[search] Error fetching from IMAP: %v", fetchErr)
+					} else {
+						// Get INBOX folder ID for saving (search results are typically from INBOX)
+						var inboxFolder, folderErr = s.storage.GetFolderByName(ctx, account.ID, "INBOX")
+						var folderID int64 = 0
+						if folderErr == nil && inboxFolder != nil {
+							folderID = inboxFolder.ID
+						}
+
+						for _, ie := range imapEmails {
+							var emailID int64 = -int64(ie.UID) // Default: negative = not saved
+
+							// Save to DB for future searches (progressive sync)
+							if folderID > 0 {
+								var emailContent = &ports.EmailContent{
+									EmailMetadata: ports.EmailMetadata{
+										UID:            ie.UID,
+										MessageID:      ie.MessageID,
+										Subject:        ie.Subject,
+										FromName:       ie.FromName,
+										FromEmail:      ie.FromEmail,
+										Date:           ie.Date,
+										IsRead:         ie.Seen,
+										IsStarred:      ie.Flagged,
+										HasAttachments: ie.HasAttachments,
+									},
+								}
+								var savedID, _, saveErr = s.storage.UpsertEmail(ctx, account.ID, folderID, emailContent)
+								if saveErr == nil {
+									emailID = savedID
+									log.Printf("[search] Saved email UID %d to DB (ID: %d)", ie.UID, savedID)
+								}
+							}
+
+							// Add to results
+							localEmails = append(localEmails, ports.EmailMetadata{
+								ID:             emailID,
+								UID:            ie.UID,
+								MessageID:      ie.MessageID,
+								Subject:        ie.Subject,
+								FromName:       ie.FromName,
+								FromEmail:      ie.FromEmail,
+								Date:           ie.Date,
+								IsRead:         ie.Seen,
+								IsStarred:      ie.Flagged,
+								HasAttachments: ie.HasAttachments,
+								Snippet:        "",
+							})
+						}
+						log.Printf("[search] Added %d emails from IMAP to results", len(imapEmails))
 					}
 				}
 			}
 		}
 	}
 
-	// Sort by date (most recent first) - emails should already be sorted but ensure it
+	// Sort by date (most recent first)
+	sort.Slice(localEmails, func(i, j int) bool {
+		return localEmails[i].Date.After(localEmails[j].Date)
+	})
+
 	// Limit results
 	if len(localEmails) > limit {
 		localEmails = localEmails[:limit]

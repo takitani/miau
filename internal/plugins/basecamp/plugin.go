@@ -701,7 +701,7 @@ func (p *Plugin) GetPerson(ctx context.Context, personID string) (*ports.Externa
 // ============================================================================
 
 // Sync fetches all data since lastSync
-func (p *Plugin) Sync(ctx context.Context, lastSync *time.Time) (*ports.SyncResult, error) {
+func (p *Plugin) Sync(ctx context.Context, lastSync *time.Time) (*ports.PluginSyncResult, error) {
 	p.mu.RLock()
 	if p.client == nil {
 		p.mu.RUnlock()
@@ -747,7 +747,7 @@ func (p *Plugin) Sync(ctx context.Context, lastSync *time.Time) (*ports.SyncResu
 		}
 	}
 
-	return &ports.SyncResult{
+	return &ports.PluginSyncResult{
 		NewItems:     newItems,
 		UpdatedItems: updatedItems,
 		SyncedAt:     time.Now(),

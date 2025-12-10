@@ -70,7 +70,7 @@ type PluginService interface {
 	GetExternalItems(ctx context.Context, pluginID PluginID, query ExternalItemQuery) ([]ExternalItem, error)
 
 	// Sync
-	SyncPlugin(ctx context.Context, pluginID PluginID) (*SyncResult, error)
+	SyncPlugin(ctx context.Context, pluginID PluginID) (*PluginSyncResult, error)
 
 	// Task operations
 	CreateTask(ctx context.Context, pluginID PluginID, task ExternalTaskCreate) (*ExternalTask, error)

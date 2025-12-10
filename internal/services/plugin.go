@@ -339,7 +339,7 @@ func (s *PluginService) ListMessages(ctx context.Context, pluginID ports.PluginI
 }
 
 // SyncPlugin performs a sync operation for a plugin
-func (s *PluginService) SyncPlugin(ctx context.Context, pluginID ports.PluginID) (*ports.SyncResult, error) {
+func (s *PluginService) SyncPlugin(ctx context.Context, pluginID ports.PluginID) (*ports.PluginSyncResult, error) {
 	s.mu.RLock()
 	account := s.account
 	s.mu.RUnlock()
@@ -365,6 +365,7 @@ func (s *PluginService) SyncPlugin(ctx context.Context, pluginID ports.PluginID)
 		s.events.Publish(&pluginSyncStartedEvent{
 			pluginID:  pluginID,
 			accountID: account.ID,
+			ts:        time.Now(),
 		})
 	}
 
@@ -376,6 +377,7 @@ func (s *PluginService) SyncPlugin(ctx context.Context, pluginID ports.PluginID)
 				pluginID:  pluginID,
 				accountID: account.ID,
 				err:       err,
+				ts:        time.Now(),
 			})
 		}
 		return nil, err
@@ -404,6 +406,7 @@ func (s *PluginService) SyncPlugin(ctx context.Context, pluginID ports.PluginID)
 			pluginID:  pluginID,
 			accountID: account.ID,
 			result:    result,
+			ts:        time.Now(),
 		})
 	}
 
@@ -472,28 +475,43 @@ func (s *PluginService) SearchItems(ctx context.Context, query string, opts port
 type pluginSyncStartedEvent struct {
 	pluginID  ports.PluginID
 	accountID int64
+	ts        time.Time
 }
 
 func (e *pluginSyncStartedEvent) Type() ports.EventType {
 	return "plugin_sync_started"
 }
 
+func (e *pluginSyncStartedEvent) Timestamp() time.Time {
+	return e.ts
+}
+
 type pluginSyncCompleteEvent struct {
 	pluginID  ports.PluginID
 	accountID int64
-	result    *ports.SyncResult
+	result    *ports.PluginSyncResult
+	ts        time.Time
 }
 
 func (e *pluginSyncCompleteEvent) Type() ports.EventType {
 	return "plugin_sync_complete"
 }
 
+func (e *pluginSyncCompleteEvent) Timestamp() time.Time {
+	return e.ts
+}
+
 type pluginSyncErrorEvent struct {
 	pluginID  ports.PluginID
 	accountID int64
 	err       error
+	ts        time.Time
 }
 
 func (e *pluginSyncErrorEvent) Type() ports.EventType {
 	return "plugin_sync_error"
+}
+
+func (e *pluginSyncErrorEvent) Timestamp() time.Time {
+	return e.ts
 }

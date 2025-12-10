@@ -2577,7 +2577,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.markAsRead(email.ID, email.UID)
 			}
 
-		case "s":
+		case "*":
 			// Star/unstar email - batch if in visual mode with selections
 			if !m.showFolders && len(m.emails) > 0 {
 				if m.multiSelectMode && len(m.selectedEmails) > 0 {
@@ -2613,7 +2613,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 
-		case "S":
+		case ":":
 			// Abre menu de configurações
 			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI && !m.searchMode {
 				m.showSettings = true

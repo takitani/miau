@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/opik/miau/internal/ports"
 )
 
@@ -592,7 +593,7 @@ func (s *PluginStorage) DeleteAllPluginItems(ctx context.Context, pluginID ports
 }
 
 // scanExternalItems scans rows into ExternalItem slice
-func (s *PluginStorage) scanExternalItems(rows *sql.Rows, pluginID ports.PluginID) ([]ports.ExternalItem, error) {
+func (s *PluginStorage) scanExternalItems(rows *sqlx.Rows, pluginID ports.PluginID) ([]ports.ExternalItem, error) {
 	var items []ports.ExternalItem
 
 	for rows.Next() {

@@ -12,7 +12,6 @@ import (
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/services"
-	"golang.org/x/oauth2"
 )
 
 // ============================================================================

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/storage"
@@ -41,7 +40,7 @@ func (s *AIService) SetAccount(account *ports.AccountInfo) {
 // Summarize summarizes a single email using AI
 func (s *AIService) Summarize(ctx context.Context, emailID int64) (string, error) {
 	// Get email content from storage
-	var email, err = storage.GetEmail(emailID)
+	var email, err = storage.GetEmailByID(emailID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get email: %w", err)
 	}
@@ -88,7 +87,7 @@ func (s *AIService) GenerateReply(ctx context.Context, emailID int64, userPrompt
 	}
 
 	// Get email content
-	var email, err = storage.GetEmail(emailID)
+	var email, err = storage.GetEmailByID(emailID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get email: %w", err)
 	}
@@ -103,14 +102,16 @@ func (s *AIService) GenerateReply(ctx context.Context, emailID int64, userPrompt
 	}
 
 	// Create draft with the generated reply
+	var inReplyTo string
+	if email.MessageID.Valid {
+		inReplyTo = email.MessageID.String
+	}
 	var draft = &ports.Draft{
-		AccountID: account.ID,
-		Subject:   s.buildReplySubject(email.Subject),
-		To:        email.FromEmail,
-		Body:      reply,
-		InReplyTo: email.MessageID.String,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Subject:     s.buildReplySubject(email.Subject),
+		ToAddresses: email.FromEmail,
+		BodyText:    reply,
+		InReplyTo:   inReplyTo,
+		Source:      "ai",
 	}
 
 	return draft, nil
@@ -119,7 +120,7 @@ func (s *AIService) GenerateReply(ctx context.Context, emailID int64, userPrompt
 // ExtractActions extracts action items from an email
 func (s *AIService) ExtractActions(ctx context.Context, emailID int64) ([]string, error) {
 	// Get email content
-	var email, err = storage.GetEmail(emailID)
+	var email, err = storage.GetEmailByID(emailID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get email: %w", err)
 	}
@@ -142,7 +143,7 @@ func (s *AIService) ExtractActions(ctx context.Context, emailID int64) ([]string
 // ClassifyEmail classifies an email (spam, important, newsletter, etc.)
 func (s *AIService) ClassifyEmail(ctx context.Context, emailID int64) (string, error) {
 	// Get email content
-	var email, err = storage.GetEmail(emailID)
+	var email, err = storage.GetEmailByID(emailID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get email: %w", err)
 	}
@@ -181,7 +182,7 @@ func (s *AIService) buildSummarizePrompt(email *storage.Email, isThread bool) st
 }
 
 // buildThreadSummarizePrompt builds the prompt for thread summarization
-func (s *AIService) buildThreadSummarizePrompt(emails []*storage.Email) string {
+func (s *AIService) buildThreadSummarizePrompt(emails []storage.Email) string {
 	var sb strings.Builder
 	sb.WriteString("Resuma esta conversa de emails de forma concisa em português brasileiro.\n")
 	sb.WriteString("O resumo deve:\n")

@@ -185,7 +185,7 @@ type PeopleProvider interface {
 // SearchProvider is implemented by plugins that support search
 type SearchProvider interface {
 	Plugin
-	Search(ctx context.Context, query string, opts SearchOptions) (*SearchResult, error)
+	Search(ctx context.Context, query string, opts SearchOptions) (*PluginSearchResult, error)
 }
 
 // SearchOptions configures search
@@ -195,23 +195,23 @@ type SearchOptions struct {
 	Limit     int
 }
 
-// SearchResult contains search results
-type SearchResult struct {
-	Query      string           `json:"query"`
-	TotalCount int              `json:"total_count"`
-	Items      []ExternalItem   `json:"items"`
-	NextCursor string           `json:"next_cursor,omitempty"`
+// PluginSearchResult contains search results from plugins
+type PluginSearchResult struct {
+	Query      string         `json:"query"`
+	TotalCount int            `json:"total_count"`
+	Items      []ExternalItem `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
 }
 
 // SyncProvider is implemented by plugins that support sync
 type SyncProvider interface {
 	Plugin
 	// Sync fetches all changes since lastSync (or all items if nil)
-	Sync(ctx context.Context, lastSync *time.Time) (*SyncResult, error)
+	Sync(ctx context.Context, lastSync *time.Time) (*PluginSyncResult, error)
 }
 
-// SyncResult contains the result of a sync operation
-type SyncResult struct {
+// PluginSyncResult contains the result of a plugin sync operation
+type PluginSyncResult struct {
 	NewItems     []ExternalItem `json:"new_items"`
 	UpdatedItems []ExternalItem `json:"updated_items"`
 	DeletedIDs   []string       `json:"deleted_ids"`

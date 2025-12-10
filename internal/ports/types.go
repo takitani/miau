@@ -366,3 +366,24 @@ type OperationRecord struct {
 	StackPosition int
 	CreatedAt     time.Time
 }
+
+// ============================================================================
+// QUICK COMMAND TYPES (AI Quick Actions)
+// ============================================================================
+
+// QuickCommand represents a parsed quick command from user input
+type QuickCommand struct {
+	Name string   // Command name without /
+	Args []string // Command arguments
+	Raw  string   // Original input
+}
+
+// QuickCommandInfo describes a quick command for help/autocomplete
+type QuickCommandInfo struct {
+	Name        string   // Command name (e.g., "dr")
+	Aliases     []string // Alternative names (e.g., ["draft"])
+	Description string   // Short description
+	Usage       string   // Usage example
+	Args        []string // Possible arguments
+	NeedsEmail  bool     // Requires email context
+}

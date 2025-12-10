@@ -226,6 +226,16 @@ type AIService interface {
 
 	// ClassifyEmail classifies an email (spam, important, etc.)
 	ClassifyEmail(ctx context.Context, emailID int64) (string, error)
+
+	// ExecuteQuickCommand executes a quick command (/dr, /sum, /action, etc.)
+	// emailID can be 0 if no email is selected
+	ExecuteQuickCommand(ctx context.Context, cmd *QuickCommand, emailID int64) (string, error)
+
+	// GetAvailableCommands returns all available quick commands
+	GetAvailableCommands() []QuickCommandInfo
+
+	// GetCommandSuggestions returns commands matching a prefix for autocomplete
+	GetCommandSuggestions(prefix string) []QuickCommandInfo
 }
 
 // AnalyticsService defines operations for email analytics and statistics.

@@ -24,6 +24,7 @@ import (
 	"github.com/opik/miau/internal/image"
 	"github.com/opik/miau/internal/imap"
 	"github.com/opik/miau/internal/ports"
+	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/smtp"
 	"github.com/opik/miau/internal/storage"
 )
@@ -39,7 +40,7 @@ func New(account *config.Account, debug bool, app ...ports.App) Model {
 	input.EchoCharacter = '•'
 
 	var aiInput = textinput.New()
-	aiInput.Placeholder = "Pergunte algo sobre seus emails..."
+	aiInput.Placeholder = "Pergunte algo ou digite / para comandos..."
 	aiInput.CharLimit = 500
 	aiInput.Width = 60
 
@@ -599,6 +600,34 @@ Pergunta do usuário sobre este email:
 			return aiResponseMsg{err: fmt.Errorf("%s: %w", string(output), err)}
 		}
 		return aiResponseMsg{response: string(output)}
+	}
+}
+
+// runQuickCommand executes a quick command via the AI service
+func (m Model) runQuickCommand(cmd *ports.QuickCommand) tea.Cmd {
+	var emailContext = m.aiEmailContext
+
+	return func() tea.Msg {
+		if m.app == nil {
+			return aiResponseMsg{err: fmt.Errorf("application not initialized")}
+		}
+
+		var aiService = m.app.AI()
+		if aiService == nil {
+			return aiResponseMsg{err: fmt.Errorf("AI service not available")}
+		}
+
+		// Get email ID from context if available
+		var emailID int64
+		if emailContext != nil {
+			emailID = emailContext.ID
+		}
+
+		var response, err = aiService.ExecuteQuickCommand(context.Background(), cmd, emailID)
+		if err != nil {
+			return aiResponseMsg{err: err}
+		}
+		return aiResponseMsg{response: response}
 	}
 }
 
@@ -2167,6 +2196,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.aiInput.SetValue("")
 				m.aiLoading = true
 				m.aiResponse = ""
+				// Check for quick command
+				if quickCmd, ok := services.ParseQuickCommand(prompt); ok {
+					return m, m.runQuickCommand(quickCmd)
+				}
 				return m, m.runAI(prompt)
 			case "e":
 				// Editar draft criado pelo AI (só quando input está vazio)
@@ -2442,7 +2475,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.performRedo()
 
 		case "a":
-			// AI geral (sem contexto de email)
+			// AI com contexto do email selecionado (mais comum)
+			if !m.showFolders && len(m.emails) > 0 {
+				m.aiLoading = true
+				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
+				return m, m.loadEmailForAI()
+			}
+			// Se não tem email, abre sem contexto
 			m.showAI = true
 			m.aiInput.Focus()
 			m.aiScrollOffset = 0
@@ -2451,12 +2490,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 
 		case "A":
-			// AI com contexto do email selecionado
-			if !m.showFolders && len(m.emails) > 0 {
-				m.aiLoading = true
-				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
-				return m, m.loadEmailForAI()
-			}
+			// AI geral (sem contexto de email)
+			m.showAI = true
+			m.aiInput.Focus()
+			m.aiScrollOffset = 0
+			m.aiEmailContext = nil
+			m.aiEmailBody = ""
+			return m, textinput.Blink
 
 		case "s":
 			// Resumir email selecionado
@@ -3765,9 +3805,9 @@ func (m Model) viewInbox() string {
 	} else if m.showAI {
 		var contextHint = ""
 		if m.aiEmailContext != nil {
-			contextHint = " [com email]"
+			contextHint = " [📧]"
 		}
-		footer = subtitleStyle.Render(fmt.Sprintf(" Enter:enviar  ↑↓:scroll  Esc:fechar%s ", contextHint))
+		footer = subtitleStyle.Render(fmt.Sprintf(" Enter:enviar  /:comandos  ↑↓:scroll  Esc:fechar%s ", contextHint))
 	} else if activeAlerts > 0 {
 		footer = subtitleStyle.Render(" ↑↓:navegar  Enter:ver  x:limpar alertas  c:novo  R:reply  a:AI  q:sair ")
 	} else if m.showFolders {
@@ -4027,6 +4067,20 @@ func (m Model) renderAIPanel() string {
 	}
 	var input = m.aiInput.View()
 
+	// Quick command suggestions - show when input starts with /
+	var suggestions string
+	var currentInput = m.aiInput.Value()
+	if strings.HasPrefix(currentInput, "/") && !m.aiLoading {
+		var cmds = services.ParseQuickCommand(currentInput)
+		if cmds == nil || cmds.Name == "" {
+			// Show all available commands when just "/"
+			suggestions = m.renderQuickCommandSuggestions(currentInput)
+		} else {
+			// Show matching suggestions
+			suggestions = m.renderQuickCommandSuggestions(currentInput)
+		}
+	}
+
 	// Last question (se houver resposta)
 	var lastQ string
 	if m.aiLastQuestion != "" && (m.aiResponse != "" || m.aiLoading) {
@@ -4059,6 +4113,9 @@ func (m Model) renderAIPanel() string {
 	}
 
 	var content = inputLabel + input
+	if suggestions != "" {
+		content += "\n" + suggestions
+	}
 	if lastQ != "" {
 		content += "\n" + lastQ
 	}
@@ -4067,6 +4124,46 @@ func (m Model) renderAIPanel() string {
 	}
 
 	return aiBoxStyle.Width(width).Render(content)
+}
+
+// renderQuickCommandSuggestions renders the quick command suggestions dropdown
+func (m Model) renderQuickCommandSuggestions(prefix string) string {
+	var suggestionStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888"))
+	var highlightStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4ECDC4")).
+		Bold(true)
+
+	// Get matching suggestions
+	var suggestions []ports.QuickCommandInfo
+	if m.app != nil && m.app.AI() != nil {
+		suggestions = m.app.AI().GetCommandSuggestions(prefix)
+	} else {
+		// Fallback to local function
+		suggestions = services.GetCommandSuggestions(prefix)
+	}
+
+	if len(suggestions) == 0 {
+		return suggestionStyle.Render("  Comando não encontrado. Digite /help")
+	}
+
+	// Limit to 5 suggestions
+	if len(suggestions) > 5 {
+		suggestions = suggestions[:5]
+	}
+
+	var sb strings.Builder
+	sb.WriteString(suggestionStyle.Render("  Comandos:"))
+	for _, cmd := range suggestions {
+		sb.WriteString("\n  ")
+		sb.WriteString(highlightStyle.Render(cmd.Usage))
+		sb.WriteString(suggestionStyle.Render(" - " + cmd.Description))
+		if cmd.NeedsEmail {
+			sb.WriteString(suggestionStyle.Render(" [email]"))
+		}
+	}
+
+	return sb.String()
 }
 
 func (m Model) viewEmailViewer() string {

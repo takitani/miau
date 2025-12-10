@@ -84,6 +84,15 @@ func (m *IMAPPort) GetAllUIDs(ctx context.Context) ([]uint32, error) {
 	return args.Get(0).([]uint32), args.Error(1)
 }
 
+// Search
+func (m *IMAPPort) SearchText(ctx context.Context, query string, limit int) ([]uint32, error) {
+	var args = m.Called(ctx, query, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uint32), args.Error(1)
+}
+
 // Batch email fetching (optimized methods)
 func (m *IMAPPort) SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error) {
 	var args = m.Called(ctx, sinceDate)

@@ -24,6 +24,7 @@ type StoragePort interface {
 	GetEmails(ctx context.Context, folderID int64, limit int) ([]EmailMetadata, error)
 	GetEmail(ctx context.Context, id int64) (*EmailContent, error)
 	GetEmailByUID(ctx context.Context, folderID int64, uid uint32) (*EmailContent, error)
+	GetEmailByUIDGlobal(ctx context.Context, accountID int64, uid uint32) (*EmailContent, error)
 	GetLatestUID(ctx context.Context, folderID int64) (uint32, error)
 	GetAllUIDs(ctx context.Context, folderID int64) ([]uint32, error)
 
@@ -134,6 +135,9 @@ type IMAPPort interface {
 	FetchEmailRaw(ctx context.Context, uid uint32) ([]byte, error)
 	FetchEmailBody(ctx context.Context, uid uint32) (string, error)
 	GetAllUIDs(ctx context.Context) ([]uint32, error)
+
+	// Search
+	SearchText(ctx context.Context, query string, limit int) ([]uint32, error)
 
 	// Batch email fetching (optimized - 1 request for N emails with attachments)
 	SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error)

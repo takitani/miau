@@ -207,6 +207,17 @@ func GetEmailByUID(accountID, folderID int64, uid uint32) (*Email, error) {
 	return &email, nil
 }
 
+// GetEmailByUIDGlobal finds an email by UID across all folders of an account
+// Used for search results where we don't know the folder
+func GetEmailByUIDGlobal(accountID int64, uid uint32) (*Email, error) {
+	var email Email
+	err := db.Get(&email, "SELECT * FROM emails WHERE account_id = ? AND uid = ? AND is_deleted = 0 AND is_archived = 0 LIMIT 1", accountID, uid)
+	if err != nil {
+		return nil, err
+	}
+	return &email, nil
+}
+
 func EmailExistsByUID(accountID, folderID int64, uid uint32) (bool, error) {
 	var count int
 	err := db.Get(&count, "SELECT COUNT(*) FROM emails WHERE account_id = ? AND folder_id = ? AND uid = ?", accountID, folderID, uid)

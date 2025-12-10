@@ -450,6 +450,34 @@ func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
 	return emails, nil
 }
 
+// SearchText searches for emails containing text in headers or body (server-side search)
+// This is more powerful than local search because the server indexes full body content
+// Returns UIDs of matching emails
+func (c *Client) SearchText(query string, limit int) ([]uint32, error) {
+	var criteria = &imap.SearchCriteria{
+		Text: []string{query},
+	}
+
+	var searchCmd = c.client.UIDSearch(criteria, nil)
+	var searchData, err = searchCmd.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar texto: %w", err)
+	}
+
+	var uids = searchData.AllUIDs()
+
+	// Limit results (take most recent - higher UIDs are newer)
+	if limit > 0 && len(uids) > limit {
+		uids = uids[len(uids)-limit:]
+	}
+
+	var result = make([]uint32, len(uids))
+	for i, uid := range uids {
+		result[i] = uint32(uid)
+	}
+	return result, nil
+}
+
 // SearchSince searches for emails since a specific date
 // Returns UIDs of matching emails
 func (c *Client) SearchSince(sinceDate time.Time) ([]uint32, error) {

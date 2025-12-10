@@ -175,6 +175,16 @@ func (a *StorageAdapter) GetEmailByUID(ctx context.Context, folderID int64, uid 
 	return convertStorageEmail(email), nil
 }
 
+// GetEmailByUIDGlobal returns an email by UID across all folders of an account
+func (a *StorageAdapter) GetEmailByUIDGlobal(ctx context.Context, accountID int64, uid uint32) (*ports.EmailContent, error) {
+	var email, err = storage.GetEmailByUIDGlobal(accountID, uid)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertStorageEmail(email), nil
+}
+
 // GetLatestUID returns the latest UID for a folder
 func (a *StorageAdapter) GetLatestUID(ctx context.Context, folderID int64) (uint32, error) {
 	return storage.GetLatestUID(0, folderID)

@@ -87,6 +87,14 @@ func (m *StoragePort) GetEmailByUID(ctx context.Context, folderID int64, uid uin
 	return args.Get(0).(*ports.EmailContent), args.Error(1)
 }
 
+func (m *StoragePort) GetEmailByUIDGlobal(ctx context.Context, accountID int64, uid uint32) (*ports.EmailContent, error) {
+	var args = m.Called(ctx, accountID, uid)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ports.EmailContent), args.Error(1)
+}
+
 func (m *StoragePort) GetLatestUID(ctx context.Context, folderID int64) (uint32, error) {
 	var args = m.Called(ctx, folderID)
 	return args.Get(0).(uint32), args.Error(1)

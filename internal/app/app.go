@@ -158,6 +158,7 @@ func (a *Application) Start() error {
 
 	a.searchService = services.NewSearchService(a.storageAdapter, a.eventBus)
 	a.searchService.SetAccount(accountInfo)
+	a.searchService.SetIMAP(a.imapAdapter)
 
 	a.batchService = services.NewBatchService(a.storageAdapter, a.eventBus)
 	a.batchService.SetAccount(accountInfo)

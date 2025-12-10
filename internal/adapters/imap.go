@@ -322,6 +322,19 @@ func (a *IMAPAdapter) FetchAttachmentPart(ctx context.Context, uid uint32, partN
 	return client.FetchAttachmentPart(uid, partNumber)
 }
 
+// SearchText searches for emails containing text in headers or body (server-side search)
+func (a *IMAPAdapter) SearchText(ctx context.Context, query string, limit int) ([]uint32, error) {
+	a.mu.RLock()
+	var client = a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+
+	return client.SearchText(query, limit)
+}
+
 // SearchSince searches for emails since a specific date
 func (a *IMAPAdapter) SearchSince(ctx context.Context, sinceDate time.Time) ([]uint32, error) {
 	a.mu.RLock()

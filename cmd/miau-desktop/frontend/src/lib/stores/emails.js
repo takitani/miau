@@ -164,13 +164,35 @@ export function selectPrev() {
 }
 
 // Select email by ID
-export function selectEmail(id) {
+// If the email is not in the current list (e.g., from search results for older emails),
+// fetch it from the backend and prepend to the list
+export async function selectEmail(id) {
   const $emails = get(emails);
   const index = $emails.findIndex(e => e.id === id);
 
   if (index >= 0) {
+    // Email is in the list, just select it
     selectedIndex.set(index);
     selectedEmailId.set(id);
+  } else {
+    // Email not in current list - fetch it from backend and prepend
+    try {
+      if (window.go?.desktop?.App) {
+        logDebug(`Email ${id} not in list, fetching from backend...`);
+        const email = await window.go.desktop.App.GetEmailByID(id);
+        if (email) {
+          // Prepend to list so it becomes visible
+          emails.update(list => [email, ...list]);
+          selectedIndex.set(0);
+          selectedEmailId.set(id);
+          info(`Loaded email from search: ${email.subject}`);
+        } else {
+          logError(`Email ${id} not found in backend`);
+        }
+      }
+    } catch (err) {
+      logError(`Failed to fetch email ${id}`, err);
+    }
   }
 }
 

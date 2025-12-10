@@ -230,6 +230,44 @@ func (a *App) GetEmail(id int64) (result *EmailDetailDTO, err error) {
 	return a.emailContentToDTO(email), nil
 }
 
+// GetEmailByID returns email summary (EmailDTO) by ID for adding to email list
+// This is used when selecting an email from search results that isn't in the current list
+func (a *App) GetEmailByID(id int64) (result *EmailDTO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GetEmailByID] PANIC recovered: %v", r)
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var email, ferr = a.application.Email().GetEmail(context.Background(), id)
+	if ferr != nil {
+		return nil, ferr
+	}
+	if email == nil {
+		return nil, nil
+	}
+
+	// Convert to EmailDTO (summary format for list)
+	var dto = EmailDTO{
+		ID:             email.ID,
+		UID:            email.UID,
+		Subject:        email.Subject,
+		FromName:       email.FromName,
+		FromEmail:      email.FromEmail,
+		Date:           email.Date,
+		IsRead:         email.IsRead,
+		IsStarred:      email.IsStarred,
+		HasAttachments: email.HasAttachments,
+		Snippet:        email.Snippet,
+		ThreadID:       email.ThreadID,
+	}
+	return &dto, nil
+}
+
 // GetEmailByUID returns email by UID in current folder
 func (a *App) GetEmailByUID(uid uint32) (*EmailDetailDTO, error) {
 	if a.application == nil {

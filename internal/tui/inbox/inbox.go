@@ -602,6 +602,46 @@ Pergunta do usuário sobre este email:
 	}
 }
 
+// summarizeEmail summarizes the selected email using the AI service
+func (m Model) summarizeEmail(emailID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return aiResponseMsg{err: fmt.Errorf("application not initialized")}
+		}
+
+		var aiService = m.app.AI()
+		if aiService == nil {
+			return aiResponseMsg{err: fmt.Errorf("AI service not available")}
+		}
+
+		var summary, err = aiService.Summarize(context.Background(), emailID)
+		if err != nil {
+			return aiResponseMsg{err: err}
+		}
+		return aiResponseMsg{response: summary}
+	}
+}
+
+// summarizeThread summarizes the entire thread for the selected email using the AI service
+func (m Model) summarizeThread(emailID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.app == nil {
+			return aiResponseMsg{err: fmt.Errorf("application not initialized")}
+		}
+
+		var aiService = m.app.AI()
+		if aiService == nil {
+			return aiResponseMsg{err: fmt.Errorf("AI service not available")}
+		}
+
+		var summary, err = aiService.SummarizeThread(context.Background(), emailID)
+		if err != nil {
+			return aiResponseMsg{err: err}
+		}
+		return aiResponseMsg{response: summary}
+	}
+}
+
 func (m Model) saveConfig() tea.Cmd {
 	return func() tea.Msg {
 		var cfg, err = config.Load()
@@ -2416,6 +2456,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.aiLoading = true
 				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
 				return m, m.loadEmailForAI()
+			}
+
+		case "s":
+			// Resumir email selecionado
+			if !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				m.showAI = true
+				m.aiLoading = true
+				m.aiLastQuestion = "Resumir email"
+				m.aiResponse = statusStyle.Render("Gerando resumo do email...")
+				m.aiScrollOffset = 0
+				return m, m.summarizeEmail(email.ID)
+			}
+
+		case "S":
+			// Resumir thread/conversa do email selecionado
+			if !m.showFolders && len(m.emails) > 0 {
+				var email = m.emails[m.selectedEmail]
+				m.showAI = true
+				m.aiLoading = true
+				m.aiLastQuestion = "Resumir conversa"
+				m.aiResponse = statusStyle.Render("Gerando resumo da conversa...")
+				m.aiScrollOffset = 0
+				return m, m.summarizeThread(email.ID)
 			}
 
 		case "c":

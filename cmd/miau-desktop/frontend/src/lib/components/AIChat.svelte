@@ -10,8 +10,11 @@
   let messages = [];
   let loading = false;
   let inputEl;
+  let summarizing = false;
 
   $: currentProvider = $aiProviders.find(p => p.id === $aiProvider) || $aiProviders[0];
+  // Check if email is part of a thread (threadCount > 1)
+  $: hasThread = emailContext?.threadCount > 1 || $selectedEmail?.threadCount > 1;
 
   onMount(() => {
     if (inputEl) inputEl.focus();
@@ -99,6 +102,81 @@
       info('Resposta copiada!');
     }
   }
+
+  async function summarizeEmail() {
+    if (!emailContext?.id || summarizing) return;
+
+    summarizing = true;
+    messages = [...messages, { role: 'user', content: 'Resumir este email' }];
+
+    try {
+      info('Summarizing email...');
+      if (window.go?.desktop?.App) {
+        const summary = await window.go.desktop.App.SummarizeEmail(emailContext.id);
+        messages = [...messages, { role: 'assistant', content: summary }];
+        info('Email summarized');
+      }
+    } catch (err) {
+      logError('Summarize Error', err);
+      messages = [...messages, {
+        role: 'error',
+        content: `Erro ao resumir: ${err.message || 'Falha ao comunicar com IA'}`
+      }];
+    } finally {
+      summarizing = false;
+    }
+  }
+
+  async function summarizeThread() {
+    if (!emailContext?.id || summarizing) return;
+
+    summarizing = true;
+    messages = [...messages, { role: 'user', content: 'Resumir toda a conversa' }];
+
+    try {
+      info('Summarizing thread...');
+      if (window.go?.desktop?.App) {
+        const summary = await window.go.desktop.App.SummarizeThread(emailContext.id);
+        messages = [...messages, { role: 'assistant', content: summary }];
+        info('Thread summarized');
+      }
+    } catch (err) {
+      logError('Summarize Thread Error', err);
+      messages = [...messages, {
+        role: 'error',
+        content: `Erro ao resumir conversa: ${err.message || 'Falha ao comunicar com IA'}`
+      }];
+    } finally {
+      summarizing = false;
+    }
+  }
+
+  async function extractActions() {
+    if (!emailContext?.id || summarizing) return;
+
+    summarizing = true;
+    messages = [...messages, { role: 'user', content: 'Extrair acoes deste email' }];
+
+    try {
+      info('Extracting actions...');
+      if (window.go?.desktop?.App) {
+        const actions = await window.go.desktop.App.ExtractActions(emailContext.id);
+        const content = actions?.length > 0
+          ? actions.join('\n')
+          : 'Nenhuma acao encontrada neste email.';
+        messages = [...messages, { role: 'assistant', content }];
+        info('Actions extracted');
+      }
+    } catch (err) {
+      logError('Extract Actions Error', err);
+      messages = [...messages, {
+        role: 'error',
+        content: `Erro ao extrair acoes: ${err.message || 'Falha ao comunicar com IA'}`
+      }];
+    } finally {
+      summarizing = false;
+    }
+  }
 </script>
 
 <div class="overlay" on:click={close} on:keydown={handleKeydown} role="button" tabindex="-1">
@@ -129,6 +207,34 @@
           <strong>{emailContext.subject}</strong>
           <span class="from">de {emailContext.fromName}</span>
         </span>
+      </div>
+      <div class="quick-actions">
+        <button
+          class="quick-btn"
+          on:click={summarizeEmail}
+          disabled={summarizing || loading}
+          title="Resumir email"
+        >
+          📝 Resumir email
+        </button>
+        {#if hasThread}
+          <button
+            class="quick-btn"
+            on:click={summarizeThread}
+            disabled={summarizing || loading}
+            title="Resumir toda a conversa"
+          >
+            💬 Resumir conversa
+          </button>
+        {/if}
+        <button
+          class="quick-btn"
+          on:click={extractActions}
+          disabled={summarizing || loading}
+          title="Extrair acoes do email"
+        >
+          ✅ Extrair acoes
+        </button>
       </div>
     {/if}
 
@@ -301,6 +407,40 @@
   .context-text .from {
     font-size: var(--font-xs);
     color: var(--text-muted);
+  }
+
+  .quick-actions {
+    display: flex;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+  }
+
+  .quick-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 6px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .quick-btn:hover:not(:disabled) {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+  }
+
+  .quick-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .messages {

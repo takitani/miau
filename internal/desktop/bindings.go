@@ -1014,6 +1014,48 @@ func getInstallHint(provider string) string {
 	}
 }
 
+// SummarizeEmail summarizes a single email using AI
+func (a *App) SummarizeEmail(emailID int64) (string, error) {
+	if a.application == nil {
+		return "", fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return "", fmt.Errorf("AI service not available")
+	}
+
+	return aiService.Summarize(context.Background(), emailID)
+}
+
+// SummarizeThread summarizes an entire email thread using AI
+func (a *App) SummarizeThread(emailID int64) (string, error) {
+	if a.application == nil {
+		return "", fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return "", fmt.Errorf("AI service not available")
+	}
+
+	return aiService.SummarizeThread(context.Background(), emailID)
+}
+
+// ExtractActions extracts action items from an email using AI
+func (a *App) ExtractActions(emailID int64) ([]string, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	return aiService.ExtractActions(context.Background(), emailID)
+}
+
 // GetAIProviders returns available AI providers and their status
 func (a *App) GetAIProviders() []map[string]interface{} {
 	providers := []struct {

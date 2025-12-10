@@ -48,6 +48,7 @@ type Application struct {
 	contactService    *services.ContactService
 	taskService       *services.TaskService
 	calendarService   *services.CalendarService
+	aiService         *services.AIService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -185,6 +186,10 @@ func (a *Application) Start() error {
 	// Create calendar service (depends on task service for sync)
 	a.calendarService = services.NewCalendarService(a.taskService)
 
+	// Create AI service
+	a.aiService = services.NewAIService(a.storageAdapter, a.eventBus)
+	a.aiService.SetAccount(accountInfo)
+
 	// Wire up bidirectional Task ↔ Calendar sync
 	a.taskService.SetCalendarSync(a.calendarService)
 
@@ -251,9 +256,9 @@ func (a *Application) Sync() ports.SyncService {
 	return a.syncService
 }
 
-// AI returns the AI service (not implemented yet)
+// AI returns the AI service
 func (a *Application) AI() ports.AIService {
-	return nil
+	return a.aiService
 }
 
 // Analytics returns the analytics service

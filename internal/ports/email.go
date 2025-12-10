@@ -215,8 +215,11 @@ type AIService interface {
 	// GenerateReply generates a reply draft using AI
 	GenerateReply(ctx context.Context, emailID int64, prompt string) (*Draft, error)
 
-	// Summarize summarizes an email or thread
+	// Summarize summarizes a single email
 	Summarize(ctx context.Context, emailID int64) (string, error)
+
+	// SummarizeThread summarizes an entire email thread
+	SummarizeThread(ctx context.Context, emailID int64) (string, error)
 
 	// ExtractActions extracts action items from an email
 	ExtractActions(ctx context.Context, emailID int64) ([]string, error)

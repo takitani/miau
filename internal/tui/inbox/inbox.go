@@ -4071,8 +4071,8 @@ func (m Model) renderAIPanel() string {
 	var suggestions string
 	var currentInput = m.aiInput.Value()
 	if strings.HasPrefix(currentInput, "/") && !m.aiLoading {
-		var cmds = services.ParseQuickCommand(currentInput)
-		if cmds == nil || cmds.Name == "" {
+		var cmds, ok = services.ParseQuickCommand(currentInput)
+		if !ok || cmds == nil || cmds.Name == "" {
 			// Show all available commands when just "/"
 			suggestions = m.renderQuickCommandSuggestions(currentInput)
 		} else {

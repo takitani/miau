@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -219,19 +220,21 @@ func (s *AIService) executeDraftReply(ctx context.Context, cmd *ports.QuickComma
 	}
 
 	// Save draft
-	var savedDraft, saveErr = storage.SaveDraft(&storage.Draft{
-		Subject:     draft.Subject,
-		ToAddresses: draft.ToAddresses,
-		BodyText:    storage.NullString(draft.BodyText),
-		InReplyTo:   storage.NullString(draft.InReplyTo),
-		Source:      "ai_quickcmd",
-	})
+	var draftToSave = &storage.Draft{
+		Subject:          draft.Subject,
+		ToAddresses:      draft.ToAddresses,
+		BodyText:         sql.NullString{String: draft.BodyText, Valid: draft.BodyText != ""},
+		InReplyTo:        sql.NullString{String: draft.InReplyTo, Valid: draft.InReplyTo != ""},
+		GenerationSource: "ai_quickcmd",
+		Status:           storage.DraftStatusDraft,
+	}
+	var savedID, saveErr = storage.CreateDraft(draftToSave)
 	if saveErr != nil {
 		return draft.BodyText, nil // Return body even if save fails
 	}
 
 	return fmt.Sprintf("Rascunho criado (ID: %d)\n\nPara: %s\nAssunto: %s\n\n%s\n\n[Pressione 'e' para editar ou 'd' para ver drafts]",
-		savedDraft.ID, draft.ToAddresses, draft.Subject, draft.BodyText), nil
+		savedID, draft.ToAddresses, draft.Subject, draft.BodyText), nil
 }
 
 // executeSummarize summarizes an email

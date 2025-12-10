@@ -298,6 +298,11 @@ func (a *StorageAdapter) SearchEmailsInFolder(ctx context.Context, folderID int6
 	return a.SearchEmails(ctx, 0, query, limit)
 }
 
+// DetectAndUpdateThreadID detects and updates the thread_id for an email
+func (a *StorageAdapter) DetectAndUpdateThreadID(ctx context.Context, emailID int64, messageID, inReplyTo, references, subject string) error {
+	return storage.DetectAndUpdateThreadID(emailID, messageID, inReplyTo, references, subject)
+}
+
 // CreateDraft creates a new draft
 func (a *StorageAdapter) CreateDraft(ctx context.Context, accountID int64, draft *ports.Draft) (*ports.Draft, error) {
 	var d = &storage.Draft{

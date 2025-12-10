@@ -48,6 +48,9 @@ type StoragePort interface {
 	SearchEmails(ctx context.Context, accountID int64, query string, limit int) ([]EmailMetadata, error)
 	SearchEmailsInFolder(ctx context.Context, folderID int64, query string, limit int) ([]EmailMetadata, error)
 
+	// Threading
+	DetectAndUpdateThreadID(ctx context.Context, emailID int64, messageID, inReplyTo, references, subject string) error
+
 	// Draft operations
 	CreateDraft(ctx context.Context, accountID int64, draft *Draft) (*Draft, error)
 	UpdateDraft(ctx context.Context, draft *Draft) error

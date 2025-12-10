@@ -178,6 +178,12 @@ func (m *StoragePort) SearchEmailsInFolder(ctx context.Context, folderID int64, 
 	return args.Get(0).([]ports.EmailMetadata), args.Error(1)
 }
 
+// Threading
+func (m *StoragePort) DetectAndUpdateThreadID(ctx context.Context, emailID int64, messageID, inReplyTo, references, subject string) error {
+	var args = m.Called(ctx, emailID, messageID, inReplyTo, references, subject)
+	return args.Error(0)
+}
+
 // Draft operations
 func (m *StoragePort) CreateDraft(ctx context.Context, accountID int64, draft *ports.Draft) (*ports.Draft, error) {
 	var args = m.Called(ctx, accountID, draft)

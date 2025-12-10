@@ -136,6 +136,7 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 
 						for _, ie := range imapEmails {
 							var emailID int64 = -int64(ie.UID) // Default: negative = not saved
+							var threadID string
 
 							// Save to DB for future searches (progressive sync)
 							if folderID > 0 {
@@ -150,12 +151,24 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 										IsRead:         ie.Seen,
 										IsStarred:      ie.Flagged,
 										HasAttachments: ie.HasAttachments,
+										InReplyTo:      ie.InReplyTo,
+										References:     ie.References,
 									},
 								}
 								var savedID, _, saveErr = s.storage.UpsertEmail(ctx, account.ID, folderID, emailContent)
 								if saveErr == nil {
 									emailID = savedID
 									log.Printf("[search] Saved email UID %d to DB (ID: %d)", ie.UID, savedID)
+
+									// Detect and update thread_id
+									if detectErr := s.storage.DetectAndUpdateThreadID(ctx, savedID, ie.MessageID, ie.InReplyTo, ie.References, ie.Subject); detectErr != nil {
+										log.Printf("[search] Thread detection error for email %d: %v", savedID, detectErr)
+									} else {
+										// Get the updated email to get thread_id
+										if updatedEmail, getErr := s.storage.GetEmail(ctx, savedID); getErr == nil {
+											threadID = updatedEmail.ThreadID
+										}
+									}
 								}
 							}
 
@@ -171,6 +184,9 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 								IsRead:         ie.Seen,
 								IsStarred:      ie.Flagged,
 								HasAttachments: ie.HasAttachments,
+								InReplyTo:      ie.InReplyTo,
+								References:     ie.References,
+								ThreadID:       threadID,
 								Snippet:        "",
 							})
 						}
@@ -181,21 +197,67 @@ func (s *SearchService) Search(ctx context.Context, query string, limit int) (*p
 		}
 	}
 
+	// Group by thread: show only the most recent email per thread
+	var threadedEmails = groupByThread(localEmails)
+
 	// Sort by date (most recent first)
-	sort.Slice(localEmails, func(i, j int) bool {
-		return localEmails[i].Date.After(localEmails[j].Date)
+	sort.Slice(threadedEmails, func(i, j int) bool {
+		return threadedEmails[i].Date.After(threadedEmails[j].Date)
 	})
 
 	// Limit results
-	if len(localEmails) > limit {
-		localEmails = localEmails[:limit]
+	if len(threadedEmails) > limit {
+		threadedEmails = threadedEmails[:limit]
 	}
 
 	return &ports.SearchResult{
-		Emails:     localEmails,
-		TotalCount: len(localEmails),
+		Emails:     threadedEmails,
+		TotalCount: len(threadedEmails),
 		Query:      query,
 	}, nil
+}
+
+// groupByThread groups emails by thread_id, keeping only the most recent per thread
+// and counting how many emails are in each thread
+func groupByThread(emails []ports.EmailMetadata) []ports.EmailMetadata {
+	if len(emails) == 0 {
+		return emails
+	}
+
+	// Map thread_id -> most recent email + count
+	type threadInfo struct {
+		email ports.EmailMetadata
+		count int
+	}
+	var threads = make(map[string]*threadInfo)
+
+	for _, e := range emails {
+		// Use thread_id if available, otherwise use email ID as unique key
+		var key = e.ThreadID
+		if key == "" {
+			key = fmt.Sprintf("_id_%d", e.ID)
+		}
+
+		if existing, ok := threads[key]; ok {
+			// Thread exists - keep most recent, increment count
+			existing.count++
+			if e.Date.After(existing.email.Date) {
+				existing.email = e
+			}
+		} else {
+			// New thread
+			threads[key] = &threadInfo{email: e, count: 1}
+		}
+	}
+
+	// Convert back to slice, setting ThreadCount
+	var result = make([]ports.EmailMetadata, 0, len(threads))
+	for _, t := range threads {
+		t.email.ThreadCount = t.count
+		result = append(result, t.email)
+	}
+
+	return result
 }
 
 // SearchInFolder searches within a specific folder

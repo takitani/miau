@@ -204,7 +204,7 @@ func (s *AIService) ExecuteQuickCommand(ctx context.Context, cmd *ports.QuickCom
 // executeDraftReply generates a reply draft
 func (s *AIService) executeDraftReply(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var tone = "informal"
@@ -237,7 +237,7 @@ func (s *AIService) executeDraftReply(ctx context.Context, cmd *ports.QuickComma
 // executeSummarize summarizes an email
 func (s *AIService) executeSummarize(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	return s.Summarize(ctx, emailID)
@@ -246,7 +246,7 @@ func (s *AIService) executeSummarize(ctx context.Context, cmd *ports.QuickComman
 // executeTLDR creates an ultra-short summary
 func (s *AIService) executeTLDR(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var email, err = storage.GetEmailByID(emailID)
@@ -274,7 +274,7 @@ Assunto: %s
 // executeExtractActions extracts action items
 func (s *AIService) executeExtractActions(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var actions, err = s.ExtractActions(ctx, emailID)
@@ -297,7 +297,7 @@ func (s *AIService) executeExtractActions(ctx context.Context, cmd *ports.QuickC
 // executeTranslate translates an email
 func (s *AIService) executeTranslate(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var targetLang = "en"
@@ -350,7 +350,7 @@ Retorne apenas a tradução.
 // executeTone rewrites with different tone
 func (s *AIService) executeTone(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var tone = "formal"
@@ -386,7 +386,7 @@ NÃO use markdown ou formatação.
 // executeClassify classifies an email
 func (s *AIService) executeClassify(ctx context.Context, cmd *ports.QuickCommand, emailID int64) (string, error) {
 	if emailID == 0 {
-		return "", fmt.Errorf("selecione um email primeiro (use Shift+A para abrir AI com contexto)")
+		return "", fmt.Errorf("selecione um email primeiro (tecla 'a' no inbox)")
 	}
 
 	var category, err = s.ClassifyEmail(ctx, emailID)
@@ -430,7 +430,7 @@ func (s *AIService) executeHelp(ctx context.Context, cmd *ports.QuickCommand) (s
 		sb.WriteString(fmt.Sprintf("    %s%s\n\n", c.Description, emailHint))
 	}
 
-	sb.WriteString("Dica: Use Shift+A para abrir a AI com o email selecionado como contexto.")
+	sb.WriteString("Dica: Tecla 'a' abre a AI com o email selecionado. 'A' abre sem contexto.")
 
 	return sb.String(), nil
 }

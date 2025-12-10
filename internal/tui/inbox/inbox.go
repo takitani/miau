@@ -2475,7 +2475,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.performRedo()
 
 		case "a":
-			// AI geral (sem contexto de email)
+			// AI com contexto do email selecionado (mais comum)
+			if !m.showFolders && len(m.emails) > 0 {
+				m.aiLoading = true
+				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
+				return m, m.loadEmailForAI()
+			}
+			// Se não tem email, abre sem contexto
 			m.showAI = true
 			m.aiInput.Focus()
 			m.aiScrollOffset = 0
@@ -2484,12 +2490,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 
 		case "A":
-			// AI com contexto do email selecionado
-			if !m.showFolders && len(m.emails) > 0 {
-				m.aiLoading = true
-				m.aiResponse = statusStyle.Render("Carregando email para contexto...")
-				return m, m.loadEmailForAI()
-			}
+			// AI geral (sem contexto de email)
+			m.showAI = true
+			m.aiInput.Focus()
+			m.aiScrollOffset = 0
+			m.aiEmailContext = nil
+			m.aiEmailBody = ""
+			return m, textinput.Blink
 
 		case "s":
 			// Resumir email selecionado

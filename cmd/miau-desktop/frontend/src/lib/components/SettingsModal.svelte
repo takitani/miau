@@ -13,6 +13,19 @@
   var unsubscribeProgress = null;
   var contactSyncResult = null;
 
+  // Basecamp state
+  var basecampConfig = {
+    enabled: false,
+    clientId: '',
+    clientSecret: '',
+    accountId: '',
+    connected: false
+  };
+  var basecampAuthenticating = false;
+  var basecampConnecting = false;
+  var basecampAccounts = []; // Available accounts after auth
+  var basecampResult = null;
+
   // Settings state
   var availableFolders = [];
   var settings = {
@@ -30,6 +43,7 @@
     { id: 'ui', label: 'UI' },
     { id: 'compose', label: 'Compose' },
     { id: 'sync', label: 'Sync' },
+    { id: 'basecamp', label: 'Basecamp' },
     { id: 'about', label: 'About' }
   ];
 
@@ -55,6 +69,108 @@
     }
   }
 
+  // Basecamp functions
+  async function loadBasecampConfig() {
+    try {
+      if (window.go?.desktop?.App?.GetBasecampConfig) {
+        var cfg = await window.go.desktop.App.GetBasecampConfig();
+        if (cfg) {
+          basecampConfig = {
+            enabled: cfg.enabled || false,
+            clientId: cfg.clientId || '',
+            clientSecret: cfg.clientSecret || '',
+            accountId: cfg.accountId || '',
+            connected: cfg.connected || false
+          };
+        }
+      }
+    } catch (err) {
+      logError('Failed to load Basecamp config', err);
+    }
+  }
+
+  async function saveBasecampConfig() {
+    try {
+      if (window.go?.desktop?.App?.SaveBasecampConfig) {
+        await window.go.desktop.App.SaveBasecampConfig(basecampConfig);
+        basecampResult = { success: true, message: 'Configuration saved' };
+      }
+    } catch (err) {
+      basecampResult = { success: false, error: err.message || String(err) };
+    }
+  }
+
+  async function authenticateBasecamp() {
+    basecampAuthenticating = true;
+    basecampResult = null;
+    basecampAccounts = [];
+    try {
+      if (window.go?.desktop?.App?.AuthenticateBasecamp) {
+        var accounts = await window.go.desktop.App.AuthenticateBasecamp();
+        basecampAccounts = accounts || [];
+        if (basecampAccounts.length === 0) {
+          basecampResult = { success: false, error: 'No Basecamp accounts found' };
+        } else if (basecampAccounts.length === 1) {
+          // Auto-select if only one account
+          await selectBasecampAccount(basecampAccounts[0].id);
+        } else {
+          basecampResult = { success: true, message: 'Select a Basecamp account' };
+        }
+      }
+    } catch (err) {
+      basecampResult = { success: false, error: err.message || String(err) };
+    } finally {
+      basecampAuthenticating = false;
+    }
+  }
+
+  async function selectBasecampAccount(accountId) {
+    basecampConnecting = true;
+    basecampResult = null;
+    try {
+      if (window.go?.desktop?.App?.SelectBasecampAccount) {
+        await window.go.desktop.App.SelectBasecampAccount(accountId);
+        basecampConfig.connected = true;
+        basecampConfig.accountId = String(accountId);
+        basecampAccounts = [];
+        basecampResult = { success: true, message: 'Connected to Basecamp!' };
+        await loadBasecampConfig();
+      }
+    } catch (err) {
+      basecampResult = { success: false, error: err.message || String(err) };
+    } finally {
+      basecampConnecting = false;
+    }
+  }
+
+  async function connectBasecamp() {
+    basecampConnecting = true;
+    basecampResult = null;
+    try {
+      if (window.go?.desktop?.App?.ConnectBasecamp) {
+        await window.go.desktop.App.ConnectBasecamp();
+        basecampConfig.connected = true;
+        basecampResult = { success: true, message: 'Connected to Basecamp!' };
+      }
+    } catch (err) {
+      basecampResult = { success: false, error: err.message || String(err) };
+    } finally {
+      basecampConnecting = false;
+    }
+  }
+
+  async function disconnectBasecamp() {
+    try {
+      if (window.go?.desktop?.App?.DisconnectBasecamp) {
+        await window.go.desktop.App.DisconnectBasecamp();
+        basecampConfig.connected = false;
+        basecampResult = { success: true, message: 'Disconnected from Basecamp' };
+      }
+    } catch (err) {
+      basecampResult = { success: false, error: err.message || String(err) };
+    }
+  }
+
   onDestroy(() => {
     if (unsubscribeProgress) {
       unsubscribeProgress();
@@ -76,6 +192,9 @@
         if (folders) {
           availableFolders = folders;
         }
+
+        // Load Basecamp config
+        await loadBasecampConfig();
       }
     } catch (err) {
       logError('Failed to load settings', err);
@@ -376,6 +495,126 @@
               </div>
             {/if}
           </div>
+        </div>
+      {:else if activeTab === 'basecamp'}
+        <div class="tab-content">
+          <h3>Basecamp Integration</h3>
+          <p class="hint">
+            Connect to Basecamp to manage projects and to-dos.
+            Register your app at <a href="https://launchpad.37signals.com/integrations" target="_blank">launchpad.37signals.com</a>
+          </p>
+
+          <div class="setting-row">
+            <label for="bc-enabled">Enable Basecamp</label>
+            <input
+              type="checkbox"
+              id="bc-enabled"
+              bind:checked={basecampConfig.enabled}
+            />
+          </div>
+
+          {#if basecampConfig.enabled}
+            <div class="setting-row">
+              <label for="bc-client-id">Client ID</label>
+              <input
+                type="text"
+                id="bc-client-id"
+                bind:value={basecampConfig.clientId}
+                placeholder="Your Basecamp Client ID"
+                class="text-input"
+              />
+            </div>
+
+            <div class="setting-row">
+              <label for="bc-client-secret">Client Secret</label>
+              <input
+                type="password"
+                id="bc-client-secret"
+                bind:value={basecampConfig.clientSecret}
+                placeholder="Your Basecamp Client Secret"
+                class="text-input"
+              />
+            </div>
+
+            <div class="sync-action">
+              <button
+                class="btn btn-secondary"
+                on:click={saveBasecampConfig}
+              >
+                Save Credentials
+              </button>
+            </div>
+
+            {#if basecampConfig.clientId && basecampConfig.clientSecret}
+              <div class="sync-section">
+                <h4>Connection</h4>
+
+                {#if basecampConfig.connected}
+                  <div class="sync-status-info">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value connected">Connected</span>
+                    {#if basecampConfig.accountId}
+                      <span class="status-count">(Account: {basecampConfig.accountId})</span>
+                    {/if}
+                  </div>
+                  <div class="sync-action">
+                    <button
+                      class="btn btn-secondary"
+                      on:click={connectBasecamp}
+                      disabled={basecampConnecting}
+                    >
+                      {basecampConnecting ? 'Reconnecting...' : 'Reconnect'}
+                    </button>
+                    <button
+                      class="btn btn-outline"
+                      on:click={disconnectBasecamp}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                {:else}
+                  <div class="sync-status-info">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value">Not connected</span>
+                  </div>
+                  <div class="sync-action">
+                    <button
+                      class="btn btn-primary"
+                      on:click={authenticateBasecamp}
+                      disabled={basecampAuthenticating}
+                    >
+                      {basecampAuthenticating ? 'Authenticating...' : 'Connect to Basecamp'}
+                    </button>
+                  </div>
+                {/if}
+
+                {#if basecampAccounts.length > 0}
+                  <div class="account-selector">
+                    <p class="hint">Select a Basecamp account:</p>
+                    {#each basecampAccounts as account}
+                      <button
+                        class="btn btn-account"
+                        on:click={() => selectBasecampAccount(account.id)}
+                        disabled={basecampConnecting}
+                      >
+                        {account.name}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+
+                {#if basecampResult}
+                  <div class="sync-result" class:success={basecampResult.success} class:error={!basecampResult.success}>
+                    {#if basecampResult.success}
+                      ✓ {basecampResult.message}
+                    {:else}
+                      ✗ Error: {basecampResult.error}
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          {/if}
         </div>
       {:else if activeTab === 'about'}
         <div class="tab-content about">
@@ -775,5 +1014,59 @@
   .btn-outline:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Basecamp styles */
+  .text-input {
+    flex: 1;
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: var(--font-sm);
+  }
+
+  .text-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .status-value.connected {
+    color: #22c55e;
+    font-weight: 600;
+  }
+
+  .account-selector {
+    margin-top: var(--space-md);
+    padding: var(--space-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-account {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-xs);
+    padding: var(--space-sm);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-account:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+  }
+
+  .hint a {
+    color: var(--accent-primary);
+    text-decoration: none;
+  }
+
+  .hint a:hover {
+    text-decoration: underline;
   }
 </style>

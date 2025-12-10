@@ -390,3 +390,105 @@ type GoogleEventDTO struct {
 	HtmlLink    string    `json:"htmlLink,omitempty"`
 	ColorID     string    `json:"colorId,omitempty"`
 }
+
+// ============================================================================
+// BASECAMP DTOs
+// ============================================================================
+
+// BasecampProjectDTO represents a Basecamp project
+type BasecampProjectDTO struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Status      string    `json:"status"` // active, archived, trashed
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// BasecampTodoListDTO represents a Basecamp to-do list
+type BasecampTodoListDTO struct {
+	ID             int64     `json:"id"`
+	ProjectID      int64     `json:"projectId"`
+	Title          string    `json:"title"`
+	Description    string    `json:"description,omitempty"`
+	Completed      bool      `json:"completed"`
+	CompletedRatio string    `json:"completedRatio,omitempty"`
+	TodosCount     int       `json:"todosCount"`
+	CompletedCount int       `json:"completedCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// BasecampTodoDTO represents a Basecamp to-do item
+type BasecampTodoDTO struct {
+	ID            int64                `json:"id"`
+	TodoListID    int64                `json:"todoListId"`
+	ProjectID     int64                `json:"projectId"`
+	Content       string               `json:"content"`
+	Description   string               `json:"description,omitempty"`
+	DueOn         *string              `json:"dueOn,omitempty"`
+	Completed     bool                 `json:"completed"`
+	CompletedAt   *time.Time           `json:"completedAt,omitempty"`
+	Creator       *BasecampPersonDTO   `json:"creator,omitempty"`
+	Assignees     []BasecampPersonDTO  `json:"assignees,omitempty"`
+	CommentsCount int                  `json:"commentsCount"`
+	CreatedAt     time.Time            `json:"createdAt"`
+	UpdatedAt     time.Time            `json:"updatedAt"`
+}
+
+// BasecampTodoInputDTO represents input for creating/updating a to-do
+type BasecampTodoInputDTO struct {
+	ID          int64      `json:"id,omitempty"`
+	TodoListID  int64      `json:"todoListId"`
+	ProjectID   int64      `json:"projectId"`
+	Content     string     `json:"content"`
+	Description string     `json:"description,omitempty"`
+	DueDate     *time.Time `json:"dueDate,omitempty"`
+	AssigneeIDs []int64    `json:"assigneeIds,omitempty"`
+}
+
+// BasecampMessageDTO represents a Basecamp message
+type BasecampMessageDTO struct {
+	ID            int64              `json:"id"`
+	ProjectID     int64              `json:"projectId"`
+	Subject       string             `json:"subject"`
+	Content       string             `json:"content"`
+	Creator       *BasecampPersonDTO `json:"creator,omitempty"`
+	CommentsCount int                `json:"commentsCount"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+}
+
+// BasecampCommentDTO represents a Basecamp comment
+type BasecampCommentDTO struct {
+	ID        int64              `json:"id"`
+	Content   string             `json:"content"`
+	Creator   *BasecampPersonDTO `json:"creator,omitempty"`
+	CreatedAt time.Time          `json:"createdAt"`
+}
+
+// BasecampPersonDTO represents a Basecamp person/user
+type BasecampPersonDTO struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	EmailAddress string `json:"emailAddress"`
+	Title        string `json:"title,omitempty"`
+	AvatarURL    string `json:"avatarUrl,omitempty"`
+	Admin        bool   `json:"admin"`
+}
+
+// BasecampConfigDTO represents Basecamp configuration for the frontend
+type BasecampConfigDTO struct {
+	Enabled      bool   `json:"enabled"`
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"` // Masked for display
+	AccountID    string `json:"accountId,omitempty"`
+	Connected    bool   `json:"connected"`
+}
+
+// BasecampAccountDTO represents a Basecamp account from auth
+type BasecampAccountDTO struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Href string `json:"href"`
+}

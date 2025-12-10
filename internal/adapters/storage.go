@@ -252,9 +252,10 @@ func (a *StorageAdapter) BulkMarkAsDeleted(ctx context.Context, ids []int64) err
 	return nil
 }
 
-// SearchEmails searches emails
+// SearchEmails searches emails with thread grouping (like Gmail)
 func (a *StorageAdapter) SearchEmails(ctx context.Context, accountID int64, query string, limit int) ([]ports.EmailMetadata, error) {
-	var emails, err = storage.FuzzySearchEmails(accountID, query, limit)
+	// Use threaded search - groups results by thread, showing most recent per thread
+	var emails, err = storage.FuzzySearchEmailsThreaded(accountID, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -262,17 +263,19 @@ func (a *StorageAdapter) SearchEmails(ctx context.Context, accountID int64, quer
 	var result = make([]ports.EmailMetadata, len(emails))
 	for i, e := range emails {
 		result[i] = ports.EmailMetadata{
-			ID:        e.ID,
-			UID:       e.UID,
-			MessageID: e.MessageID.String,
-			Subject:   e.Subject,
-			FromName:  e.FromName,
-			FromEmail: e.FromEmail,
-			Date:      e.Date.Time,
-			IsRead:    e.IsRead,
-			IsStarred: e.IsStarred,
-			IsReplied: e.IsReplied,
-			Snippet:   e.Snippet,
+			ID:          e.ID,
+			UID:         e.UID,
+			MessageID:   e.MessageID.String,
+			Subject:     e.Subject,
+			FromName:    e.FromName,
+			FromEmail:   e.FromEmail,
+			Date:        e.Date.Time,
+			IsRead:      e.IsRead,
+			IsStarred:   e.IsStarred,
+			IsReplied:   e.IsReplied,
+			Snippet:     e.Snippet,
+			ThreadID:    e.ThreadID.String,
+			ThreadCount: e.ThreadCount,
 		}
 	}
 	return result, nil

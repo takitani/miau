@@ -484,6 +484,64 @@ func escapeFTSQuery(query string) string {
 	return query
 }
 
+// FuzzySearchEmailsThreaded busca emails e agrupa por thread (igual Gmail)
+// Retorna o email mais recente de cada thread que contém o termo buscado
+func FuzzySearchEmailsThreaded(accountID int64, query string, limit int) ([]EmailSummary, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	var emails []EmailSummary
+	var likePattern = "%" + query + "%"
+
+	// Busca com agrupamento por thread
+	// 1. Primeiro encontra todos os emails que contém o termo
+	// 2. Agrupa por thread_id, mostrando o mais recente de cada thread
+	// 3. Conta quantos emails tem em cada thread
+	err := db.Select(&emails, `
+		WITH matching_emails AS (
+			SELECT id, thread_id
+			FROM emails
+			WHERE account_id = ? AND is_archived = 0 AND is_deleted = 0
+			AND (
+				subject LIKE ? COLLATE NOCASE OR
+				from_name LIKE ? COLLATE NOCASE OR
+				from_email LIKE ? COLLATE NOCASE OR
+				snippet LIKE ? COLLATE NOCASE OR
+				body_text LIKE ? COLLATE NOCASE
+			)
+		),
+		thread_matches AS (
+			SELECT DISTINCT COALESCE(NULLIF(thread_id, ''), CAST(id AS TEXT)) as match_thread
+			FROM matching_emails
+		),
+		ranked AS (
+			SELECT
+				e.id, e.uid, e.message_id, e.subject, e.from_name, e.from_email,
+				e.date, e.is_read, e.is_starred, e.is_replied, e.has_attachments,
+				e.snippet, e.thread_id,
+				ROW_NUMBER() OVER (
+					PARTITION BY COALESCE(NULLIF(e.thread_id, ''), CAST(e.id AS TEXT))
+					ORDER BY e.date DESC
+				) as rn,
+				COUNT(*) OVER (
+					PARTITION BY COALESCE(NULLIF(e.thread_id, ''), CAST(e.id AS TEXT))
+				) as thread_count
+			FROM emails e
+			WHERE e.account_id = ? AND e.is_archived = 0 AND e.is_deleted = 0
+			AND COALESCE(NULLIF(e.thread_id, ''), CAST(e.id AS TEXT)) IN (SELECT match_thread FROM thread_matches)
+		)
+		SELECT id, uid, message_id, subject, from_name, from_email, date, is_read, is_starred, is_replied, has_attachments, snippet, thread_id, thread_count
+		FROM ranked
+		WHERE rn = 1
+		ORDER BY date DESC
+		LIMIT ?`,
+		accountID, likePattern, likePattern, likePattern, likePattern, likePattern, accountID, limit)
+
+	return emails, err
+}
+
 // GetEmailsToSyncToServer retorna emails que precisam ser sincronizados com o servidor
 // (arquivados ou deletados localmente)
 func GetEmailsToSyncToServer(accountID, folderID int64) (archived []Email, deleted []Email, err error) {

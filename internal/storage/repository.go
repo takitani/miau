@@ -1886,6 +1886,70 @@ func DetectAndUpdateThreadID(emailID int64, messageID, inReplyTo, references, su
 	return detector.DetectAndUpdateThread(emailID, messageID, inReplyTo, references, subject)
 }
 
+// SyncMissingThreadIDs detects and updates thread_ids for all emails that don't have one
+// This uses local in_reply_to/references to group threads (no API call needed)
+// Process order: 1) root emails (no in_reply_to), 2) replies (have in_reply_to)
+func SyncMissingThreadIDs(accountID int64) (int, error) {
+	var detector = NewThreadDetector(db)
+	var updated = 0
+
+	// Phase 1: Process root emails (no in_reply_to) - they get their own thread_id
+	var rootEmails []Email
+	err := db.Select(&rootEmails, `
+		SELECT id, message_id, subject
+		FROM emails
+		WHERE account_id = ?
+		  AND (thread_id IS NULL OR thread_id = '')
+		  AND (in_reply_to IS NULL OR in_reply_to = '')
+		ORDER BY date ASC
+	`, accountID)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, e := range rootEmails {
+		// Root email gets thread_id = its own message_id (cleaned)
+		if err := detector.DetectAndUpdateThread(e.ID, e.MessageID.String, "", "", e.Subject); err == nil {
+			updated++
+		}
+	}
+
+	// Phase 2: Process replies (have in_reply_to) - they inherit parent's thread_id
+	// Run multiple passes because replies can be chained (A -> B -> C)
+	for pass := 0; pass < 10; pass++ { // Max 10 passes to handle deep chains
+		var replyEmails []Email
+		err = db.Select(&replyEmails, `
+			SELECT id, message_id, in_reply_to, subject
+			FROM emails
+			WHERE account_id = ?
+			  AND (thread_id IS NULL OR thread_id = '')
+			  AND in_reply_to IS NOT NULL AND in_reply_to != ''
+			ORDER BY date ASC
+		`, accountID)
+		if err != nil {
+			return updated, err
+		}
+
+		if len(replyEmails) == 0 {
+			break // No more emails to process
+		}
+
+		var passUpdated = 0
+		for _, e := range replyEmails {
+			if err := detector.DetectAndUpdateThread(e.ID, e.MessageID.String, e.InReplyTo.String, "", e.Subject); err == nil {
+				passUpdated++
+			}
+		}
+		updated += passUpdated
+
+		if passUpdated == 0 {
+			break // No progress, stop
+		}
+	}
+
+	return updated, nil
+}
+
 // GetThreadEmails returns all emails in a thread (ordered by date DESC - newest first)
 // Deduplicates by message_id and excludes Trash/Spam folders
 func GetThreadEmails(threadID string, accountID int64) ([]Email, error) {

@@ -452,7 +452,7 @@ func (c *Client) FetchNewEmails(sinceUID uint32, limit int) ([]Email, error) {
 
 // SearchText searches for emails containing text in headers or body (server-side search)
 // This is more powerful than local search because the server indexes full body content
-// Returns UIDs of matching emails
+// Returns ALL matching UIDs (no limit) - caller should handle limiting after sorting by date
 func (c *Client) SearchText(query string, limit int) ([]uint32, error) {
 	var criteria = &imap.SearchCriteria{
 		Text: []string{query},
@@ -466,11 +466,8 @@ func (c *Client) SearchText(query string, limit int) ([]uint32, error) {
 
 	var uids = searchData.AllUIDs()
 
-	// Limit results (take most recent - higher UIDs are newer)
-	if limit > 0 && len(uids) > limit {
-		uids = uids[len(uids)-limit:]
-	}
-
+	// Return ALL UIDs - don't limit here because UIDs aren't sorted by date
+	// The caller will fetch metadata, sort by date, then limit
 	var result = make([]uint32, len(uids))
 	for i, uid := range uids {
 		result[i] = uint32(uid)

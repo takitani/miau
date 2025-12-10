@@ -402,13 +402,18 @@ func (a *App) Search(query string, limit int) (*SearchResultDTO, error) {
 	}
 
 	if limit <= 0 {
-		limit = 50
+		limit = 100 // Increased default limit
 	}
+
+	log.Printf("[Search] Starting search for '%s' with limit %d", query, limit)
 
 	var result, err = a.application.Search().Search(context.Background(), query, limit)
 	if err != nil {
+		log.Printf("[Search] Error: %v", err)
 		return nil, err
 	}
+
+	log.Printf("[Search] Got %d results (total: %d)", len(result.Emails), result.TotalCount)
 
 	var emails []EmailDTO
 	for _, e := range result.Emails {

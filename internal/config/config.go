@@ -78,12 +78,21 @@ type ComposeConfig struct {
 	SendDelaySeconds int    `yaml:"send_delay_seconds" mapstructure:"send_delay_seconds"` // 0-60, default 30
 }
 
+// BasecampConfig holds Basecamp API integration settings
+type BasecampConfig struct {
+	Enabled      bool   `yaml:"enabled" mapstructure:"enabled"`
+	ClientID     string `yaml:"client_id" mapstructure:"client_id"`
+	ClientSecret string `yaml:"client_secret" mapstructure:"client_secret"`
+	AccountID    string `yaml:"account_id" mapstructure:"account_id"` // Basecamp account ID (number)
+}
+
 type Config struct {
-	Accounts []Account     `yaml:"accounts" mapstructure:"accounts"`
-	Storage  StorageConfig `yaml:"storage" mapstructure:"storage"`
-	Sync     SyncConfig    `yaml:"sync" mapstructure:"sync"`
-	UI       UIConfig      `yaml:"ui" mapstructure:"ui"`
-	Compose  ComposeConfig `yaml:"compose" mapstructure:"compose"`
+	Accounts []Account       `yaml:"accounts" mapstructure:"accounts"`
+	Storage  StorageConfig   `yaml:"storage" mapstructure:"storage"`
+	Sync     SyncConfig      `yaml:"sync" mapstructure:"sync"`
+	UI       UIConfig        `yaml:"ui" mapstructure:"ui"`
+	Compose  ComposeConfig   `yaml:"compose" mapstructure:"compose"`
+	Basecamp *BasecampConfig `yaml:"basecamp,omitempty" mapstructure:"basecamp"`
 }
 
 var cfg *Config
@@ -173,5 +182,6 @@ func DefaultConfig() *Config {
 			Format:           "html",
 			SendDelaySeconds: 30,
 		},
+		Basecamp: nil, // Disabled by default
 	}
 }

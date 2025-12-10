@@ -25,6 +25,7 @@ type App interface {
 	Contacts() ContactService
 	Tasks() TaskService
 	Calendar() CalendarService
+	Basecamp() BasecampService
 
 	// Events
 	Events() EventBus

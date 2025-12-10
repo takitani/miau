@@ -49,6 +49,7 @@ type Application struct {
 	taskService       *services.TaskService
 	calendarService   *services.CalendarService
 	aiService         *services.AIService
+	basecampService   *services.BasecampService
 
 	// State
 	accountInfo *ports.AccountInfo
@@ -190,6 +191,9 @@ func (a *Application) Start() error {
 	a.aiService = services.NewAIService(a.storageAdapter, a.eventBus)
 	a.aiService.SetAccount(accountInfo)
 
+	// Create Basecamp service
+	a.basecampService = services.NewBasecampService(a.eventBus)
+
 	// Wire up bidirectional Task ↔ Calendar sync
 	a.taskService.SetCalendarSync(a.calendarService)
 
@@ -294,6 +298,11 @@ func (a *Application) Tasks() ports.TaskService {
 // Calendar returns the calendar service
 func (a *Application) Calendar() ports.CalendarService {
 	return a.calendarService
+}
+
+// Basecamp returns the Basecamp service
+func (a *Application) Basecamp() ports.BasecampService {
+	return a.basecampService
 }
 
 // Events returns the event bus

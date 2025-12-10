@@ -4,7 +4,6 @@
   import FolderList from './lib/components/FolderList.svelte';
   import EmailViewer from './lib/components/EmailViewer.svelte';
   import SearchPanel from './lib/components/SearchPanel.svelte';
-  import SearchResultModal from './lib/components/SearchResultModal.svelte';
   import StatusBar from './lib/components/StatusBar.svelte';
   import DebugPanel from './lib/components/DebugPanel.svelte';
   import HelpOverlay from './lib/components/HelpOverlay.svelte';
@@ -182,13 +181,6 @@
   {/if}
 
   <!-- Overlays -->
-  {#if $showSearch}
-    <SearchPanel />
-  {/if}
-
-  <!-- Search Result Modal (for emails not in current list) -->
-  <SearchResultModal />
-
   {#if $showHelp}
     <HelpOverlay />
   {/if}
@@ -228,6 +220,9 @@
 
       <!-- Email List Panel -->
       <section class="emails-panel" class:active={$activePanel === 'emails'} style="width: {emailsWidth}px">
+        {#if $showSearch}
+          <SearchPanel />
+        {/if}
         <EmailList />
       </section>
 
@@ -281,8 +276,11 @@
         title="Arrastar para redimensionar (duplo-clique para resetar)"
       ></div>
 
-      <!-- Email List Panel -->
+      <!-- Email List Panel (Legacy) -->
       <section class="emails-panel" class:active={$activePanel === 'emails'} style="width: {emailsWidth}px">
+        {#if $showSearch}
+          <SearchPanel />
+        {/if}
         <EmailList />
       </section>
 

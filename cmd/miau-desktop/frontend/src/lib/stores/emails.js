@@ -1,8 +1,15 @@
 import { writable, derived, get } from 'svelte/store';
 import { info, error as logError, debug as logDebug } from './debug.js';
 
-// Email list
+// Email list (current view - either folder emails or search results)
 export const emails = writable([]);
+
+// Original emails (saved when searching, to restore on clear)
+let originalEmails = [];
+
+// Search state
+export const searchQuery = writable('');
+export const isSearching = writable(false);
 
 // Selected email ID
 export const selectedEmailId = writable(null);
@@ -175,6 +182,64 @@ export function selectEmail(id) {
     return true;
   }
   return false;
+}
+
+// Search emails - replaces current list with search results
+export async function searchEmails(query) {
+  if (!query || query.length < 2) {
+    clearSearch();
+    return;
+  }
+
+  loading.set(true);
+  searchQuery.set(query);
+
+  try {
+    // Save current emails if not already searching
+    if (!get(isSearching)) {
+      originalEmails = get(emails);
+      isSearching.set(true);
+    }
+
+    if (window.go?.desktop?.App) {
+      const result = await window.go.desktop.App.Search(query, 50);
+      const searchResults = result?.emails || [];
+      emails.set(searchResults);
+
+      // Select first result
+      if (searchResults.length > 0) {
+        selectedIndex.set(0);
+        selectedEmailId.set(searchResults[0].id);
+      } else {
+        selectedEmailId.set(null);
+      }
+
+      info(`Search: ${searchResults.length} results for "${query}"`);
+    }
+  } catch (err) {
+    logError(`Search failed: ${err}`);
+  } finally {
+    loading.set(false);
+  }
+}
+
+// Clear search and restore original email list
+export function clearSearch() {
+  if (get(isSearching)) {
+    emails.set(originalEmails);
+    originalEmails = [];
+    isSearching.set(false);
+    searchQuery.set('');
+
+    // Restore selection to first email
+    const $emails = get(emails);
+    if ($emails.length > 0) {
+      selectedIndex.set(0);
+      selectedEmailId.set($emails[0].id);
+    }
+
+    info('Search cleared');
+  }
 }
 
 // Mark email as read

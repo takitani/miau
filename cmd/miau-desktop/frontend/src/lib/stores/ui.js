@@ -14,20 +14,6 @@ export const showAI = writable(false);
 export const showAnalytics = writable(false);
 export const aiWithContext = writable(false);
 
-// Search Result Modal - for viewing emails not in current list
-export const showSearchResultModal = writable(false);
-export const searchResultEmailId = writable(null);
-
-export function openSearchResultModal(emailId) {
-  searchResultEmailId.set(emailId);
-  showSearchResultModal.set(true);
-}
-
-export function closeSearchResultModal() {
-  showSearchResultModal.set(false);
-  searchResultEmailId.set(null);
-}
-
 // Thread View State
 export const showThreadView = writable(false);
 export const threadEmailId = writable(null);

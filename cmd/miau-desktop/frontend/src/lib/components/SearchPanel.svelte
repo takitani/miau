@@ -1,277 +1,142 @@
 <script>
   import { onMount } from 'svelte';
-  import { showSearch, openSearchResultModal } from '../stores/ui.js';
-  import { selectEmail } from '../stores/emails.js';
+  import { showSearch } from '../stores/ui.js';
+  import { searchEmails, clearSearch, searchQuery, isSearching } from '../stores/emails.js';
 
   let query = '';
-  let results = [];
-  let selectedIndex = 0;
-  let loading = false;
   let inputEl;
+  let searchTimeout;
 
   // Focus input on mount
   onMount(() => {
     inputEl?.focus();
+    // If already searching, show current query
+    query = $searchQuery || '';
   });
 
-  // Debounced search
-  let searchTimeout;
-  $: if (query.length >= 2) {
+  // Debounced search as user types
+  function handleInput() {
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => search(query), 150);
-  } else {
-    results = [];
-  }
-
-  async function search(q) {
-    loading = true;
-    try {
-      if (window.go?.desktop?.App) {
-        const result = await window.go.desktop.App.Search(q, 20);
-        results = result?.emails || [];
-      } else {
-        // Mock for development
-        results = getMockResults(q);
-      }
-      selectedIndex = 0;
-    } catch (err) {
-      console.error('Search failed:', err);
-      results = [];
-    } finally {
-      loading = false;
+    if (query.length >= 2) {
+      searchTimeout = setTimeout(() => searchEmails(query), 200);
+    } else if (query.length === 0 && $isSearching) {
+      clearSearch();
     }
   }
 
-  // Handle keyboard navigation
+  // Handle keyboard
   function handleKeydown(e) {
-    switch (e.key) {
-      case 'Escape':
+    if (e.key === 'Escape') {
+      if (query) {
+        // First Esc clears query
+        query = '';
+        clearSearch();
+      } else {
+        // Second Esc closes search bar
         close();
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        selectedIndex = Math.max(selectedIndex - 1, 0);
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (results[selectedIndex]) {
-          selectResult(results[selectedIndex]);
-        }
-        break;
+      }
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      // Immediate search on Enter
+      if (query.length >= 2) {
+        clearTimeout(searchTimeout);
+        searchEmails(query);
+      }
+      e.preventDefault();
     }
   }
 
-  // Select a result
-  function selectResult(email) {
-    // Try to select in current list first
-    const found = selectEmail(email.id);
-    if (!found) {
-      // Email not in list - open in modal
-      openSearchResultModal(email.id);
-    }
-    close();
+  function clear() {
+    query = '';
+    clearSearch();
+    inputEl?.focus();
   }
 
-  // Close search panel
   function close() {
     showSearch.set(false);
-    query = '';
-    results = [];
-  }
-
-  // Format date
-  function formatDate(dateStr) {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-  }
-
-  // Mock results for development
-  function getMockResults(q) {
-    return [
-      { id: 1, subject: `Result 1 for "${q}"`, fromName: 'Test User', date: new Date().toISOString() },
-      { id: 2, subject: `Another result for "${q}"`, fromName: 'Someone', date: new Date().toISOString() }
-    ];
+    if ($isSearching) {
+      clearSearch();
+    }
   }
 </script>
 
-<div class="search-overlay" on:click|self={close}>
-  <div class="search-panel">
-    <div class="search-input-wrapper">
-      <span class="search-icon">🔍</span>
-      <input
-        bind:this={inputEl}
-        bind:value={query}
-        type="text"
-        placeholder="Buscar emails..."
-        class="search-input"
-        on:keydown={handleKeydown}
-      />
-      {#if query}
-        <button class="clear-btn" on:click={() => query = ''}>✕</button>
-      {/if}
-    </div>
-
-    {#if loading}
-      <div class="loading">Buscando...</div>
-    {:else if results.length > 0}
-      <ul class="results">
-        {#each results as result, index (result.id)}
-          <li>
-            <button
-              class="result-item"
-              class:selected={index === selectedIndex}
-              on:click={() => selectResult(result)}
-              on:mouseenter={() => selectedIndex = index}
-            >
-              <span class="from">{result.fromName || result.fromEmail}</span>
-              <span class="subject truncate">{result.subject}</span>
-              <span class="date">{formatDate(result.date)}</span>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {:else if query.length >= 2}
-      <div class="no-results">Nenhum resultado para "{query}"</div>
-    {:else}
-      <div class="hint">Digite pelo menos 2 caracteres para buscar</div>
-    {/if}
-
-    <div class="shortcuts">
-      <span><kbd>↑↓</kbd> navegar</span>
-      <span><kbd>Enter</kbd> selecionar</span>
-      <span><kbd>Esc</kbd> fechar</span>
-    </div>
-  </div>
+<div class="search-bar">
+  <span class="search-icon">🔍</span>
+  <input
+    bind:this={inputEl}
+    bind:value={query}
+    type="text"
+    placeholder="Buscar emails... (min 2 caracteres)"
+    class="search-input"
+    on:input={handleInput}
+    on:keydown={handleKeydown}
+  />
+  {#if query}
+    <button class="clear-btn" on:click={clear} title="Limpar busca">✕</button>
+  {/if}
+  <button class="close-btn" on:click={close} title="Fechar (Esc)">
+    <span class="close-icon">✕</span>
+  </button>
+  {#if $isSearching}
+    <span class="search-indicator">Buscando: "{$searchQuery}"</span>
+  {/if}
 </div>
 
 <style>
-  .search-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 100px;
-    z-index: 1000;
-  }
-
-  .search-panel {
-    width: 100%;
-    max-width: 600px;
-    background: var(--bg-secondary);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    overflow: hidden;
-  }
-
-  .search-input-wrapper {
+  .search-bar {
     display: flex;
     align-items: center;
-    padding: var(--space-md);
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
   }
 
   .search-icon {
-    margin-right: var(--space-sm);
-    font-size: var(--font-lg);
+    font-size: var(--font-md);
+    opacity: 0.6;
   }
 
   .search-input {
     flex: 1;
-    background: transparent;
-    border: none;
-    font-size: var(--font-lg);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-sm);
     color: var(--text-primary);
+    min-width: 200px;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
   }
 
   .search-input::placeholder {
     color: var(--text-muted);
   }
 
-  .clear-btn {
+  .clear-btn, .close-btn {
     padding: var(--space-xs);
     color: var(--text-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
     font-size: var(--font-sm);
   }
 
-  .clear-btn:hover {
-    color: var(--text-primary);
-  }
-
-  .loading, .no-results, .hint {
-    padding: var(--space-lg);
-    text-align: center;
-    color: var(--text-muted);
-  }
-
-  .results {
-    list-style: none;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-
-  .result-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    width: 100%;
-    padding: var(--space-sm) var(--space-md);
-    text-align: left;
-    color: var(--text-secondary);
-    transition: background var(--transition-fast);
-  }
-
-  .result-item:hover,
-  .result-item.selected {
+  .clear-btn:hover, .close-btn:hover {
     background: var(--bg-hover);
-  }
-
-  .result-item.selected {
-    background: var(--bg-selected);
-  }
-
-  .result-item .from {
-    width: 150px;
-    flex-shrink: 0;
-    font-size: var(--font-sm);
     color: var(--text-primary);
   }
 
-  .result-item .subject {
-    flex: 1;
-    font-size: var(--font-sm);
-  }
-
-  .result-item .date {
-    flex-shrink: 0;
+  .search-indicator {
     font-size: var(--font-xs);
-    color: var(--text-muted);
-  }
-
-  .shortcuts {
-    display: flex;
-    gap: var(--space-md);
-    justify-content: center;
-    padding: var(--space-sm);
-    border-top: 1px solid var(--border-color);
-    font-size: var(--font-xs);
-    color: var(--text-muted);
-  }
-
-  .shortcuts kbd {
-    display: inline-block;
-    padding: 2px 6px;
-    font-family: monospace;
+    color: var(--accent-color);
+    padding: var(--space-xs) var(--space-sm);
     background: var(--bg-tertiary);
     border-radius: var(--radius-sm);
-    margin-right: var(--space-xs);
   }
 </style>

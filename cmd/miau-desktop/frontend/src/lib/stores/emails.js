@@ -87,6 +87,12 @@ export async function toggleThreading() {
 
 // Refresh emails without full reload (merge new emails, preserve selection)
 export async function refreshEmails(folder, limit = 50) {
+  // Don't refresh while searching - would overwrite search results
+  if (get(isSearching)) {
+    logDebug('refreshEmails skipped: search mode active');
+    return 0;
+  }
+
   const threaded = get(threadingEnabled);
   logDebug(`refreshEmails called: folder=${folder}, limit=${limit}, threaded=${threaded}`);
 

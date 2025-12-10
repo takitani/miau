@@ -10,6 +10,10 @@ export function AskAI(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['AskAI'](arg1, arg2, arg3);
 }
 
+export function AuthenticateBasecamp() {
+  return window['go']['desktop']['App']['AuthenticateBasecamp']();
+}
+
 export function BatchArchive(arg1) {
   return window['go']['desktop']['App']['BatchArchive'](arg1);
 }
@@ -38,12 +42,24 @@ export function CancelThreadSync() {
   return window['go']['desktop']['App']['CancelThreadSync']();
 }
 
+export function CompleteBasecampTodo(arg1, arg2) {
+  return window['go']['desktop']['App']['CompleteBasecampTodo'](arg1, arg2);
+}
+
 export function Confirm(arg1, arg2) {
   return window['go']['desktop']['App']['Confirm'](arg1, arg2);
 }
 
 export function Connect() {
   return window['go']['desktop']['App']['Connect']();
+}
+
+export function ConnectBasecamp() {
+  return window['go']['desktop']['App']['ConnectBasecamp']();
+}
+
+export function CreateBasecampTodo(arg1) {
+  return window['go']['desktop']['App']['CreateBasecampTodo'](arg1);
 }
 
 export function CreateCalendarEvent(arg1) {
@@ -78,8 +94,16 @@ export function Disconnect() {
   return window['go']['desktop']['App']['Disconnect']();
 }
 
+export function DisconnectBasecamp() {
+  return window['go']['desktop']['App']['DisconnectBasecamp']();
+}
+
 export function DownloadAttachment(arg1) {
   return window['go']['desktop']['App']['DownloadAttachment'](arg1);
+}
+
+export function ExtractActions(arg1) {
+  return window['go']['desktop']['App']['ExtractActions'](arg1);
 }
 
 export function GetAIProviders() {
@@ -108,6 +132,30 @@ export function GetAttachments(arg1) {
 
 export function GetAvailableFolders() {
   return window['go']['desktop']['App']['GetAvailableFolders']();
+}
+
+export function GetBasecampConfig() {
+  return window['go']['desktop']['App']['GetBasecampConfig']();
+}
+
+export function GetBasecampMessages(arg1, arg2) {
+  return window['go']['desktop']['App']['GetBasecampMessages'](arg1, arg2);
+}
+
+export function GetBasecampPeople() {
+  return window['go']['desktop']['App']['GetBasecampPeople']();
+}
+
+export function GetBasecampProjects() {
+  return window['go']['desktop']['App']['GetBasecampProjects']();
+}
+
+export function GetBasecampTodoLists(arg1) {
+  return window['go']['desktop']['App']['GetBasecampTodoLists'](arg1);
+}
+
+export function GetBasecampTodos(arg1, arg2) {
+  return window['go']['desktop']['App']['GetBasecampTodos'](arg1, arg2);
 }
 
 export function GetCalendarEventCounts() {
@@ -144,6 +192,10 @@ export function GetDraft(arg1) {
 
 export function GetEmail(arg1) {
   return window['go']['desktop']['App']['GetEmail'](arg1);
+}
+
+export function GetEmailByID(arg1) {
+  return window['go']['desktop']['App']['GetEmailByID'](arg1);
 }
 
 export function GetEmailByUID(arg1) {
@@ -214,6 +266,10 @@ export function GetUpcomingCalendarEvents(arg1) {
   return window['go']['desktop']['App']['GetUpcomingCalendarEvents'](arg1);
 }
 
+export function IsBasecampConnected() {
+  return window['go']['desktop']['App']['IsBasecampConnected']();
+}
+
 export function IsConnected() {
   return window['go']['desktop']['App']['IsConnected']();
 }
@@ -274,6 +330,10 @@ export function OpenURL(arg1) {
   return window['go']['desktop']['App']['OpenURL'](arg1);
 }
 
+export function PostBasecampMessage(arg1, arg2, arg3) {
+  return window['go']['desktop']['App']['PostBasecampMessage'](arg1, arg2, arg3);
+}
+
 export function Redo() {
   return window['go']['desktop']['App']['Redo']();
 }
@@ -288,6 +348,10 @@ export function SaveAttachmentByPart(arg1, arg2, arg3) {
 
 export function SaveAttachmentDialog(arg1, arg2) {
   return window['go']['desktop']['App']['SaveAttachmentDialog'](arg1, arg2);
+}
+
+export function SaveBasecampConfig(arg1) {
+  return window['go']['desktop']['App']['SaveBasecampConfig'](arg1);
 }
 
 export function SaveDraft(arg1) {
@@ -308,6 +372,10 @@ export function SearchContacts(arg1, arg2) {
 
 export function SearchInFolder(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['SearchInFolder'](arg1, arg2, arg3);
+}
+
+export function SelectBasecampAccount(arg1) {
+  return window['go']['desktop']['App']['SelectBasecampAccount'](arg1);
 }
 
 export function SelectFolder(arg1) {
@@ -332,6 +400,14 @@ export function ShowInfo(arg1, arg2) {
 
 export function StartOAuth2Auth() {
   return window['go']['desktop']['App']['StartOAuth2Auth']();
+}
+
+export function SummarizeEmail(arg1) {
+  return window['go']['desktop']['App']['SummarizeEmail'](arg1);
+}
+
+export function SummarizeThread(arg1) {
+  return window['go']['desktop']['App']['SummarizeThread'](arg1);
 }
 
 export function SwitchToTerminal() {
@@ -374,8 +450,16 @@ export function ToggleTaskComplete(arg1) {
   return window['go']['desktop']['App']['ToggleTaskComplete'](arg1);
 }
 
+export function UncompleteBasecampTodo(arg1, arg2) {
+  return window['go']['desktop']['App']['UncompleteBasecampTodo'](arg1, arg2);
+}
+
 export function Undo() {
   return window['go']['desktop']['App']['Undo']();
+}
+
+export function UpdateBasecampTodo(arg1) {
+  return window['go']['desktop']['App']['UpdateBasecampTodo'](arg1);
 }
 
 export function UpdateCalendarEvent(arg1) {

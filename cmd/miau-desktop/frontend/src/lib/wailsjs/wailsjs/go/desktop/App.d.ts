@@ -6,6 +6,8 @@ export function Archive(arg1:number):Promise<void>;
 
 export function AskAI(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function AuthenticateBasecamp():Promise<Array<desktop.BasecampAccountDTO>>;
+
 export function BatchArchive(arg1:Array<number>):Promise<void>;
 
 export function BatchDelete(arg1:Array<number>):Promise<void>;
@@ -20,9 +22,15 @@ export function CanUndo():Promise<boolean>;
 
 export function CancelThreadSync():Promise<void>;
 
+export function CompleteBasecampTodo(arg1:number,arg2:number):Promise<void>;
+
 export function Confirm(arg1:string,arg2:string):Promise<boolean>;
 
 export function Connect():Promise<void>;
+
+export function ConnectBasecamp():Promise<void>;
+
+export function CreateBasecampTodo(arg1:desktop.BasecampTodoInputDTO):Promise<desktop.BasecampTodoDTO>;
 
 export function CreateCalendarEvent(arg1:desktop.CalendarEventInputDTO):Promise<desktop.CalendarEventDTO>;
 
@@ -40,7 +48,11 @@ export function DeleteTask(arg1:number):Promise<void>;
 
 export function Disconnect():Promise<void>;
 
+export function DisconnectBasecamp():Promise<void>;
+
 export function DownloadAttachment(arg1:number):Promise<string>;
+
+export function ExtractActions(arg1:number):Promise<Array<string>>;
 
 export function GetAIProviders():Promise<Array<Record<string, any>>>;
 
@@ -55,6 +67,18 @@ export function GetAppInfo():Promise<Record<string, string>>;
 export function GetAttachments(arg1:number):Promise<Array<desktop.AttachmentDTO>>;
 
 export function GetAvailableFolders():Promise<Array<desktop.AvailableFolderDTO>>;
+
+export function GetBasecampConfig():Promise<desktop.BasecampConfigDTO>;
+
+export function GetBasecampMessages(arg1:number,arg2:number):Promise<Array<desktop.BasecampMessageDTO>>;
+
+export function GetBasecampPeople():Promise<Array<desktop.BasecampPersonDTO>>;
+
+export function GetBasecampProjects():Promise<Array<desktop.BasecampProjectDTO>>;
+
+export function GetBasecampTodoLists(arg1:number):Promise<Array<desktop.BasecampTodoListDTO>>;
+
+export function GetBasecampTodos(arg1:number,arg2:number):Promise<Array<desktop.BasecampTodoDTO>>;
 
 export function GetCalendarEventCounts():Promise<desktop.CalendarEventCountsDTO>;
 
@@ -73,6 +97,8 @@ export function GetCurrentFolder():Promise<string>;
 export function GetDraft(arg1:number):Promise<desktop.DraftDTO>;
 
 export function GetEmail(arg1:number):Promise<desktop.EmailDetailDTO>;
+
+export function GetEmailByID(arg1:number):Promise<desktop.EmailDTO>;
 
 export function GetEmailByUID(arg1:number):Promise<desktop.EmailDetailDTO>;
 
@@ -108,6 +134,8 @@ export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.Sen
 
 export function GetUpcomingCalendarEvents(arg1:number):Promise<Array<desktop.CalendarEventDTO>>;
 
+export function IsBasecampConnected():Promise<boolean>;
+
 export function IsConnected():Promise<boolean>;
 
 export function IsGoogleCalendarConnected():Promise<boolean>;
@@ -138,6 +166,8 @@ export function OpenAttachmentByPart(arg1:number,arg2:string,arg3:string):Promis
 
 export function OpenURL(arg1:string):Promise<void>;
 
+export function PostBasecampMessage(arg1:number,arg2:string,arg3:string):Promise<desktop.BasecampMessageDTO>;
+
 export function Redo():Promise<desktop.UndoResult>;
 
 export function SaveAttachment(arg1:number,arg2:string):Promise<void>;
@@ -145,6 +175,8 @@ export function SaveAttachment(arg1:number,arg2:string):Promise<void>;
 export function SaveAttachmentByPart(arg1:number,arg2:string,arg3:string):Promise<string>;
 
 export function SaveAttachmentDialog(arg1:number,arg2:string):Promise<string>;
+
+export function SaveBasecampConfig(arg1:desktop.BasecampConfigDTO):Promise<void>;
 
 export function SaveDraft(arg1:desktop.DraftDTO):Promise<number>;
 
@@ -155,6 +187,8 @@ export function Search(arg1:string,arg2:number):Promise<desktop.SearchResultDTO>
 export function SearchContacts(arg1:string,arg2:number):Promise<Array<desktop.ContactDTO>>;
 
 export function SearchInFolder(arg1:string,arg2:string,arg3:number):Promise<desktop.SearchResultDTO>;
+
+export function SelectBasecampAccount(arg1:number):Promise<void>;
 
 export function SelectFolder(arg1:string):Promise<desktop.FolderDTO>;
 
@@ -167,6 +201,10 @@ export function ShowError(arg1:string,arg2:string):Promise<void>;
 export function ShowInfo(arg1:string,arg2:string):Promise<void>;
 
 export function StartOAuth2Auth():Promise<void>;
+
+export function SummarizeEmail(arg1:number):Promise<string>;
+
+export function SummarizeThread(arg1:number):Promise<string>;
 
 export function SwitchToTerminal():Promise<void>;
 
@@ -188,7 +226,11 @@ export function ToggleCalendarEventComplete(arg1:number):Promise<boolean>;
 
 export function ToggleTaskComplete(arg1:number):Promise<boolean>;
 
+export function UncompleteBasecampTodo(arg1:number,arg2:number):Promise<void>;
+
 export function Undo():Promise<desktop.UndoResult>;
+
+export function UpdateBasecampTodo(arg1:desktop.BasecampTodoInputDTO):Promise<desktop.BasecampTodoDTO>;
 
 export function UpdateCalendarEvent(arg1:desktop.CalendarEventInputDTO):Promise<desktop.CalendarEventDTO>;
 

@@ -233,6 +233,303 @@ export namespace desktop {
 	        this.isSelected = source["isSelected"];
 	    }
 	}
+	export class BasecampAccountDTO {
+	    id: number;
+	    name: string;
+	    href: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampAccountDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.href = source["href"];
+	    }
+	}
+	export class BasecampConfigDTO {
+	    enabled: boolean;
+	    clientId?: string;
+	    clientSecret?: string;
+	    accountId?: string;
+	    connected: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampConfigDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.clientId = source["clientId"];
+	        this.clientSecret = source["clientSecret"];
+	        this.accountId = source["accountId"];
+	        this.connected = source["connected"];
+	    }
+	}
+	export class BasecampPersonDTO {
+	    id: number;
+	    name: string;
+	    emailAddress: string;
+	    title?: string;
+	    avatarUrl?: string;
+	    admin: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampPersonDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.emailAddress = source["emailAddress"];
+	        this.title = source["title"];
+	        this.avatarUrl = source["avatarUrl"];
+	        this.admin = source["admin"];
+	    }
+	}
+	export class BasecampMessageDTO {
+	    id: number;
+	    projectId: number;
+	    subject: string;
+	    content: string;
+	    creator?: BasecampPersonDTO;
+	    commentsCount: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampMessageDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.subject = source["subject"];
+	        this.content = source["content"];
+	        this.creator = this.convertValues(source["creator"], BasecampPersonDTO);
+	        this.commentsCount = source["commentsCount"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class BasecampProjectDTO {
+	    id: number;
+	    name: string;
+	    description?: string;
+	    status: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampProjectDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.status = source["status"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class BasecampTodoDTO {
+	    id: number;
+	    todoListId: number;
+	    projectId: number;
+	    content: string;
+	    description?: string;
+	    dueOn?: string;
+	    completed: boolean;
+	    // Go type: time
+	    completedAt?: any;
+	    creator?: BasecampPersonDTO;
+	    assignees?: BasecampPersonDTO[];
+	    commentsCount: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampTodoDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.todoListId = source["todoListId"];
+	        this.projectId = source["projectId"];
+	        this.content = source["content"];
+	        this.description = source["description"];
+	        this.dueOn = source["dueOn"];
+	        this.completed = source["completed"];
+	        this.completedAt = this.convertValues(source["completedAt"], null);
+	        this.creator = this.convertValues(source["creator"], BasecampPersonDTO);
+	        this.assignees = this.convertValues(source["assignees"], BasecampPersonDTO);
+	        this.commentsCount = source["commentsCount"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class BasecampTodoInputDTO {
+	    id?: number;
+	    todoListId: number;
+	    projectId: number;
+	    content: string;
+	    description?: string;
+	    // Go type: time
+	    dueDate?: any;
+	    assigneeIds?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampTodoInputDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.todoListId = source["todoListId"];
+	        this.projectId = source["projectId"];
+	        this.content = source["content"];
+	        this.description = source["description"];
+	        this.dueDate = this.convertValues(source["dueDate"], null);
+	        this.assigneeIds = source["assigneeIds"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class BasecampTodoListDTO {
+	    id: number;
+	    projectId: number;
+	    title: string;
+	    description?: string;
+	    completed: boolean;
+	    completedRatio?: string;
+	    todosCount: number;
+	    completedCount: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new BasecampTodoListDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.completed = source["completed"];
+	        this.completedRatio = source["completedRatio"];
+	        this.todosCount = source["todosCount"];
+	        this.completedCount = source["completedCount"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CalendarEventCountsDTO {
 	    upcoming: number;
 	    completed: number;

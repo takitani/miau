@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { showSearch } from '../stores/ui.js';
+  import { showSearch, openSearchResultModal } from '../stores/ui.js';
   import { selectEmail } from '../stores/emails.js';
 
   let query = '';
@@ -67,7 +67,12 @@
 
   // Select a result
   function selectResult(email) {
-    selectEmail(email.id);
+    // Try to select in current list first
+    const found = selectEmail(email.id);
+    if (!found) {
+      // Email not in list - open in modal
+      openSearchResultModal(email.id);
+    }
     close();
   }
 

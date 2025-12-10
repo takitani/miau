@@ -4,6 +4,7 @@
   import FolderList from './lib/components/FolderList.svelte';
   import EmailViewer from './lib/components/EmailViewer.svelte';
   import SearchPanel from './lib/components/SearchPanel.svelte';
+  import SearchResultModal from './lib/components/SearchResultModal.svelte';
   import StatusBar from './lib/components/StatusBar.svelte';
   import DebugPanel from './lib/components/DebugPanel.svelte';
   import HelpOverlay from './lib/components/HelpOverlay.svelte';
@@ -184,6 +185,9 @@
   {#if $showSearch}
     <SearchPanel />
   {/if}
+
+  <!-- Search Result Modal (for emails not in current list) -->
+  <SearchResultModal />
 
   {#if $showHelp}
     <HelpOverlay />

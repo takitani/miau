@@ -268,6 +268,24 @@ Advanced Features [████████████░░░░░░░░�
 
 ---
 
+## 👤 Account Management
+
+### Backlog
+| ID | Feature | Priority | Spec |
+|----|---------|----------|------|
+| AC-01 | **Multi-Account Support** | 🔴 High | [spec](../roadmap/specs/multi-account-support.md) |
+
+**Status**: Architecture is 85% ready. Database schema, storage adapters, and services already support multiple accounts. Only runtime/UI layer needs implementation.
+
+**Key Implementation Points**:
+- [ ] `Application.SetCurrentAccount(email)` - switch between accounts at runtime
+- [ ] TUI account selector (Ctrl+A shortcut)
+- [ ] Desktop account dropdown in header
+- [ ] CLI `--account <email>` flag
+- [ ] Graceful IMAP disconnect/reconnect on switch
+
+---
+
 ## 🔒 Security & Privacy
 
 ### Implemented ✅
@@ -324,7 +342,7 @@ Advanced Features [████████████░░░░░░░░�
 
 | Priority | Count | Categories |
 |----------|-------|------------|
-| 🔴 High | 12 | Core UX, Critical AI, Performance |
+| 🔴 High | 13 | Core UX, Critical AI, Performance, Account Mgmt |
 | 🟡 Medium | 24 | Productivity, Integrations, Security |
 | 🟢 Low | 22 | Nice-to-have, Future |
 | ✅ Done | 38 | Completed features |
@@ -332,6 +350,7 @@ Advanced Features [████████████░░░░░░░░�
 ### Phase Planning
 
 #### Phase 1: Core Polish (Q1 2025)
+- [ ] **Multi-Account Support** ⭐ (AC-01)
 - [ ] Mouse Support (TUI)
 - [ ] Help Overlay
 - [ ] About Screen

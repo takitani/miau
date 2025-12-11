@@ -54,7 +54,7 @@ build-windows:
 	GOOS=windows GOARCH=amd64 go build -o miau.exe ./cmd/miau
 
 # ============================================================================
-# Desktop App (Wails + Svelte)
+# Desktop App (Wails v3 + Svelte)
 # ============================================================================
 
 .PHONY: desktop-install desktop-dev desktop-build desktop-run desktop-build-windows desktop-build-all
@@ -64,37 +64,38 @@ desktop-install:
 	cd cmd/miau-desktop/frontend && npm install
 
 # Run in development mode (hot reload)
-# Uses webkit2_41 tag for Fedora 43+ compatibility (webkit2gtk-4.1)
-# GODEBUG=asyncpreemptoff=1 prevents signal 11 crash with Go 1.24+/WebKit
+# Wails v3 uses Taskfile.yml for configuration
 desktop-dev:
-	cd cmd/miau-desktop && GODEBUG=asyncpreemptoff=1 wails dev -tags webkit2_41
+	cd cmd/miau-desktop && wails3 dev
 
 # Run in dev mode with devtools auto-open
 desktop-dev-debug:
-	cd cmd/miau-desktop && GODEBUG=asyncpreemptoff=1 wails dev -tags webkit2_41 -appargs "--devtools"
+	cd cmd/miau-desktop && wails3 dev -- --devtools
 
 # Build desktop app for current platform
 desktop-build:
-	cd cmd/miau-desktop && wails build -tags webkit2_41
+	cd cmd/miau-desktop && wails3 build
 
-# Build desktop app with devtools enabled (F12 to open inspector)
-desktop-build-debug:
-	cd cmd/miau-desktop && wails build -tags webkit2_41 -devtools
-
-# Run the built desktop app (with workaround for Go/WebKit signal conflict)
+# Run the built desktop app
 desktop-run:
-	GODEBUG=asyncpreemptoff=1 cmd/miau-desktop/build/bin/miau-desktop
+	cmd/miau-desktop/bin/miau-desktop
 
-# Build for Windows (no webkit tag needed)
+# Run with devtools
+desktop-run-debug:
+	cmd/miau-desktop/bin/miau-desktop --devtools
+
+# Build for Windows (cross-compile requires Docker setup)
 desktop-build-windows:
-	cd cmd/miau-desktop && wails build -platform windows/amd64
+	cd cmd/miau-desktop && wails3 task windows:build
 
 # Build for Linux
 desktop-build-linux:
-	cd cmd/miau-desktop && wails build -platform linux/amd64 -tags webkit2_41
+	cd cmd/miau-desktop && wails3 task linux:build
 
-# Build for all platforms
-desktop-build-all:
-	cd cmd/miau-desktop && wails build -platform linux/amd64 -tags webkit2_41
-	cd cmd/miau-desktop && wails build -platform windows/amd64
-	cd cmd/miau-desktop && wails build -platform darwin/universal
+# Build for macOS
+desktop-build-darwin:
+	cd cmd/miau-desktop && wails3 task darwin:build
+
+# Package for distribution (creates installer/package)
+desktop-package:
+	cd cmd/miau-desktop && wails3 task package

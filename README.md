@@ -123,22 +123,32 @@
 - **Go** 1.21+
 - **Claude Code** - Claude CLI for AI integration ([install](https://claude.ai/code))
 - **sqlite3** - SQLite driver for CLI queries
+- **Wails** - For building the desktop app ([install](https://wails.io/docs/gettingstarted/installation))
+
+### System Dependencies
 
 ```bash
-# Fedora/RHEL
-sudo dnf install sqlite
+# Fedora 38-42 / RHEL 9
+sudo dnf install sqlite webkit2gtk4.0-devel gtk3-devel
+
+# Fedora 43+ (webkit2gtk-4.0 removed)
+# Option 1: Use Wails v3 (supports webkit2gtk-4.1)
+# Option 2: Build in a container with older Fedora
+sudo dnf install sqlite webkit2gtk4.1-devel gtk3-devel
 
 # Ubuntu/Debian
-sudo apt install sqlite3
+sudo apt install sqlite3 libwebkit2gtk-4.0-dev libgtk-3-dev
+
+# Arch Linux
+sudo pacman -S sqlite webkit2gtk-4.0 gtk3
 
 # macOS
 brew install sqlite3
+# WebKit is included in macOS
 
 # Windows (via winget)
 winget install SQLite.SQLite
-
-# Windows (via choco)
-choco install sqlite
+# WebView2 is included in Windows 10/11
 ```
 
 ## Installation

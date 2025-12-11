@@ -1162,6 +1162,26 @@ export namespace desktop {
 	        this.syncInterval = source["syncInterval"];
 	    }
 	}
+	export class SummaryResult {
+	    emailId: number;
+	    style: string;
+	    content: string;
+	    keyPoints: string[];
+	    cached: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SummaryResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.emailId = source["emailId"];
+	        this.style = source["style"];
+	        this.content = source["content"];
+	        this.keyPoints = source["keyPoints"];
+	        this.cached = source["cached"];
+	    }
+	}
 	export class SyncResultDTO {
 	    newEmails: number;
 	    deletedEmails: number;
@@ -1436,6 +1456,28 @@ export namespace desktop {
 		    }
 		    return a;
 		}
+	}
+	export class ThreadSummaryResult {
+	    threadId: string;
+	    participants: string[];
+	    timeline: string;
+	    keyDecisions: string[];
+	    actionItems: string[];
+	    cached: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThreadSummaryResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threadId = source["threadId"];
+	        this.participants = source["participants"];
+	        this.timeline = source["timeline"];
+	        this.keyDecisions = source["keyDecisions"];
+	        this.actionItems = source["actionItems"];
+	        this.cached = source["cached"];
+	    }
 	}
 	export class UndoResult {
 	    success: boolean;

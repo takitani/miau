@@ -158,6 +158,10 @@ export function GetBasecampTodos(arg1, arg2) {
   return window['go']['desktop']['App']['GetBasecampTodos'](arg1, arg2);
 }
 
+export function GetCachedSummary(arg1) {
+  return window['go']['desktop']['App']['GetCachedSummary'](arg1);
+}
+
 export function GetCalendarEventCounts() {
   return window['go']['desktop']['App']['GetCalendarEventCounts']();
 }
@@ -264,6 +268,10 @@ export function GetTopSenders(arg1, arg2) {
 
 export function GetUpcomingCalendarEvents(arg1) {
   return window['go']['desktop']['App']['GetUpcomingCalendarEvents'](arg1);
+}
+
+export function InvalidateSummary(arg1) {
+  return window['go']['desktop']['App']['InvalidateSummary'](arg1);
 }
 
 export function IsBasecampConnected() {
@@ -406,8 +414,16 @@ export function SummarizeEmail(arg1) {
   return window['go']['desktop']['App']['SummarizeEmail'](arg1);
 }
 
+export function SummarizeEmailWithStyle(arg1, arg2) {
+  return window['go']['desktop']['App']['SummarizeEmailWithStyle'](arg1, arg2);
+}
+
 export function SummarizeThread(arg1) {
   return window['go']['desktop']['App']['SummarizeThread'](arg1);
+}
+
+export function SummarizeThreadDetailed(arg1) {
+  return window['go']['desktop']['App']['SummarizeThreadDetailed'](arg1);
 }
 
 export function SwitchToTerminal() {

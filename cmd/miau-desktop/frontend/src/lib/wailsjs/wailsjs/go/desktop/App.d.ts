@@ -80,6 +80,8 @@ export function GetBasecampTodoLists(arg1:number):Promise<Array<desktop.Basecamp
 
 export function GetBasecampTodos(arg1:number,arg2:number):Promise<Array<desktop.BasecampTodoDTO>>;
 
+export function GetCachedSummary(arg1:number):Promise<desktop.SummaryResult>;
+
 export function GetCalendarEventCounts():Promise<desktop.CalendarEventCountsDTO>;
 
 export function GetCalendarEvents():Promise<Array<desktop.CalendarEventDTO>>;
@@ -133,6 +135,8 @@ export function GetTopContacts(arg1:number):Promise<Array<desktop.ContactDTO>>;
 export function GetTopSenders(arg1:number,arg2:string):Promise<Array<desktop.SenderStatsDTO>>;
 
 export function GetUpcomingCalendarEvents(arg1:number):Promise<Array<desktop.CalendarEventDTO>>;
+
+export function InvalidateSummary(arg1:number):Promise<void>;
 
 export function IsBasecampConnected():Promise<boolean>;
 
@@ -204,7 +208,11 @@ export function StartOAuth2Auth():Promise<void>;
 
 export function SummarizeEmail(arg1:number):Promise<string>;
 
+export function SummarizeEmailWithStyle(arg1:number,arg2:string):Promise<desktop.SummaryResult>;
+
 export function SummarizeThread(arg1:number):Promise<string>;
+
+export function SummarizeThreadDetailed(arg1:number):Promise<desktop.ThreadSummaryResult>;
 
 export function SwitchToTerminal():Promise<void>;
 

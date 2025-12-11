@@ -43,6 +43,13 @@ func (s *AttachmentServicePort) SetFolder(folder *ports.Folder) {
 	s.folder = folder
 }
 
+// SetIMAPAdapter updates the IMAP adapter (used when switching accounts)
+func (s *AttachmentServicePort) SetIMAPAdapter(imap ports.IMAPPort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.imap = imap
+}
+
 // GetAttachments returns all attachments for an email
 // First tries to get from database, then falls back to IMAP if not found
 func (s *AttachmentServicePort) GetAttachments(ctx context.Context, emailID int64) ([]ports.Attachment, error) {

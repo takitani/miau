@@ -338,10 +338,135 @@ func (a *Application) GetCurrentAccount() *ports.AccountInfo {
 	return a.accountInfo
 }
 
-// SetCurrentAccount sets the current account (for multi-account support)
+// GetAllAccounts returns all configured accounts
+func (a *Application) GetAllAccounts() []ports.AccountInfo {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var accounts []ports.AccountInfo
+	for _, acc := range a.cfg.Accounts {
+		// Get the account ID from storage if available
+		var id int64
+		if acc.Email == a.account.Email && a.accountInfo != nil {
+			id = a.accountInfo.ID
+		} else {
+			// Try to get from storage
+			var accInfo, err = a.storageAdapter.GetOrCreateAccount(context.Background(), acc.Email, acc.Name)
+			if err == nil && accInfo != nil {
+				id = accInfo.ID
+			}
+		}
+		accounts = append(accounts, ports.AccountInfo{
+			ID:    id,
+			Email: acc.Email,
+			Name:  acc.Name,
+		})
+	}
+	return accounts
+}
+
+// SetCurrentAccount switches to a different account
+// This disconnects the current IMAP connection and reinitializes all adapters
 func (a *Application) SetCurrentAccount(email string) error {
-	// For now, we only support single account
-	return fmt.Errorf("multi-account not supported yet")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Find account by email
+	var newAccount *config.Account
+	for i := range a.cfg.Accounts {
+		if a.cfg.Accounts[i].Email == email {
+			newAccount = &a.cfg.Accounts[i]
+			break
+		}
+	}
+	if newAccount == nil {
+		return fmt.Errorf("account not found: %s", email)
+	}
+
+	// Check if it's the same account
+	if a.account.Email == email {
+		return nil // Already on this account
+	}
+
+	// Save previous email for event
+	var previousEmail = a.account.Email
+
+	// Step 1: Disconnect current IMAP
+	if a.imapAdapter != nil {
+		a.imapAdapter.Close()
+	}
+
+	// Step 2: Update current account reference
+	a.account = newAccount
+
+	// Step 3: Update app config
+	a.appConfig.AccountEmail = newAccount.Email
+	a.appConfig.AccountName = newAccount.Name
+	a.appConfig.IMAPHost = newAccount.IMAP.Host
+	a.appConfig.IMAPPort = newAccount.IMAP.Port
+	if newAccount.AuthType == config.AuthTypeOAuth2 {
+		a.appConfig.AuthType = ports.AuthTypeOAuth2
+	} else {
+		a.appConfig.AuthType = ports.AuthTypePassword
+	}
+	if newAccount.SendMethod == config.SendMethodGmailAPI {
+		a.appConfig.SendMethod = ports.SendMethodGmailAPI
+	} else {
+		a.appConfig.SendMethod = ports.SendMethodSMTP
+	}
+
+	// Step 4: Reinitialize adapters for new account
+	a.imapAdapter = adapters.NewIMAPAdapter(newAccount)
+	a.smtpAdapter = adapters.NewSMTPAdapter(newAccount)
+	a.gmailAdapter = adapters.NewGmailAPIAdapter(newAccount, config.GetConfigPath())
+
+	// Step 5: Get or create account info in storage
+	var accountInfo, err = a.storageAdapter.GetOrCreateAccount(context.Background(), newAccount.Email, newAccount.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get/create account in storage: %w", err)
+	}
+	a.accountInfo = accountInfo
+
+	// Step 6: Update all services with new account
+	a.undoService.SetAccount(accountInfo)
+	a.syncService.SetAccount(accountInfo)
+	a.emailService.SetAccount(accountInfo)
+	a.sendService.SetAccount(accountInfo)
+	a.sendService.SetSendMethod(a.appConfig.SendMethod)
+	a.draftService.SetAccount(accountInfo)
+	a.searchService.SetAccount(accountInfo)
+	a.batchService.SetAccount(accountInfo)
+	a.notifyService.SetAccount(accountInfo)
+	a.analyticsService.SetAccount(accountInfo)
+	a.attachmentService.SetAccount(accountInfo)
+	a.threadService.SetAccount(accountInfo)
+	a.aiService.SetAccount(accountInfo)
+	a.pluginService.SetAccount(accountInfo)
+
+	// Step 7: Update IMAP and Gmail in services that need them
+	a.syncService.SetIMAPAdapter(a.imapAdapter)
+	a.searchService.SetIMAP(a.imapAdapter)
+	a.attachmentService.SetIMAPAdapter(a.imapAdapter)
+
+	// Update Gmail adapter in send service
+	var gmailPort ports.GmailAPIPort
+	if a.gmailAdapter != nil {
+		gmailPort = a.gmailAdapter
+	}
+	a.sendService.SetGmailAPI(gmailPort)
+
+	// Update calendar client if available
+	if a.gmailAdapter != nil && a.gmailAdapter.CalendarClient() != nil {
+		a.calendarService.SetGoogleCalendarClient(a.gmailAdapter.CalendarClient())
+	}
+
+	// Step 8: Emit account switched event
+	if a.eventBus != nil {
+		a.eventBus.Publish(ports.NewAccountSwitchedEvent(previousEmail, email, accountInfo.ID))
+	}
+
+	fmt.Printf("[Application] Switched account from %s to %s\n", previousEmail, email)
+	return nil
 }
 
 // GetConfig returns the app configuration

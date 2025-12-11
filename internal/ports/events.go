@@ -59,6 +59,9 @@ const (
 	EventTypeContactSyncStarted   EventType = "contact_sync_started"
 	EventTypeContactSyncCompleted EventType = "contact_sync_completed"
 	EventTypeContactSyncFailed    EventType = "contact_sync_failed"
+
+	// Account events
+	EventTypeAccountSwitched EventType = "account_switched"
 )
 
 // BaseEvent provides common event fields
@@ -183,6 +186,24 @@ type ContactSyncFailedEvent struct {
 	BaseEvent
 	AccountID int64
 	Error     string
+}
+
+// AccountSwitchedEvent is emitted when the user switches to a different account
+type AccountSwitchedEvent struct {
+	BaseEvent
+	PreviousEmail string
+	NewEmail      string
+	NewAccountID  int64
+}
+
+// NewAccountSwitchedEvent creates a new account switched event
+func NewAccountSwitchedEvent(previousEmail, newEmail string, newAccountID int64) AccountSwitchedEvent {
+	return AccountSwitchedEvent{
+		BaseEvent:     NewBaseEvent(EventTypeAccountSwitched),
+		PreviousEmail: previousEmail,
+		NewEmail:      newEmail,
+		NewAccountID:  newAccountID,
+	}
 }
 
 // EventHandler is a function that handles events

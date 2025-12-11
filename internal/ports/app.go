@@ -33,6 +33,7 @@ type App interface {
 
 	// Account
 	GetCurrentAccount() *AccountInfo
+	GetAllAccounts() []AccountInfo
 	SetCurrentAccount(email string) error
 
 	// Config

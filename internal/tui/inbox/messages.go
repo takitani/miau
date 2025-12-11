@@ -219,3 +219,9 @@ type settingsFoldersLoadedMsg struct {
 type settingsSavedMsg struct {
 	err error
 }
+
+// Account switch message
+type accountSwitchedMsg struct {
+	email string
+	err   error
+}

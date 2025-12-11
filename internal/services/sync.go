@@ -63,6 +63,15 @@ func (s *SyncService) SetAccount(account *ports.AccountInfo) {
 	s.account = account
 }
 
+// SetIMAPAdapter updates the IMAP adapter (used when switching accounts)
+func (s *SyncService) SetIMAPAdapter(imap ports.IMAPPort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.imap = imap
+	s.status = ports.ConnectionStatusDisconnected
+	s.folders = make(map[string]*ports.Folder)
+}
+
 // Connect establishes connection to the email server
 func (s *SyncService) Connect(ctx context.Context) error {
 	s.mu.Lock()

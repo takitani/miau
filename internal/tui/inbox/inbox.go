@@ -349,6 +349,19 @@ func (m Model) saveSettingsFolders() tea.Cmd {
 	}
 }
 
+// === ACCOUNT SWITCH COMMAND ===
+
+func (m Model) switchAccount(email string) tea.Cmd {
+	var app = m.app
+	return func() tea.Msg {
+		if app == nil {
+			return accountSwitchedMsg{email: email, err: fmt.Errorf("app not available")}
+		}
+		var err = app.SetCurrentAccount(email)
+		return accountSwitchedMsg{email: email, err: err}
+	}
+}
+
 func (m Model) loadAnalytics() tea.Cmd {
 	var accountID = m.dbAccount.ID
 	var period = m.analyticsPeriod
@@ -2017,6 +2030,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Bloqueia outras teclas no modo analytics
 		}
 
+		// Account selector mode
+		if m.showAccountSelector {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "q":
+				m.showAccountSelector = false
+				m.log("👥 Seletor de contas fechado")
+				return m, nil
+			case "up", "k":
+				if m.selectedAccountIdx > 0 {
+					m.selectedAccountIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedAccountIdx < len(m.allAccounts)-1 {
+					m.selectedAccountIdx++
+				}
+				return m, nil
+			case "enter":
+				// Switch to selected account
+				var selectedAccount = m.allAccounts[m.selectedAccountIdx]
+				if selectedAccount.Email != m.account.Email {
+					m.log("🔄 Trocando para conta: %s", selectedAccount.Email)
+					m.showAccountSelector = false
+					return m, m.switchAccount(selectedAccount.Email)
+				}
+				m.showAccountSelector = false
+				return m, nil
+			}
+			return m, nil // Block other keys in account selector mode
+		}
+
 		// Settings mode
 		if m.showSettings {
 			switch msg.String() {
@@ -2661,6 +2707,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.settingsSelection = 0
 				m.log("⚙️ Abrindo configurações")
 				return m, tea.Batch(m.loadIndexState(), m.loadSettingsFolders())
+			}
+
+		case "@":
+			// Abre seletor de contas
+			if m.state == stateReady && !m.showFolders && !m.showViewer && !m.showCompose && !m.showDrafts && !m.showAI && !m.searchMode && !m.showSettings && m.app != nil {
+				m.allAccounts = m.app.GetAllAccounts()
+				if len(m.allAccounts) > 1 {
+					m.showAccountSelector = true
+					// Find current account index
+					m.selectedAccountIdx = 0
+					for i, acc := range m.allAccounts {
+						if acc.Email == m.account.Email {
+							m.selectedAccountIdx = i
+							break
+						}
+					}
+					m.log("👥 Abrindo seletor de contas (%d contas)", len(m.allAccounts))
+				} else {
+					m.log("👤 Apenas uma conta configurada")
+				}
+				return m, nil
 			}
 
 		case "p":
@@ -3432,6 +3499,36 @@ Verifique as configurações ou contate o administrador.`,
 		}
 		return m, nil
 
+	case accountSwitchedMsg:
+		if msg.err != nil {
+			m.log("❌ Erro ao trocar conta: %v", msg.err)
+			m.err = msg.err
+		} else {
+			m.log("✅ Conta trocada para: %s", msg.email)
+			// Update config account reference
+			var cfg, _ = config.Load()
+			if cfg != nil {
+				for i := range cfg.Accounts {
+					if cfg.Accounts[i].Email == msg.email {
+						m.account = &cfg.Accounts[i]
+						break
+					}
+				}
+			}
+			// Reset state and reconnect
+			m.state = stateInitDB
+			m.client = nil
+			m.dbAccount = nil
+			m.dbFolder = nil
+			m.emails = nil
+			m.mailboxes = nil
+			m.selectedEmail = 0
+			m.selectedBox = 0
+			m.currentBox = "INBOX"
+			return m, m.initDB()
+		}
+		return m, nil
+
 	case indexerTickMsg:
 		// Tick do indexador em background
 		if !m.indexerRunning || m.indexState == nil || m.indexState.Status != storage.IndexStatusRunning {
@@ -3577,6 +3674,11 @@ func (m Model) View() string {
 	// Panel de drafts
 	if m.showDrafts {
 		return m.viewDraftsPanel(baseView)
+	}
+
+	// Overlay de Account Selector
+	if m.showAccountSelector && len(m.allAccounts) > 0 {
+		return m.viewAccountSelector(baseView)
 	}
 
 	return baseView
@@ -4470,6 +4572,96 @@ func renderVerticalBar(value, max, height int) string {
 		filled = len(bars) - 1
 	}
 	return infoStyle.Render(bars[filled])
+}
+
+func (m Model) viewAccountSelector(baseView string) string {
+	var overlayStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#6C5CE7")).
+		Padding(1, 2).
+		Background(lipgloss.Color("#1a1a2e"))
+
+	var header = titleStyle.Render("👥 Selecionar Conta")
+
+	var lines []string
+	lines = append(lines, header)
+	lines = append(lines, "")
+
+	for i, acc := range m.allAccounts {
+		var indicator = "  "
+		var isCurrent = acc.Email == m.account.Email
+		if isCurrent {
+			indicator = "✓ "
+		}
+
+		var name = acc.Name
+		if name == "" {
+			name = strings.Split(acc.Email, "@")[0]
+		}
+
+		var line = fmt.Sprintf("%s%s <%s>", indicator, name, acc.Email)
+		if i == m.selectedAccountIdx {
+			if isCurrent {
+				lines = append(lines, selectedStyle.Render(" ➤ "+line+" (atual)"))
+			} else {
+				lines = append(lines, selectedStyle.Render(" ➤ "+line))
+			}
+		} else {
+			if isCurrent {
+				lines = append(lines, infoStyle.Render("   "+line+" (atual)"))
+			} else {
+				lines = append(lines, subtitleStyle.Render("   "+line))
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, subtitleStyle.Render("  ↑/↓ ou j/k: navegar • Enter: selecionar • Esc: fechar"))
+
+	var content = strings.Join(lines, "\n")
+	var overlay = overlayStyle.Render(content)
+
+	// Center overlay on screen
+	var overlayWidth = lipgloss.Width(overlay)
+	var overlayHeight = lipgloss.Height(overlay)
+	var x = (m.width - overlayWidth) / 2
+	var y = (m.height - overlayHeight) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// Render base view with overlay
+	var result = baseView
+	var baseLines = strings.Split(result, "\n")
+	var overlayLines = strings.Split(overlay, "\n")
+
+	for i, line := range overlayLines {
+		if y+i < len(baseLines) {
+			var baseLine = baseLines[y+i]
+			var runeBase = []rune(baseLine)
+
+			// Calculate visible width considering unicode
+			var prefix string
+			if x < len(runeBase) {
+				prefix = string(runeBase[:x])
+			} else {
+				prefix = baseLine + strings.Repeat(" ", x-runewidth.StringWidth(baseLine))
+			}
+
+			var suffix string
+			var afterOverlay = x + lipgloss.Width(line)
+			if afterOverlay < len(runeBase) {
+				suffix = string(runeBase[afterOverlay:])
+			}
+
+			baseLines[y+i] = prefix + line + suffix
+		}
+	}
+
+	return strings.Join(baseLines, "\n")
 }
 
 func (m Model) viewSettings() string {

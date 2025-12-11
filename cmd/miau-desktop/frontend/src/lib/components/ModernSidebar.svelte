@@ -4,9 +4,16 @@
   import TasksWidget from './TasksWidget.svelte';
   import CalendarWidget from './CalendarWidget.svelte';
   import FolderList from './FolderList.svelte';
+  import AccountSelector from './AccountSelector.svelte';
 
   export let folders = [];
   export let selectedFolder = 'INBOX';
+
+  // Handle account switch - reload the app
+  function handleAccountSwitch(event) {
+    // Reload the page to reinitialize with new account
+    window.location.reload();
+  }
 
   var sectionsExpanded = {
     tasks: true,
@@ -26,7 +33,7 @@
   class:collapsed={!$sidebarExpanded}
   style="width: {$sidebarExpanded ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH}px"
 >
-  <!-- Header with toggle -->
+  <!-- Header with toggle and account selector -->
   <div class="sidebar-header">
     <button class="toggle-btn" on:click={toggleSidebar} title={$sidebarExpanded ? 'Collapse sidebar ([)' : 'Expand sidebar ([)'}>
       {#if $sidebarExpanded}
@@ -43,6 +50,17 @@
       <span class="sidebar-title">miau</span>
     {/if}
   </div>
+
+  <!-- Account Selector -->
+  {#if $sidebarExpanded}
+    <div class="account-section">
+      <AccountSelector on:switched={handleAccountSwitch} />
+    </div>
+  {:else}
+    <div class="account-section-collapsed">
+      <AccountSelector on:switched={handleAccountSwitch} />
+    </div>
+  {/if}
 
   <div class="sidebar-content">
     <!-- Tasks Section -->
@@ -203,6 +221,34 @@
     padding: var(--space-sm);
     border-bottom: 1px solid var(--border-color);
     min-height: 48px;
+  }
+
+  .account-section {
+    padding: var(--space-xs) var(--space-sm);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .account-section-collapsed {
+    padding: var(--space-xs);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: center;
+  }
+
+  .account-section-collapsed :global(.account-selector .current-account) {
+    padding: var(--space-xs);
+    justify-content: center;
+  }
+
+  .account-section-collapsed :global(.account-selector .account-info),
+  .account-section-collapsed :global(.account-selector .chevron) {
+    display: none;
+  }
+
+  .account-section-collapsed :global(.account-selector .avatar) {
+    width: 28px;
+    height: 28px;
+    font-size: var(--font-xs);
   }
 
   .toggle-btn {

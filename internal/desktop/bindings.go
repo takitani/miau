@@ -1513,17 +1513,6 @@ func (a *App) GetAccounts() []AccountDTO {
 	return result
 }
 
-// GetCurrentAccount returns the current account
-func (a *App) GetCurrentAccount() *AccountDTO {
-	if a.account == nil {
-		return nil
-	}
-	return &AccountDTO{
-		Email: a.account.Email,
-		Name:  a.account.Name,
-	}
-}
-
 // ============================================================================
 // ANALYTICS
 // ============================================================================

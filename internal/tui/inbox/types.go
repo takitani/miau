@@ -142,6 +142,10 @@ type Model struct {
 	multiSelectMode  bool            // Modo de seleção múltipla ativo (visual mode)
 	selectedEmails   map[int64]bool  // Map de email IDs selecionados
 	selectionAnchor  int             // Índice do email âncora para seleção de range
+	// Account selector
+	showAccountSelector bool              // Overlay de seleção de conta
+	allAccounts         []ports.AccountInfo // Todas as contas disponíveis
+	selectedAccountIdx  int               // Índice da conta selecionada no overlay
 }
 
 // AnalyticsData contém todos os dados de analytics para o TUI

@@ -287,6 +287,16 @@ export function GetAccounts() {
 }
 
 /**
+ * GetAllAccounts returns all configured accounts
+ * @returns {$CancellablePromise<$models.AccountDTO[]>}
+ */
+export function GetAllAccounts() {
+    return $Call.ByID(1945405265).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType12($result);
+    }));
+}
+
+/**
  * GetAnalytics returns comprehensive analytics for a time period
  * @param {string} period
  * @returns {$CancellablePromise<$models.AnalyticsResultDTO | null>}
@@ -466,7 +476,7 @@ export function GetContactSyncStatus() {
 }
 
 /**
- * GetCurrentAccount returns the current account
+ * GetCurrentAccount returns the currently active account
  * @returns {$CancellablePromise<$models.AccountDTO | null>}
  */
 export function GetCurrentAccount() {
@@ -1020,6 +1030,15 @@ export function SendEmail(req) {
  */
 export function SetApplication(wailsApp) {
     return $Call.ByID(3015383556, wailsApp);
+}
+
+/**
+ * SetCurrentAccount switches to a different account
+ * @param {string} email
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetCurrentAccount(email) {
+    return $Call.ByID(3884816034, email);
 }
 
 /**

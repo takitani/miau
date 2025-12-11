@@ -146,6 +146,8 @@ func (a *App) setupEventForwarding() {
 			}
 		case *ports.IndexProgressEvent:
 			a.wailsApp.Event.Emit("index:progress", e.Current, e.Total)
+		case ports.AccountSwitchedEvent:
+			a.wailsApp.Event.Emit("account:switched", e.NewEmail, e.NewAccountID)
 		}
 	})
 }
@@ -404,5 +406,69 @@ func (a *App) StartOAuth2Auth() error {
 		}()
 	}
 
+	return nil
+}
+
+// ============================================================================
+// ACCOUNT OPERATIONS
+// ============================================================================
+
+// GetCurrentAccount returns the currently active account
+func (a *App) GetCurrentAccount() *AccountDTO {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.account == nil {
+		return nil
+	}
+
+	return &AccountDTO{
+		Email: a.account.Email,
+		Name:  a.account.Name,
+	}
+}
+
+// GetAllAccounts returns all configured accounts
+func (a *App) GetAllAccounts() []AccountDTO {
+	if a.application == nil {
+		return nil
+	}
+
+	var accounts = a.application.GetAllAccounts()
+	var result []AccountDTO
+	for _, acc := range accounts {
+		result = append(result, AccountDTO{
+			Email: acc.Email,
+			Name:  acc.Name,
+		})
+	}
+	return result
+}
+
+// SetCurrentAccount switches to a different account
+func (a *App) SetCurrentAccount(email string) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	slog.Info("Switching account", "email", email)
+
+	// Call the application layer to switch accounts
+	if err := a.application.SetCurrentAccount(email); err != nil {
+		slog.Error("Failed to switch account", "error", err)
+		return err
+	}
+
+	// Update local reference
+	a.mu.Lock()
+	for i := range a.cfg.Accounts {
+		if a.cfg.Accounts[i].Email == email {
+			a.account = &a.cfg.Accounts[i]
+			break
+		}
+	}
+	a.mu.Unlock()
+
+	slog.Info("Account switched successfully", "email", email)
 	return nil
 }

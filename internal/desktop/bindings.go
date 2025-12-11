@@ -15,7 +15,6 @@ import (
 	"github.com/opik/miau/internal/ports"
 	"github.com/opik/miau/internal/services"
 	"github.com/opik/miau/internal/storage"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -785,20 +784,24 @@ func (a *App) SyncThreadsFromGmail() (updated int, err error) {
 		// Negative processed = listing phase (page number), total = accumulated count
 		if processed < 0 {
 			log.Printf("[SyncThreadsFromGmail] listing messages: page %d (%d found)", -processed, total)
-			runtime.EventsEmit(a.ctx, "thread-sync-progress", map[string]interface{}{
-				"phase":     "listing",
-				"page":      -processed,
-				"found":     total, // accumulated count
-				"processed": 0,
-				"total":     0,
-			})
+			if a.wailsApp != nil {
+				a.wailsApp.Event.Emit("thread-sync-progress", map[string]interface{}{
+					"phase":     "listing",
+					"page":      -processed,
+					"found":     total, // accumulated count
+					"processed": 0,
+					"total":     0,
+				})
+			}
 		} else {
 			log.Printf("[SyncThreadsFromGmail] fetching metadata: %d/%d", processed, total)
-			runtime.EventsEmit(a.ctx, "thread-sync-progress", map[string]interface{}{
-				"phase":     "fetching",
-				"processed": processed,
-				"total":     total,
-			})
+			if a.wailsApp != nil {
+				a.wailsApp.Event.Emit("thread-sync-progress", map[string]interface{}{
+					"phase":     "fetching",
+					"processed": processed,
+					"total":     total,
+				})
+			}
 		}
 	})
 
@@ -1337,11 +1340,13 @@ func (a *App) SaveAttachmentDialog(attachmentID int64, filename string) (path st
 		}
 	}()
 
-	// Import runtime for dialog
-	var savePath, dialogErr = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: filename,
-		Title:           "Salvar anexo",
-	})
+	// Show save file dialog
+	if a.wailsApp == nil {
+		return "", fmt.Errorf("wails app not initialized")
+	}
+	savePath, dialogErr := a.wailsApp.Dialog.SaveFile().
+		SetFilename(filename).
+		PromptForSingleSelection()
 	if dialogErr != nil {
 		return "", dialogErr
 	}
@@ -1420,11 +1425,13 @@ func (a *App) SaveAttachmentByPart(emailID int64, partNumber string, filename st
 		return "", fmt.Errorf("attachment service not available")
 	}
 
-	// Open save dialog
-	var savePath, dialogErr = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: filename,
-		Title:           "Salvar anexo",
-	})
+	// Show save file dialog
+	if a.wailsApp == nil {
+		return "", fmt.Errorf("wails app not initialized")
+	}
+	savePath, dialogErr := a.wailsApp.Dialog.SaveFile().
+		SetFilename(filename).
+		PromptForSingleSelection()
 	if dialogErr != nil {
 		return "", dialogErr
 	}

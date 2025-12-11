@@ -14,7 +14,7 @@ import {
   ListGoogleCalendars,
   SyncFromGoogleCalendar,
   GetGoogleCalendarEvents
-} from '../wailsjs/wailsjs/go/desktop/App.js';
+} from '../../../bindings/github.com/opik/miau/internal/desktop/app.js';
 
 // Current week start date (Monday)
 export const currentWeekStart = writable(getWeekStart(new Date()));

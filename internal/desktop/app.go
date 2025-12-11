@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"sync"
 
@@ -11,13 +12,13 @@ import (
 	"github.com/opik/miau/internal/auth"
 	"github.com/opik/miau/internal/config"
 	"github.com/opik/miau/internal/ports"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // App is the main Wails application struct
 // All public methods are exposed to the frontend
 type App struct {
-	ctx           context.Context
+	wailsApp      *application.App
 	application   ports.App
 	cfg           *config.Config
 	account       *config.Account
@@ -36,15 +37,21 @@ func NewApp() *App {
 	}
 }
 
-// startup is called when the app starts
-func (a *App) Startup(ctx context.Context) {
-	a.ctx = ctx
+// SetApplication stores the Wails app reference for events/dialogs
+func (a *App) SetApplication(wailsApp *application.App) {
+	a.wailsApp = wailsApp
 
+	// Initialize the application on startup
+	a.startup()
+}
+
+// startup initializes the app (called from SetApplication)
+func (a *App) startup() {
 	// Load config
 	var err error
 	a.cfg, err = config.Load()
 	if err != nil || a.cfg == nil || len(a.cfg.Accounts) == 0 {
-		runtime.LogError(ctx, "No config found, need setup")
+		slog.Error("No config found, need setup")
 		return
 	}
 
@@ -53,48 +60,38 @@ func (a *App) Startup(ctx context.Context) {
 	// Create application instance
 	a.application, err = app.New(a.cfg, a.account, false)
 	if err != nil {
-		runtime.LogErrorf(ctx, "Failed to create app: %v", err)
+		slog.Error("Failed to create app", "error", err)
 		return
 	}
 
 	// Start application (initializes DB, services)
 	if err := a.application.Start(); err != nil {
-		runtime.LogErrorf(ctx, "Failed to start app: %v", err)
+		slog.Error("Failed to start app", "error", err)
 		return
 	}
 
 	// Pre-load signature to avoid crash when opening compose modal
 	// This moves the API call to startup instead of UI interaction
 	go func() {
-		if err := a.application.Send().LoadSignature(ctx); err != nil {
-			runtime.LogErrorf(ctx, "Failed to load signature: %v", err)
+		if err := a.application.Send().LoadSignature(context.Background()); err != nil {
+			slog.Error("Failed to load signature", "error", err)
 		} else {
-			runtime.LogInfo(ctx, "Signature loaded successfully")
+			slog.Info("Signature loaded successfully")
 		}
 	}()
 
 	// Setup event forwarding from Go to frontend
 	a.setupEventForwarding()
 
-	runtime.LogInfo(ctx, "Desktop app started successfully")
+	slog.Info("Desktop app started successfully")
 }
 
-// shutdown is called when the app terminates
-func (a *App) Shutdown(ctx context.Context) {
+// Shutdown is called when the app terminates
+func (a *App) Shutdown() {
 	if a.application != nil {
 		a.application.Stop()
 	}
-	runtime.LogInfo(ctx, "Desktop app shutdown")
-}
-
-// domReady is called after the frontend DOM is ready
-func (a *App) DomReady(ctx context.Context) {
-	runtime.LogInfo(ctx, "Frontend DOM ready")
-}
-
-// beforeClose is called when the user tries to close the window
-func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
-	return false // Allow close
+	slog.Info("Desktop app shutdown")
 }
 
 // setupEventForwarding subscribes to app events and forwards to frontend
@@ -104,47 +101,51 @@ func (a *App) setupEventForwarding() {
 	}
 
 	a.application.Events().SubscribeAll(func(evt ports.Event) {
+		if a.wailsApp == nil {
+			return
+		}
+
 		switch e := evt.(type) {
 		case *ports.NewEmailEvent:
-			runtime.EventsEmit(a.ctx, "email:new", a.emailMetadataToDTO(&e.Email))
+			a.wailsApp.Event.Emit("email:new", a.emailMetadataToDTO(&e.Email))
 		case *ports.EmailReadEvent:
-			runtime.EventsEmit(a.ctx, "email:read", e.EmailID, e.Read)
+			a.wailsApp.Event.Emit("email:read", e.EmailID, e.Read)
 		case *ports.SyncStartedEvent:
-			runtime.EventsEmit(a.ctx, "sync:started", e.Folder)
+			a.wailsApp.Event.Emit("sync:started", e.Folder)
 		case *ports.SyncCompletedEvent:
 			var newCount = 0
 			if e.Result != nil {
 				newCount = e.Result.NewEmails
 			}
-			runtime.EventsEmit(a.ctx, "sync:completed", e.Folder, newCount)
+			a.wailsApp.Event.Emit("sync:completed", e.Folder, newCount)
 		case *ports.SyncErrorEvent:
-			runtime.EventsEmit(a.ctx, "sync:error", e.Error.Error())
+			a.wailsApp.Event.Emit("sync:error", e.Error.Error())
 		case *ports.ConnectedEvent:
 			a.mu.Lock()
 			a.connected = true
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "connection:connected")
+			a.wailsApp.Event.Emit("connection:connected")
 		case *ports.DisconnectedEvent:
 			a.mu.Lock()
 			a.connected = false
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "connection:disconnected", e.Reason)
+			a.wailsApp.Event.Emit("connection:disconnected", e.Reason)
 		case *ports.ConnectErrorEvent:
-			runtime.EventsEmit(a.ctx, "connection:error", e.Error.Error())
+			a.wailsApp.Event.Emit("connection:error", e.Error.Error())
 		case *ports.SendCompletedEvent:
 			var messageID = ""
 			if e.Result != nil {
 				messageID = e.Result.MessageID
 			}
-			runtime.EventsEmit(a.ctx, "send:completed", messageID)
+			a.wailsApp.Event.Emit("send:completed", messageID)
 		case *ports.BounceEvent:
-			runtime.EventsEmit(a.ctx, "bounce:detected", e.Bounce.OriginalMessageID, e.Bounce.Reason)
+			a.wailsApp.Event.Emit("bounce:detected", e.Bounce.OriginalMessageID, e.Bounce.Reason)
 		case *ports.BatchCreatedEvent:
 			if e.Operation != nil {
-				runtime.EventsEmit(a.ctx, "batch:created", e.Operation.ID, e.Operation.Description)
+				a.wailsApp.Event.Emit("batch:created", e.Operation.ID, e.Operation.Description)
 			}
 		case *ports.IndexProgressEvent:
-			runtime.EventsEmit(a.ctx, "index:progress", e.Current, e.Total)
+			a.wailsApp.Event.Emit("index:progress", e.Current, e.Total)
 		}
 	})
 }
@@ -246,37 +247,58 @@ func (a *App) GetAppInfo() map[string]string {
 
 // ShowError displays an error dialog
 func (a *App) ShowError(title, message string) {
-	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    runtime.ErrorDialog,
-		Title:   title,
-		Message: message,
-	})
+	if a.wailsApp == nil {
+		return
+	}
+	a.wailsApp.Dialog.Error().
+		SetTitle(title).
+		SetMessage(message).
+		Show()
 }
 
 // ShowInfo displays an info dialog
 func (a *App) ShowInfo(title, message string) {
-	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    runtime.InfoDialog,
-		Title:   title,
-		Message: message,
-	})
+	if a.wailsApp == nil {
+		return
+	}
+	a.wailsApp.Dialog.Info().
+		SetTitle(title).
+		SetMessage(message).
+		Show()
 }
 
 // Confirm shows a confirmation dialog
 func (a *App) Confirm(title, message string) bool {
-	result, _ := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:          runtime.QuestionDialog,
-		Title:         title,
-		Message:       message,
-		Buttons:       []string{"Yes", "No"},
-		DefaultButton: "No",
+	if a.wailsApp == nil {
+		return false
+	}
+
+	resultChan := make(chan bool, 1)
+
+	dialog := a.wailsApp.Dialog.Question().
+		SetTitle(title).
+		SetMessage(message)
+
+	yesBtn := dialog.AddButton("Yes")
+	yesBtn.OnClick(func() {
+		resultChan <- true
 	})
-	return result == "Yes"
+
+	noBtn := dialog.AddButton("No")
+	noBtn.OnClick(func() {
+		resultChan <- false
+	})
+	noBtn.SetAsCancel()
+
+	dialog.Show()
+
+	return <-resultChan
 }
 
 // OpenURL opens a URL in the default browser
 func (a *App) OpenURL(url string) {
-	runtime.BrowserOpenURL(a.ctx, url)
+	// Use exec to open URL in default browser
+	exec.Command("xdg-open", url).Start()
 }
 
 // SwitchToTerminal opens the TUI version in a terminal
@@ -300,17 +322,13 @@ func (a *App) SwitchToTerminal() error {
 		var cmd = exec.Command(t.cmd, t.args...)
 		err = cmd.Start()
 		if err == nil {
-			runtime.LogInfo(a.ctx, "Launched TUI in "+t.cmd)
+			slog.Info("Launched TUI", "terminal", t.cmd)
 			return nil
 		}
 	}
 
 	// If no terminal found, show error
-	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    runtime.ErrorDialog,
-		Title:   "Terminal não encontrado",
-		Message: "Não foi possível encontrar um terminal. Instale gnome-terminal, konsole, alacritty ou xterm.",
-	})
+	a.ShowError("Terminal não encontrado", "Não foi possível encontrar um terminal. Instale gnome-terminal, konsole, alacritty ou xterm.")
 
 	return fmt.Errorf("no terminal emulator found")
 }
@@ -348,40 +366,40 @@ func (a *App) StartOAuth2Auth() error {
 		return fmt.Errorf("OAuth2 not configured for this account")
 	}
 
-	runtime.LogInfo(a.ctx, "Starting OAuth2 authentication flow...")
+	slog.Info("Starting OAuth2 authentication flow...")
 
 	var oauth2Cfg = auth.GetOAuth2Config(a.account.OAuth2.ClientID, a.account.OAuth2.ClientSecret)
 
 	// This will open browser and wait for callback
 	token, err := auth.AuthenticateWithBrowser(oauth2Cfg)
 	if err != nil {
-		runtime.LogErrorf(a.ctx, "OAuth2 authentication failed: %v", err)
+		slog.Error("OAuth2 authentication failed", "error", err)
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Save token
 	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), a.account.Email)
 	if err := auth.SaveToken(tokenPath, token); err != nil {
-		runtime.LogErrorf(a.ctx, "Failed to save token: %v", err)
+		slog.Error("Failed to save token", "error", err)
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
-	runtime.LogInfo(a.ctx, "OAuth2 token saved successfully")
+	slog.Info("OAuth2 token saved successfully")
 
 	// Reinitialize Gmail adapter in the application
 	if coreApp, ok := a.application.(*app.Application); ok {
 		if err := coreApp.ReinitializeGmailAdapter(); err != nil {
-			runtime.LogErrorf(a.ctx, "Failed to reinitialize Gmail adapter: %v", err)
+			slog.Error("Failed to reinitialize Gmail adapter", "error", err)
 			return fmt.Errorf("failed to initialize Gmail API: %w", err)
 		}
-		runtime.LogInfo(a.ctx, "Gmail API adapter reinitialized successfully")
+		slog.Info("Gmail API adapter reinitialized successfully")
 
 		// Reload signature with new adapter
 		go func() {
-			if err := a.application.Send().LoadSignature(a.ctx); err != nil {
-				runtime.LogErrorf(a.ctx, "Failed to reload signature: %v", err)
+			if err := a.application.Send().LoadSignature(context.Background()); err != nil {
+				slog.Error("Failed to reload signature", "error", err)
 			} else {
-				runtime.LogInfo(a.ctx, "Signature reloaded successfully")
+				slog.Info("Signature reloaded successfully")
 			}
 		}()
 	}

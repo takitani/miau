@@ -1,4 +1,7 @@
 <script>
+  // Import Wails v3 compatibility layer first (sets up window.runtime)
+  import './lib/wails-compat.js';
+
   import { onMount } from 'svelte';
   import EmailList from './lib/components/EmailList.svelte';
   import FolderList from './lib/components/FolderList.svelte';
@@ -24,7 +27,7 @@
   import ThreadView from './lib/components/ThreadView.svelte';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
   import { layoutMode, initLayoutPreferences } from './lib/stores/layout.js';
-  import { NeedsOAuth2Auth, StartOAuth2Auth } from './lib/wailsjs/wailsjs/go/desktop/App.js';
+  import { NeedsOAuth2Auth, StartOAuth2Auth } from '../bindings/github.com/opik/miau/internal/desktop/app.js';
 
   // Auth state
   var needsAuth = false;

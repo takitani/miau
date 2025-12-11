@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { GetTasks, GetPendingTasks, CreateTask, UpdateTask, ToggleTaskComplete, DeleteTask, GetTaskCounts } from '../wailsjs/wailsjs/go/desktop/App.js';
+import { GetTasks, GetPendingTasks, CreateTask, UpdateTask, ToggleTaskComplete, DeleteTask, GetTaskCounts } from '../../../bindings/github.com/opik/miau/internal/desktop/app.js';
 
 // Task list store
 export const tasks = writable([]);

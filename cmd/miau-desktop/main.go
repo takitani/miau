@@ -2,15 +2,11 @@ package main
 
 import (
 	"embed"
+	"log/slog"
 	"os"
 
 	"github.com/opik/miau/internal/desktop"
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/linux"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
@@ -29,69 +25,60 @@ func main() {
 		}
 	}
 
-	// Create an instance of the app structure
-	var app = desktop.NewApp()
+	// Create the desktop app service
+	var desktopApp = desktop.NewApp()
 
 	// Create application with options
-	var err = wails.Run(&options.App{
+	app := application.New(application.Options{
+		Name:        "miau",
+		Description: "Mail Intelligence Assistant Utility",
+		Services: []application.Service{
+			application.NewService(desktopApp),
+		},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		Logger: application.DefaultLogger(slog.LevelInfo),
+		OnShutdown: func() {
+			desktopApp.Shutdown()
+		},
+	})
+
+	// Store app reference in desktop for events/dialogs
+	desktopApp.SetApplication(app)
+
+	// Create main window
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "miau",
 		Width:     1200,
 		Height:    800,
 		MinWidth:  800,
 		MinHeight: 600,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+		URL:       "/",
+		BackgroundColour: application.NewRGBA(27, 38, 54, 255),
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 50,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.Startup,
-		OnShutdown:       app.Shutdown,
-		OnDomReady:       app.DomReady,
-		OnBeforeClose:    app.BeforeClose,
-		Bind: []interface{}{
-			app,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Mica,
 		},
-		// Enable devtools (F12 to open, --devtools flag to auto-open)
-		Debug: options.Debug{
-			OpenInspectorOnStartup: openDevtools,
-		},
-		// Linux specific options
-		Linux: &linux.Options{
+		Linux: application.LinuxWindow{
 			Icon:                icon,
 			WindowIsTranslucent: false,
-			WebviewGpuPolicy:    linux.WebviewGpuPolicyAlways,
-			ProgramName:         "miau",
+			WebviewGpuPolicy:    application.WebviewGpuPolicyAlways,
 		},
-		// Windows specific options
-		Windows: &windows.Options{
-			WebviewIsTransparent:              false,
-			WindowIsTranslucent:               false,
-			DisableWindowIcon:                 false,
-			DisableFramelessWindowDecorations: false,
-			WebviewUserDataPath:               "",
-			WebviewBrowserPath:                "",
-			Theme:                             windows.SystemDefault,
-		},
-		// Mac specific options
-		Mac: &mac.Options{
-			TitleBar: &mac.TitleBar{
-				TitlebarAppearsTransparent: true,
-				HideTitle:                  false,
-				HideTitleBar:               false,
-				FullSizeContent:            false,
-				UseToolbar:                 false,
-				HideToolbarSeparator:       true,
-			},
-			Appearance:           mac.NSAppearanceNameDarkAqua,
-			WebviewIsTransparent: true,
-			WindowIsTranslucent:  false,
-			About: &mac.AboutInfo{
-				Title:   "miau",
-				Message: "Mail Intelligence Assistant Utility\n\nA local-first email client with AI integration.",
-			},
-		},
+		DevToolsEnabled:        true,
+		OpenInspectorOnStartup: openDevtools,
 	})
 
-	if err != nil {
-		println("Error:", err.Error())
+	// Run the application
+	if err := app.Run(); err != nil {
+		slog.Error("Application error", "error", err)
+		os.Exit(1)
 	}
 }

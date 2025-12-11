@@ -78,6 +78,16 @@ type ComposeConfig struct {
 	SendDelaySeconds int    `yaml:"send_delay_seconds" mapstructure:"send_delay_seconds"` // 0-60, default 30
 }
 
+// ScheduleConfig holds scheduled send settings
+type ScheduleConfig struct {
+	Enabled          bool   `yaml:"enabled" mapstructure:"enabled"`                     // Enable scheduled send feature
+	CheckInterval    string `yaml:"check_interval" mapstructure:"check_interval"`       // How often to check for due emails (default: "1m")
+	DefaultMorning   string `yaml:"default_morning" mapstructure:"default_morning"`     // Default morning time (default: "09:00")
+	DefaultAfternoon string `yaml:"default_afternoon" mapstructure:"default_afternoon"` // Default afternoon time (default: "14:00")
+	NotifyOnSend     bool   `yaml:"notify_on_send" mapstructure:"notify_on_send"`       // Notify when scheduled email is sent
+	NotifyOnFail     bool   `yaml:"notify_on_fail" mapstructure:"notify_on_fail"`       // Notify when scheduled email fails
+}
+
 // BasecampConfig holds Basecamp API integration settings
 type BasecampConfig struct {
 	Enabled      bool   `yaml:"enabled" mapstructure:"enabled"`
@@ -87,12 +97,13 @@ type BasecampConfig struct {
 }
 
 type Config struct {
-	Accounts []Account       `yaml:"accounts" mapstructure:"accounts"`
-	Storage  StorageConfig   `yaml:"storage" mapstructure:"storage"`
-	Sync     SyncConfig      `yaml:"sync" mapstructure:"sync"`
-	UI       UIConfig        `yaml:"ui" mapstructure:"ui"`
-	Compose  ComposeConfig   `yaml:"compose" mapstructure:"compose"`
-	Basecamp *BasecampConfig `yaml:"basecamp,omitempty" mapstructure:"basecamp"`
+	Accounts []Account        `yaml:"accounts" mapstructure:"accounts"`
+	Storage  StorageConfig    `yaml:"storage" mapstructure:"storage"`
+	Sync     SyncConfig       `yaml:"sync" mapstructure:"sync"`
+	UI       UIConfig         `yaml:"ui" mapstructure:"ui"`
+	Compose  ComposeConfig    `yaml:"compose" mapstructure:"compose"`
+	Schedule ScheduleConfig   `yaml:"schedule" mapstructure:"schedule"`
+	Basecamp *BasecampConfig  `yaml:"basecamp,omitempty" mapstructure:"basecamp"`
 }
 
 var cfg *Config
@@ -131,6 +142,12 @@ func Load() (*Config, error) {
 	viper.SetDefault("ui.debug", false)
 	viper.SetDefault("compose.format", "html")
 	viper.SetDefault("compose.send_delay_seconds", 30)
+	viper.SetDefault("schedule.enabled", true)
+	viper.SetDefault("schedule.check_interval", "1m")
+	viper.SetDefault("schedule.default_morning", "09:00")
+	viper.SetDefault("schedule.default_afternoon", "14:00")
+	viper.SetDefault("schedule.notify_on_send", true)
+	viper.SetDefault("schedule.notify_on_fail", true)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -181,6 +198,14 @@ func DefaultConfig() *Config {
 		Compose: ComposeConfig{
 			Format:           "html",
 			SendDelaySeconds: 30,
+		},
+		Schedule: ScheduleConfig{
+			Enabled:          true,
+			CheckInterval:    "1m",
+			DefaultMorning:   "09:00",
+			DefaultAfternoon: "14:00",
+			NotifyOnSend:     true,
+			NotifyOnFail:     true,
 		},
 		Basecamp: nil, // Disabled by default
 	}

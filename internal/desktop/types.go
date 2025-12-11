@@ -86,6 +86,30 @@ type DraftDTO struct {
 	ReplyToID   int64    `json:"replyToId,omitempty"`
 }
 
+// ScheduledDraftDTO represents a scheduled draft email
+type ScheduledDraftDTO struct {
+	ID              int64      `json:"id"`
+	To              []string   `json:"to"`
+	Cc              []string   `json:"cc"`
+	Bcc             []string   `json:"bcc"`
+	Subject         string     `json:"subject"`
+	BodyHTML        string     `json:"bodyHtml"`
+	BodyText        string     `json:"bodyText"`
+	Status          string     `json:"status"`
+	ScheduledSendAt *time.Time `json:"scheduledSendAt,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	ReplyToID       int64      `json:"replyToId,omitempty"`
+}
+
+// SchedulePresetsDTO represents schedule presets for the frontend
+type SchedulePresetsDTO struct {
+	TomorrowMorning   time.Time `json:"tomorrowMorning"`
+	TomorrowAfternoon time.Time `json:"tomorrowAfternoon"`
+	MondayMorning     time.Time `json:"mondayMorning"`
+	MorningTime       string    `json:"morningTime"`
+	AfternoonTime     string    `json:"afternoonTime"`
+}
+
 // ConnectionStatus represents IMAP connection status
 type ConnectionStatus struct {
 	Connected    bool      `json:"connected"`

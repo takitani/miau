@@ -998,6 +998,140 @@ func (a *App) SendDraft(id int64) (*SendResult, error) {
 }
 
 // ============================================================================
+// SCHEDULED SEND
+// ============================================================================
+
+// ScheduleDraft schedules a draft for sending at a specific time
+func (a *App) ScheduleDraft(id int64, sendAtUnix int64) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+	return a.application.Draft().ScheduleDraft(context.Background(), id, &sendAtUnix)
+}
+
+// CancelScheduledDraft cancels a scheduled draft (converts back to regular draft)
+func (a *App) CancelScheduledDraft(id int64) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+	return a.application.Draft().CancelScheduledDraft(context.Background(), id)
+}
+
+// GetScheduledDrafts returns all scheduled drafts
+func (a *App) GetScheduledDrafts() ([]ScheduledDraftDTO, error) {
+	if a.application == nil {
+		return nil, nil
+	}
+
+	var drafts, err = a.application.Draft().GetScheduledDrafts(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ScheduledDraftDTO
+	for _, d := range drafts {
+		result = append(result, *a.scheduledDraftToDTO(&d))
+	}
+	return result, nil
+}
+
+// GetSchedulePresets returns the schedule presets based on config
+func (a *App) GetSchedulePresets() (*SchedulePresetsDTO, error) {
+	var cfg, err = config.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	var now = time.Now()
+	var loc = now.Location()
+
+	// Parse morning and afternoon times from config
+	var morningHour, morningMin = 9, 0
+	var afternoonHour, afternoonMin = 14, 0
+	if cfg.Schedule.DefaultMorning != "" {
+		if h, m, err := parseTimeStr(cfg.Schedule.DefaultMorning); err == nil {
+			morningHour, morningMin = h, m
+		}
+	}
+	if cfg.Schedule.DefaultAfternoon != "" {
+		if h, m, err := parseTimeStr(cfg.Schedule.DefaultAfternoon); err == nil {
+			afternoonHour, afternoonMin = h, m
+		}
+	}
+
+	// Calculate preset times
+	var tomorrowMorning = time.Date(now.Year(), now.Month(), now.Day()+1,
+		morningHour, morningMin, 0, 0, loc)
+	var tomorrowAfternoon = time.Date(now.Year(), now.Month(), now.Day()+1,
+		afternoonHour, afternoonMin, 0, 0, loc)
+
+	var daysUntilMonday = (8 - int(now.Weekday())) % 7
+	if daysUntilMonday == 0 {
+		daysUntilMonday = 7
+	}
+	var mondayMorning = time.Date(now.Year(), now.Month(), now.Day()+daysUntilMonday,
+		morningHour, morningMin, 0, 0, loc)
+
+	return &SchedulePresetsDTO{
+		TomorrowMorning:   tomorrowMorning,
+		TomorrowAfternoon: tomorrowAfternoon,
+		MondayMorning:     mondayMorning,
+		MorningTime:       cfg.Schedule.DefaultMorning,
+		AfternoonTime:     cfg.Schedule.DefaultAfternoon,
+	}, nil
+}
+
+// parseTimeStr parses a time string like "09:00" or "14:30"
+func parseTimeStr(t string) (int, int, error) {
+	if len(t) < 5 {
+		return 0, 0, fmt.Errorf("invalid time format")
+	}
+	var hour = int(t[0]-'0')*10 + int(t[1]-'0')
+	var min = int(t[3]-'0')*10 + int(t[4]-'0')
+	if hour < 0 || hour > 23 || min < 0 || min > 59 {
+		return 0, 0, fmt.Errorf("invalid time range")
+	}
+	return hour, min, nil
+}
+
+// scheduledDraftToDTO converts ports.Draft to ScheduledDraftDTO
+func (a *App) scheduledDraftToDTO(draft *ports.Draft) *ScheduledDraftDTO {
+	if draft == nil {
+		return nil
+	}
+
+	var to, cc, bcc []string
+	if draft.ToAddresses != "" {
+		to = strings.Split(draft.ToAddresses, ", ")
+	}
+	if draft.CcAddresses != "" {
+		cc = strings.Split(draft.CcAddresses, ", ")
+	}
+	if draft.BccAddresses != "" {
+		bcc = strings.Split(draft.BccAddresses, ", ")
+	}
+
+	var replyToID int64
+	if draft.ReplyToEmailID != nil {
+		replyToID = *draft.ReplyToEmailID
+	}
+
+	return &ScheduledDraftDTO{
+		ID:              draft.ID,
+		To:              to,
+		Cc:              cc,
+		Bcc:             bcc,
+		Subject:         draft.Subject,
+		BodyHTML:        draft.BodyHTML,
+		BodyText:        draft.BodyText,
+		Status:          string(draft.Status),
+		ScheduledSendAt: draft.ScheduledSendAt,
+		CreatedAt:       draft.CreatedAt,
+		ReplyToID:       replyToID,
+	}
+}
+
+// ============================================================================
 // AI INTEGRATION
 // ============================================================================
 

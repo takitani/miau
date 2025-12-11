@@ -61,6 +61,17 @@ func New(account *config.Account, debug bool, app ...ports.App) Model {
 	searchInput.CharLimit = 100
 	searchInput.Width = 40
 
+	// Schedule inputs
+	var scheduleDate = textinput.New()
+	scheduleDate.Placeholder = "YYYY-MM-DD"
+	scheduleDate.CharLimit = 10
+	scheduleDate.Width = 12
+
+	var scheduleTime = textinput.New()
+	scheduleTime.Placeholder = "HH:MM"
+	scheduleTime.CharLimit = 5
+	scheduleTime.Width = 6
+
 	var s = spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
@@ -83,23 +94,25 @@ func New(account *config.Account, debug bool, app ...ports.App) Model {
 	}
 
 	return Model{
-		account:           account,
-		state:             stateInitDB,
-		currentBox:        "INBOX",
-		showFolders:       false,
-		foldersWidth:      25, // Default folders panel width
-		passwordInput:     input,
-		aiInput:           aiInput,
-		spinner:           s,
-		composeTo:         composeTo,
-		composeSubject:    composeSubject,
-		searchInput:       searchInput,
-		debugMode:         debug,
-		debugLogs:         debugLogs,
-		imageCapabilities: &imgCaps,
-		imageAttachments:  []Attachment{},
-		app:               application,
-		selectedEmails:    make(map[int64]bool), // Initialize multi-selection map
+		account:            account,
+		state:              stateInitDB,
+		currentBox:         "INBOX",
+		showFolders:        false,
+		foldersWidth:       25, // Default folders panel width
+		passwordInput:      input,
+		aiInput:            aiInput,
+		spinner:            s,
+		composeTo:          composeTo,
+		composeSubject:     composeSubject,
+		searchInput:        searchInput,
+		scheduleCustomDate: scheduleDate,
+		scheduleCustomTime: scheduleTime,
+		debugMode:          debug,
+		debugLogs:          debugLogs,
+		imageCapabilities:  &imgCaps,
+		imageAttachments:   []Attachment{},
+		app:                application,
+		selectedEmails:     make(map[int64]bool), // Initialize multi-selection map
 	}
 }
 
@@ -1308,6 +1321,146 @@ func (m Model) createScheduledDraft() tea.Cmd {
 	}
 }
 
+// createScheduledDraftWithTime creates a draft and schedules it for a specific time
+func (m Model) createScheduledDraftWithTime() tea.Cmd {
+	// Copy values for goroutine
+	var selection = m.scheduleSelection
+	var customDate = m.scheduleCustomDate.Value()
+	var customTime = m.scheduleCustomTime.Value()
+
+	return func() tea.Msg {
+		var cfg, err = config.Load()
+		if err != nil {
+			return draftCreatedMsg{err: err}
+		}
+
+		var to = m.composeTo.Value()
+		var subject = m.composeSubject.Value()
+		var bodyText = m.composeBodyText
+
+		// Determina formato e prepara corpo
+		var isHTML = cfg.Compose.Format != "plain"
+		var bodyHTML string
+
+		if isHTML {
+			bodyHTML = "<html><body>" + strings.ReplaceAll(bodyText, "\n", "<br>") + "</body></html>"
+			// Adiciona assinatura HTML se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.HTML != "" {
+				bodyHTML = strings.Replace(bodyHTML, "</body></html>",
+					"<br><br>"+m.account.Signature.HTML+"</body></html>", 1)
+			}
+		} else {
+			// Adiciona assinatura texto se configurada
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.Text != "" {
+				bodyText = bodyText + "\n\n--\n" + m.account.Signature.Text
+			}
+		}
+
+		// Threading headers
+		var inReplyTo, references string
+		var replyToEmailID sql.NullInt64
+		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
+			inReplyTo = m.composeReplyTo.MessageID.String
+			references = m.composeReplyTo.MessageID.String
+			replyToEmailID = sql.NullInt64{Int64: m.composeReplyTo.ID, Valid: true}
+		}
+
+		// Classificação
+		var classification string
+		if m.composeClassification > 0 && m.composeClassification < len(smtp.Classifications) {
+			classification = smtp.Classifications[m.composeClassification]
+		}
+
+		// Calculate send time based on selection
+		var sendAt time.Time
+		var now = time.Now()
+		var loc = now.Location()
+
+		// Parse morning and afternoon times from config
+		var morningHour, morningMin = 9, 0
+		var afternoonHour, afternoonMin = 14, 0
+		if cfg.Schedule.DefaultMorning != "" {
+			if h, m, err := parseTimeConfig(cfg.Schedule.DefaultMorning); err == nil {
+				morningHour, morningMin = h, m
+			}
+		}
+		if cfg.Schedule.DefaultAfternoon != "" {
+			if h, m, err := parseTimeConfig(cfg.Schedule.DefaultAfternoon); err == nil {
+				afternoonHour, afternoonMin = h, m
+			}
+		}
+
+		switch selection {
+		case 0: // Tomorrow morning
+			sendAt = time.Date(now.Year(), now.Month(), now.Day()+1,
+				morningHour, morningMin, 0, 0, loc)
+		case 1: // Tomorrow afternoon
+			sendAt = time.Date(now.Year(), now.Month(), now.Day()+1,
+				afternoonHour, afternoonMin, 0, 0, loc)
+		case 2: // Monday morning
+			var daysUntilMonday = (8 - int(now.Weekday())) % 7
+			if daysUntilMonday == 0 {
+				daysUntilMonday = 7
+			}
+			sendAt = time.Date(now.Year(), now.Month(), now.Day()+daysUntilMonday,
+				morningHour, morningMin, 0, 0, loc)
+		case 3: // Custom date/time
+			// Parse custom date and time
+			var parsedDate, dateErr = time.ParseInLocation("2006-01-02", customDate, loc)
+			if dateErr != nil {
+				return draftCreatedMsg{err: fmt.Errorf("data inválida: %s", customDate)}
+			}
+			var hour, minute = 9, 0
+			if customTime != "" {
+				var h, m, timeErr = parseTimeConfig(customTime)
+				if timeErr != nil {
+					return draftCreatedMsg{err: fmt.Errorf("hora inválida: %s", customTime)}
+				}
+				hour, minute = h, m
+			}
+			sendAt = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(),
+				hour, minute, 0, 0, loc)
+		}
+
+		// Cria draft
+		var draft = &storage.Draft{
+			AccountID:        m.dbAccount.ID,
+			ToAddresses:      to,
+			Subject:          subject,
+			BodyHTML:         sql.NullString{String: bodyHTML, Valid: bodyHTML != ""},
+			BodyText:         sql.NullString{String: bodyText, Valid: bodyText != ""},
+			Classification:   sql.NullString{String: classification, Valid: classification != ""},
+			InReplyTo:        sql.NullString{String: inReplyTo, Valid: inReplyTo != ""},
+			ReferenceIDs:     sql.NullString{String: references, Valid: references != ""},
+			ReplyToEmailID:   replyToEmailID,
+			Status:           storage.DraftStatusScheduled,
+			ScheduledSendAt:  sql.NullTime{Time: sendAt, Valid: true},
+			GenerationSource: "manual",
+		}
+
+		var draftID, err2 = storage.CreateDraft(draft)
+		if err2 != nil {
+			return draftCreatedMsg{err: err2}
+		}
+
+		draft.ID = draftID
+		return draftScheduledMsg{draft: draft, sendAt: sendAt, err: nil}
+	}
+}
+
+// parseTimeConfig parses a time string like "09:00" or "14:30"
+func parseTimeConfig(t string) (int, int, error) {
+	if len(t) < 5 {
+		return 0, 0, fmt.Errorf("invalid time format")
+	}
+	var hour = int(t[0]-'0')*10 + int(t[1]-'0')
+	var min = int(t[3]-'0')*10 + int(t[4]-'0')
+	if hour < 0 || hour > 23 || min < 0 || min > 59 {
+		return 0, 0, fmt.Errorf("invalid time range")
+	}
+	return hour, min, nil
+}
+
 // sendDraft envia um draft específico
 func (m Model) sendDraft(draftID int64) tea.Cmd {
 	return func() tea.Msg {
@@ -2272,6 +2425,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Schedule modal (inside compose)
+		if m.showScheduleModal {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.showScheduleModal = false
+				return m, nil
+			case "up", "k":
+				if m.scheduleSelection > 0 {
+					m.scheduleSelection--
+				}
+				return m, nil
+			case "down", "j":
+				if m.scheduleSelection < 3 {
+					m.scheduleSelection++
+				}
+				return m, nil
+			case "1":
+				m.scheduleSelection = 0
+				return m, nil
+			case "2":
+				m.scheduleSelection = 1
+				return m, nil
+			case "3":
+				m.scheduleSelection = 2
+				return m, nil
+			case "c":
+				m.scheduleSelection = 3
+				m.scheduleCustomDate.Focus()
+				return m, textinput.Blink
+			case "tab":
+				if m.scheduleSelection == 3 {
+					m.scheduleCustomFocus = (m.scheduleCustomFocus + 1) % 2
+					m.scheduleCustomDate.Blur()
+					m.scheduleCustomTime.Blur()
+					if m.scheduleCustomFocus == 0 {
+						m.scheduleCustomDate.Focus()
+					} else {
+						m.scheduleCustomTime.Focus()
+					}
+					return m, textinput.Blink
+				}
+				return m, nil
+			case "enter":
+				// Schedule the draft based on selection
+				m.showScheduleModal = false
+				m.composeSending = true
+				return m, m.createScheduledDraftWithTime()
+			}
+			// Update custom inputs if in custom mode
+			if m.scheduleSelection == 3 {
+				var cmd tea.Cmd
+				if m.scheduleCustomFocus == 0 {
+					m.scheduleCustomDate, cmd = m.scheduleCustomDate.Update(msg)
+				} else {
+					m.scheduleCustomTime, cmd = m.scheduleCustomTime.Update(msg)
+				}
+				return m, cmd
+			}
+			return m, nil
+		}
+
 		// Compose mode
 		if m.showCompose {
 			switch msg.String() {
@@ -2321,6 +2537,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.composeSending = true
 				return m, m.createScheduledDraft()
+			case "S":
+				// Abre modal de agendamento (Shift+S)
+				if m.composeSending {
+					return m, nil
+				}
+				var to = strings.TrimSpace(m.composeTo.Value())
+				var subject = strings.TrimSpace(m.composeSubject.Value())
+				if to == "" || subject == "" {
+					return m, nil
+				}
+				m.showScheduleModal = true
+				m.scheduleSelection = 0
+				// Set default date to tomorrow
+				var tomorrow = time.Now().AddDate(0, 0, 1)
+				m.scheduleCustomDate.SetValue(tomorrow.Format("2006-01-02"))
+				m.scheduleCustomTime.SetValue("09:00")
+				return m, nil
 			}
 			// Atualiza input focado
 			var cmd tea.Cmd
@@ -4769,7 +5002,7 @@ func (m Model) viewCompose() string {
 	if m.composeSending {
 		footer = statusStyle.Render(" Enviando... ")
 	} else {
-		footer = subtitleStyle.Render(" Tab:próximo campo  ←→:classificação  Ctrl+S:enviar  Esc:cancelar ")
+		footer = subtitleStyle.Render(" Tab:próximo campo  ←→:classificação  Ctrl+S:enviar  S:agendar  Esc:cancelar ")
 	}
 
 	var content = lipgloss.JoinVertical(lipgloss.Left,
@@ -4779,13 +5012,114 @@ func (m Model) viewCompose() string {
 
 	var box = composeBoxStyle.Width(m.width - 6).Render(content)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	var baseView = lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		"",
 		box,
 		"",
 		footer,
 	)
+
+	// Show schedule modal overlay if active
+	if m.showScheduleModal {
+		return m.viewScheduleModal(baseView)
+	}
+
+	return baseView
+}
+
+// viewScheduleModal renders the schedule modal as overlay
+func (m Model) viewScheduleModal(baseView string) string {
+	var cfg, _ = config.Load()
+	var now = time.Now()
+	_ = baseView // baseView reserved for future overlay implementation
+
+	// Parse morning and afternoon times from config
+	var morningTime = "09:00"
+	var afternoonTime = "14:00"
+	if cfg.Schedule.DefaultMorning != "" {
+		morningTime = cfg.Schedule.DefaultMorning
+	}
+	if cfg.Schedule.DefaultAfternoon != "" {
+		afternoonTime = cfg.Schedule.DefaultAfternoon
+	}
+
+	// Calculate preset times
+	var tomorrow = now.AddDate(0, 0, 1)
+	var daysUntilMonday = (8 - int(now.Weekday())) % 7
+	if daysUntilMonday == 0 {
+		daysUntilMonday = 7
+	}
+	var monday = now.AddDate(0, 0, daysUntilMonday)
+
+	var modalStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Background(lipgloss.Color("#1a1a2e")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(1, 2).
+		Width(50)
+
+	var title = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#4ECDC4")).
+		Render("📅 Agendar Envio")
+
+	// Options
+	var options []string
+	var optionTexts = []string{
+		fmt.Sprintf("1. Amanhã de manhã (%s, %s)", tomorrow.Format("02/01"), morningTime),
+		fmt.Sprintf("2. Amanhã de tarde (%s, %s)", tomorrow.Format("02/01"), afternoonTime),
+		fmt.Sprintf("3. Segunda-feira (%s, %s)", monday.Format("02/01"), morningTime),
+		"c. Data personalizada",
+	}
+
+	for i, text := range optionTexts {
+		if i == m.scheduleSelection {
+			options = append(options, selectedStyle.Render(" → "+text+" "))
+		} else {
+			options = append(options, subtitleStyle.Render("   "+text))
+		}
+	}
+
+	var optionsView = strings.Join(options, "\n")
+
+	// Custom date/time inputs (only show if selection is 3)
+	var customInputs string
+	if m.scheduleSelection == 3 {
+		var dateLabel = "Data: "
+		var timeLabel = "Hora: "
+		if m.scheduleCustomFocus == 0 {
+			dateLabel = folderSelectedStyle.Render("→ Data: ")
+		}
+		if m.scheduleCustomFocus == 1 {
+			timeLabel = folderSelectedStyle.Render("→ Hora: ")
+		}
+		customInputs = "\n\n" + dateLabel + m.scheduleCustomDate.View() + "\n" + timeLabel + m.scheduleCustomTime.View()
+	}
+
+	var footer = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888")).
+		Render("\n\n↑↓/1-3:selecionar  c:personalizar  Enter:confirmar  Esc:voltar")
+
+	var modalContent = lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		optionsView,
+		customInputs,
+		footer,
+	)
+
+	var modal = modalStyle.Render(modalContent)
+
+	// Center modal on screen
+	if m.width > 0 && m.height > 0 {
+		var centeredModal = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		// Overlay on base view (simplified - just return centered modal)
+		return centeredModal
+	}
+
+	return modal
 }
 
 // viewAlertOverlay renderiza um overlay de alerta sobre a tela base

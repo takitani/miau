@@ -396,9 +396,76 @@ func (a *StorageAdapter) UpdateDraftStatus(ctx context.Context, id int64, status
 		return storage.MarkDraftSent(id)
 	case ports.DraftStatusCancelled:
 		return storage.CancelDraft(id)
+	case ports.DraftStatusFailed:
+		return storage.MarkDraftFailed(id, "send failed")
 	default:
 		return nil
 	}
+}
+
+// GetScheduledDrafts returns all scheduled drafts for an account
+func (a *StorageAdapter) GetScheduledDrafts(ctx context.Context, accountID int64) ([]ports.Draft, error) {
+	var drafts, err = storage.GetDraftsByStatus(accountID, storage.DraftStatusScheduled)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ports.Draft
+	for _, d := range drafts {
+		result = append(result, convertStorageDraftToPorts(d))
+	}
+	return result, nil
+}
+
+// GetDueScheduledDrafts returns scheduled drafts ready to send
+func (a *StorageAdapter) GetDueScheduledDrafts(ctx context.Context, now time.Time) ([]ports.Draft, error) {
+	var drafts, err = storage.GetScheduledDraftsReady()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ports.Draft
+	for _, d := range drafts {
+		result = append(result, convertStorageDraftToPorts(d))
+	}
+	return result, nil
+}
+
+// convertStorageDraftToPorts converts storage Draft to ports Draft
+func convertStorageDraftToPorts(d storage.Draft) ports.Draft {
+	var draft = ports.Draft{
+		ID:             d.ID,
+		ToAddresses:    d.ToAddresses,
+		CcAddresses:    d.CcAddresses.String,
+		BccAddresses:   d.BccAddresses.String,
+		Subject:        d.Subject,
+		BodyHTML:       d.BodyHTML.String,
+		BodyText:       d.BodyText.String,
+		Classification: d.Classification.String,
+		InReplyTo:      d.InReplyTo.String,
+		ReferenceIDs:   d.ReferenceIDs.String,
+		Status:         ports.DraftStatus(d.Status),
+		Source:         d.GenerationSource.String,
+		AIPrompt:       d.AIPrompt.String,
+		ErrorMessage:   d.ErrorMessage.String,
+		CreatedAt:      d.CreatedAt.Time,
+		UpdatedAt:      d.UpdatedAt.Time,
+	}
+
+	if d.ReplyToEmailID.Valid {
+		var replyID = d.ReplyToEmailID.Int64
+		draft.ReplyToEmailID = &replyID
+	}
+
+	if d.ScheduledSendAt.Valid {
+		draft.ScheduledSendAt = &d.ScheduledSendAt.Time
+	}
+
+	if d.SentAt.Valid {
+		draft.SentAt = &d.SentAt.Time
+	}
+
+	return draft
 }
 
 // CreateBatchOp creates a batch operation

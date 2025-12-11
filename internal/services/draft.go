@@ -149,3 +149,16 @@ func (s *DraftService) GetPendingDrafts(ctx context.Context) ([]ports.Draft, err
 
 	return s.storage.GetPendingDrafts(ctx, account.ID)
 }
+
+// GetScheduledDrafts returns all scheduled drafts for the current account
+func (s *DraftService) GetScheduledDrafts(ctx context.Context) ([]ports.Draft, error) {
+	s.mu.RLock()
+	var account = s.account
+	s.mu.RUnlock()
+
+	if account == nil {
+		return nil, fmt.Errorf("no account set")
+	}
+
+	return s.storage.GetScheduledDrafts(ctx, account.ID)
+}

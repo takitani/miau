@@ -142,6 +142,12 @@ type Model struct {
 	multiSelectMode  bool            // Modo de seleção múltipla ativo (visual mode)
 	selectedEmails   map[int64]bool  // Map de email IDs selecionados
 	selectionAnchor  int             // Índice do email âncora para seleção de range
+	// Schedule send modal
+	showScheduleModal     bool             // Schedule modal visible
+	scheduleSelection     int              // Selected schedule option (0-3)
+	scheduleCustomDate    textinput.Model  // Custom date input (YYYY-MM-DD)
+	scheduleCustomTime    textinput.Model  // Custom time input (HH:MM)
+	scheduleCustomFocus   int              // 0=date, 1=time
 }
 
 // AnalyticsData contém todos os dados de analytics para o TUI

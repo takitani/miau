@@ -57,6 +57,8 @@ type StoragePort interface {
 	GetDraft(ctx context.Context, id int64) (*Draft, error)
 	GetDrafts(ctx context.Context, accountID int64) ([]Draft, error)
 	GetPendingDrafts(ctx context.Context, accountID int64) ([]Draft, error)
+	GetScheduledDrafts(ctx context.Context, accountID int64) ([]Draft, error)
+	GetDueScheduledDrafts(ctx context.Context, now time.Time) ([]Draft, error)
 	DeleteDraft(ctx context.Context, id int64) error
 	UpdateDraftStatus(ctx context.Context, id int64, status DraftStatus) error
 

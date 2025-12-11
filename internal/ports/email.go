@@ -210,16 +210,56 @@ const (
 	ConnectionStatusError        ConnectionStatus = "error"
 )
 
+// SummaryStyle defines the style/length of AI summary
+type SummaryStyle string
+
+const (
+	SummaryStyleTLDR     SummaryStyle = "tldr"     // 1-2 sentences
+	SummaryStyleBrief    SummaryStyle = "brief"    // 3-5 sentences (default)
+	SummaryStyleDetailed SummaryStyle = "detailed" // Full summary with sections
+)
+
+// Summary represents an AI-generated email summary
+type Summary struct {
+	EmailID   int64
+	Style     SummaryStyle
+	Content   string
+	KeyPoints []string
+	Cached    bool // true if loaded from cache
+}
+
+// ThreadSummaryResult represents an AI-generated thread summary
+type ThreadSummaryResult struct {
+	ThreadID     string
+	Participants []string
+	Timeline     string
+	KeyDecisions []string
+	ActionItems  []string
+	Cached       bool
+}
+
 // AIService defines operations for AI-assisted features.
 type AIService interface {
 	// GenerateReply generates a reply draft using AI
 	GenerateReply(ctx context.Context, emailID int64, prompt string) (*Draft, error)
 
-	// Summarize summarizes a single email
+	// Summarize summarizes a single email (uses cache, defaults to brief style)
 	Summarize(ctx context.Context, emailID int64) (string, error)
 
-	// SummarizeThread summarizes an entire email thread
+	// SummarizeWithStyle summarizes an email with a specific style
+	SummarizeWithStyle(ctx context.Context, emailID int64, style SummaryStyle) (*Summary, error)
+
+	// SummarizeThread summarizes an entire email thread (uses cache)
 	SummarizeThread(ctx context.Context, emailID int64) (string, error)
+
+	// SummarizeThreadDetailed returns detailed thread summary with structured data
+	SummarizeThreadDetailed(ctx context.Context, emailID int64) (*ThreadSummaryResult, error)
+
+	// GetCachedSummary retrieves a cached summary if exists
+	GetCachedSummary(ctx context.Context, emailID int64) (*Summary, error)
+
+	// InvalidateSummary removes a cached summary
+	InvalidateSummary(ctx context.Context, emailID int64) error
 
 	// ExtractActions extracts action items from an email
 	ExtractActions(ctx context.Context, emailID int64) ([]string, error)

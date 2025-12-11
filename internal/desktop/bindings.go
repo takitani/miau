@@ -1085,6 +1085,126 @@ func (a *App) SummarizeThread(emailID int64) (string, error) {
 	return aiService.SummarizeThread(context.Background(), emailID)
 }
 
+// SummaryResult represents an AI summary with metadata
+type SummaryResult struct {
+	EmailID   int64    `json:"emailId"`
+	Style     string   `json:"style"`
+	Content   string   `json:"content"`
+	KeyPoints []string `json:"keyPoints"`
+	Cached    bool     `json:"cached"`
+}
+
+// SummarizeEmailWithStyle summarizes an email with a specific style (tldr, brief, detailed)
+func (a *App) SummarizeEmailWithStyle(emailID int64, style string) (*SummaryResult, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	var summaryStyle = ports.SummaryStyleBrief
+	switch style {
+	case "tldr":
+		summaryStyle = ports.SummaryStyleTLDR
+	case "detailed":
+		summaryStyle = ports.SummaryStyleDetailed
+	}
+
+	var summary, err = aiService.SummarizeWithStyle(context.Background(), emailID, summaryStyle)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SummaryResult{
+		EmailID:   summary.EmailID,
+		Style:     string(summary.Style),
+		Content:   summary.Content,
+		KeyPoints: summary.KeyPoints,
+		Cached:    summary.Cached,
+	}, nil
+}
+
+// GetCachedSummary retrieves a cached summary if exists
+func (a *App) GetCachedSummary(emailID int64) (*SummaryResult, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	var summary, err = aiService.GetCachedSummary(context.Background(), emailID)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return nil, nil
+	}
+
+	return &SummaryResult{
+		EmailID:   summary.EmailID,
+		Style:     string(summary.Style),
+		Content:   summary.Content,
+		KeyPoints: summary.KeyPoints,
+		Cached:    true,
+	}, nil
+}
+
+// InvalidateSummary removes a cached summary
+func (a *App) InvalidateSummary(emailID int64) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return fmt.Errorf("AI service not available")
+	}
+
+	return aiService.InvalidateSummary(context.Background(), emailID)
+}
+
+// ThreadSummaryResult represents a detailed thread summary
+type ThreadSummaryResult struct {
+	ThreadID     string   `json:"threadId"`
+	Participants []string `json:"participants"`
+	Timeline     string   `json:"timeline"`
+	KeyDecisions []string `json:"keyDecisions"`
+	ActionItems  []string `json:"actionItems"`
+	Cached       bool     `json:"cached"`
+}
+
+// SummarizeThreadDetailed returns detailed thread summary with structured data
+func (a *App) SummarizeThreadDetailed(emailID int64) (*ThreadSummaryResult, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var aiService = a.application.AI()
+	if aiService == nil {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	var summary, err = aiService.SummarizeThreadDetailed(context.Background(), emailID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ThreadSummaryResult{
+		ThreadID:     summary.ThreadID,
+		Participants: summary.Participants,
+		Timeline:     summary.Timeline,
+		KeyDecisions: summary.KeyDecisions,
+		ActionItems:  summary.ActionItems,
+		Cached:       summary.Cached,
+	}, nil
+}
+
 // ExtractActions extracts action items from an email using AI
 func (a *App) ExtractActions(emailID int64) ([]string, error) {
 	if a.application == nil {

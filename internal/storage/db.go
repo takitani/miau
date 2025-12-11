@@ -480,6 +480,32 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_account_time ON calendar_events(a
 CREATE INDEX IF NOT EXISTS idx_calendar_events_task ON calendar_events(task_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_events_email ON calendar_events(email_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_events_google ON calendar_events(google_event_id);
+
+-- Tabela de cache de resumos de emails (AI summaries)
+CREATE TABLE IF NOT EXISTS email_summaries (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	email_id INTEGER NOT NULL UNIQUE,
+	style TEXT NOT NULL DEFAULT 'brief', -- 'tldr', 'brief', 'detailed'
+	content TEXT NOT NULL,
+	key_points TEXT, -- JSON array of key points
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_summaries_email ON email_summaries(email_id);
+
+-- Tabela de cache de resumos de threads (AI thread summaries)
+CREATE TABLE IF NOT EXISTS thread_summaries (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	thread_id TEXT NOT NULL UNIQUE,
+	participants TEXT, -- JSON array
+	timeline TEXT,
+	key_decisions TEXT, -- JSON array
+	action_items TEXT, -- JSON array
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_summaries_thread ON thread_summaries(thread_id);
 `
 
 func Init(dbPath string) error {
@@ -537,6 +563,11 @@ func Init(dbPath string) error {
 	// Migração: tabelas de plugins
 	if err := InitPluginTables(); err != nil {
 		return fmt.Errorf("erro na migração plugins: %w", err)
+	}
+
+	// Migração: tabelas de AI summaries
+	if err := migrateAISummaries(); err != nil {
+		return fmt.Errorf("erro na migração AI summaries: %w", err)
 	}
 
 	return nil
@@ -688,6 +719,43 @@ func migrateFTS() error {
 		SELECT id, subject, from_name, from_email, body_text FROM emails;
 	`)
 	return err2
+}
+
+// migrateAISummaries cria tabelas de cache de AI summaries se não existirem
+func migrateAISummaries() error {
+	var _, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS email_summaries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_id INTEGER NOT NULL UNIQUE,
+			style TEXT NOT NULL DEFAULT 'brief',
+			content TEXT NOT NULL,
+			key_points TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_email_summaries_email ON email_summaries(email_id)")
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS thread_summaries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			thread_id TEXT NOT NULL UNIQUE,
+			participants TEXT,
+			timeline TEXT,
+			key_decisions TEXT,
+			action_items TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_thread_summaries_thread ON thread_summaries(thread_id)")
+
+	return nil
 }
 
 func GetDB() *sqlx.DB {

@@ -37,22 +37,120 @@ func (s *AIService) SetAccount(account *ports.AccountInfo) {
 	s.account = account
 }
 
-// Summarize summarizes a single email using AI
+// Summarize summarizes a single email using AI (with cache, defaults to brief style)
 func (s *AIService) Summarize(ctx context.Context, emailID int64) (string, error) {
+	// Check cache first
+	var cached, cacheErr = storage.GetEmailSummary(emailID)
+	if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
+		return cached.Content, nil
+	}
+
 	// Get email content from storage
 	var email, err = storage.GetEmailByID(emailID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get email: %w", err)
 	}
 
-	// Build prompt for summarization
-	var prompt = s.buildSummarizePrompt(email, false)
+	// Build prompt for summarization (brief style by default)
+	var prompt = s.buildSummarizePromptWithStyle(email, ports.SummaryStyleBrief)
 
 	// Call AI CLI
-	return s.callAI(ctx, "claude", prompt)
+	var response, aiErr = s.callAI(ctx, "claude", prompt)
+	if aiErr != nil {
+		return "", aiErr
+	}
+
+	// Save to cache (ignore errors, cache is optional)
+	storage.SaveEmailSummary(emailID, storage.SummaryStyleBrief, response, nil)
+
+	return response, nil
 }
 
-// SummarizeThread summarizes an entire email thread using AI
+// SummarizeWithStyle summarizes an email with a specific style
+func (s *AIService) SummarizeWithStyle(ctx context.Context, emailID int64, style ports.SummaryStyle) (*ports.Summary, error) {
+	// Check cache first
+	var cached, cacheErr = storage.GetEmailSummary(emailID)
+	if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
+		// If cached with same or more detailed style, use it
+		if cached.Style == storage.SummaryStyle(style) || isMoreDetailed(cached.Style, storage.SummaryStyle(style)) {
+			return &ports.Summary{
+				EmailID:   emailID,
+				Style:     style,
+				Content:   cached.Content,
+				KeyPoints: storage.GetKeyPointsFromSummary(cached),
+				Cached:    true,
+			}, nil
+		}
+	}
+
+	// Get email content from storage
+	var email, err = storage.GetEmailByID(emailID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get email: %w", err)
+	}
+
+	// Build prompt for summarization with specific style
+	var prompt = s.buildSummarizePromptWithStyle(email, style)
+
+	// Call AI CLI
+	var response, aiErr = s.callAI(ctx, "claude", prompt)
+	if aiErr != nil {
+		return nil, fmt.Errorf("AI failed to generate summary: %w", aiErr)
+	}
+
+	// Parse key points from response if detailed
+	var keyPoints []string
+	if style == ports.SummaryStyleDetailed {
+		keyPoints = s.parseKeyPoints(response)
+	}
+
+	// Save to cache
+	storage.SaveEmailSummary(emailID, storage.SummaryStyle(style), response, keyPoints)
+
+	return &ports.Summary{
+		EmailID:   emailID,
+		Style:     style,
+		Content:   response,
+		KeyPoints: keyPoints,
+		Cached:    false,
+	}, nil
+}
+
+// GetCachedSummary retrieves a cached summary if exists
+func (s *AIService) GetCachedSummary(ctx context.Context, emailID int64) (*ports.Summary, error) {
+	var cached, err = storage.GetEmailSummary(emailID)
+	if err != nil {
+		return nil, err
+	}
+	if cached == nil {
+		return nil, nil
+	}
+
+	return &ports.Summary{
+		EmailID:   emailID,
+		Style:     ports.SummaryStyle(cached.Style),
+		Content:   cached.Content,
+		KeyPoints: storage.GetKeyPointsFromSummary(cached),
+		Cached:    true,
+	}, nil
+}
+
+// InvalidateSummary removes a cached summary
+func (s *AIService) InvalidateSummary(ctx context.Context, emailID int64) error {
+	return storage.DeleteEmailSummary(emailID)
+}
+
+// isMoreDetailed checks if style1 is more detailed than style2
+func isMoreDetailed(style1, style2 storage.SummaryStyle) bool {
+	var order = map[storage.SummaryStyle]int{
+		storage.SummaryStyleTLDR:     1,
+		storage.SummaryStyleBrief:    2,
+		storage.SummaryStyleDetailed: 3,
+	}
+	return order[style1] >= order[style2]
+}
+
+// SummarizeThread summarizes an entire email thread using AI (with cache)
 func (s *AIService) SummarizeThread(ctx context.Context, emailID int64) (string, error) {
 	// Get thread for this email
 	var emails, err = storage.GetThreadForEmail(emailID)
@@ -69,11 +167,135 @@ func (s *AIService) SummarizeThread(ctx context.Context, emailID int64) (string,
 		return s.Summarize(ctx, emailID)
 	}
 
+	// Get thread ID for caching
+	var threadID string
+	for _, e := range emails {
+		if e.ThreadID != "" {
+			threadID = e.ThreadID
+			break
+		}
+	}
+
+	// Check cache if we have a thread ID
+	if threadID != "" {
+		var cached, cacheErr = storage.GetThreadSummary(threadID)
+		if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
+			return cached.Timeline, nil
+		}
+	}
+
 	// Build thread prompt
 	var prompt = s.buildThreadSummarizePrompt(emails)
 
 	// Call AI CLI
-	return s.callAI(ctx, "claude", prompt)
+	var response, aiErr = s.callAI(ctx, "claude", prompt)
+	if aiErr != nil {
+		return "", aiErr
+	}
+
+	// Save to cache if we have a thread ID
+	if threadID != "" {
+		var participants = s.extractParticipants(emails)
+		storage.SaveThreadSummary(threadID, participants, response, nil, nil)
+	}
+
+	return response, nil
+}
+
+// SummarizeThreadDetailed returns detailed thread summary with structured data
+func (s *AIService) SummarizeThreadDetailed(ctx context.Context, emailID int64) (*ports.ThreadSummaryResult, error) {
+	// Get thread for this email
+	var emails, err = storage.GetThreadForEmail(emailID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	if len(emails) == 0 {
+		return nil, fmt.Errorf("email not found")
+	}
+
+	// Get thread ID for caching
+	var threadID string
+	for _, e := range emails {
+		if e.ThreadID != "" {
+			threadID = e.ThreadID
+			break
+		}
+	}
+
+	// Check cache if we have a thread ID
+	if threadID != "" {
+		var cached, cacheErr = storage.GetThreadSummary(threadID)
+		if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
+			return &ports.ThreadSummaryResult{
+				ThreadID:     threadID,
+				Participants: storage.ParseThreadSummaryParticipants(cached),
+				Timeline:     cached.Timeline,
+				KeyDecisions: storage.ParseThreadSummaryKeyDecisions(cached),
+				ActionItems:  storage.ParseThreadSummaryActionItems(cached),
+				Cached:       true,
+			}, nil
+		}
+	}
+
+	// If only one email, convert to thread summary format
+	if len(emails) == 1 {
+		var summary, sumErr = s.Summarize(ctx, emailID)
+		if sumErr != nil {
+			return nil, sumErr
+		}
+		return &ports.ThreadSummaryResult{
+			ThreadID:     threadID,
+			Participants: []string{emails[0].FromEmail},
+			Timeline:     summary,
+			KeyDecisions: nil,
+			ActionItems:  nil,
+			Cached:       false,
+		}, nil
+	}
+
+	// Build detailed thread prompt
+	var prompt = s.buildDetailedThreadSummarizePrompt(emails)
+
+	// Call AI CLI
+	var response, aiErr = s.callAI(ctx, "claude", prompt)
+	if aiErr != nil {
+		return nil, fmt.Errorf("AI failed to summarize thread: %w", aiErr)
+	}
+
+	// Extract participants
+	var participants = s.extractParticipants(emails)
+
+	// Parse structured response
+	var keyDecisions = s.parseSection(response, "Decisões:")
+	var actionItems = s.parseSection(response, "Ações:")
+
+	// Save to cache if we have a thread ID
+	if threadID != "" {
+		storage.SaveThreadSummary(threadID, participants, response, keyDecisions, actionItems)
+	}
+
+	return &ports.ThreadSummaryResult{
+		ThreadID:     threadID,
+		Participants: participants,
+		Timeline:     response,
+		KeyDecisions: keyDecisions,
+		ActionItems:  actionItems,
+		Cached:       false,
+	}, nil
+}
+
+// extractParticipants extracts unique participants from emails
+func (s *AIService) extractParticipants(emails []storage.Email) []string {
+	var seen = make(map[string]bool)
+	var participants []string
+	for _, e := range emails {
+		if e.FromEmail != "" && !seen[e.FromEmail] {
+			seen[e.FromEmail] = true
+			participants = append(participants, e.FromEmail)
+		}
+	}
+	return participants
 }
 
 // GenerateReply generates a reply draft using AI
@@ -179,6 +401,154 @@ func (s *AIService) buildSummarizePrompt(email *storage.Email, isThread bool) st
 	sb.WriteString("\n---\n")
 
 	return sb.String()
+}
+
+// buildSummarizePromptWithStyle builds the prompt with specific style
+func (s *AIService) buildSummarizePromptWithStyle(email *storage.Email, style ports.SummaryStyle) string {
+	var body = email.BodyText
+	if body == "" {
+		body = email.Snippet
+	}
+
+	var sb strings.Builder
+
+	switch style {
+	case ports.SummaryStyleTLDR:
+		sb.WriteString("Resuma este email em 1-2 frases curtas em português brasileiro.\n")
+		sb.WriteString("Seja extremamente conciso - capture apenas a essência do email.\n")
+	case ports.SummaryStyleBrief:
+		sb.WriteString("Resuma este email em 3-5 frases em português brasileiro.\n")
+		sb.WriteString("Destaque:\n")
+		sb.WriteString("- O ponto principal\n")
+		sb.WriteString("- Ações necessárias (se houver)\n")
+		sb.WriteString("- Prazo ou urgência (se mencionado)\n")
+	case ports.SummaryStyleDetailed:
+		sb.WriteString("Resuma este email de forma detalhada em português brasileiro.\n")
+		sb.WriteString("Inclua:\n")
+		sb.WriteString("- Contexto e propósito do email\n")
+		sb.WriteString("- Todos os pontos importantes discutidos\n")
+		sb.WriteString("- Ações solicitadas ou sugeridas\n")
+		sb.WriteString("- Prazos, datas ou compromissos mencionados\n")
+		sb.WriteString("- Informações relevantes de anexos (se mencionados)\n")
+	default:
+		sb.WriteString("Resuma este email em português brasileiro.\n")
+	}
+
+	sb.WriteString("\nNÃO use markdown, asteriscos ou formatação especial.\n")
+	sb.WriteString("Retorne apenas texto simples.\n\n")
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("De: %s <%s>\n", email.FromName, email.FromEmail))
+	sb.WriteString(fmt.Sprintf("Assunto: %s\n", email.Subject))
+	sb.WriteString(fmt.Sprintf("Data: %s\n", email.Date.Time.Format("02/01/2006 15:04")))
+	sb.WriteString("---\n")
+	sb.WriteString(body)
+	sb.WriteString("\n---\n")
+
+	return sb.String()
+}
+
+// buildDetailedThreadSummarizePrompt builds detailed thread prompt
+func (s *AIService) buildDetailedThreadSummarizePrompt(emails []storage.Email) string {
+	var sb strings.Builder
+	sb.WriteString("Resuma esta conversa de emails de forma detalhada em português brasileiro.\n")
+	sb.WriteString("Organize o resumo em seções:\n\n")
+	sb.WriteString("Resumo: [visão geral da conversa]\n\n")
+	sb.WriteString("Cronologia: [sequência dos principais eventos/mensagens]\n\n")
+	sb.WriteString("Decisões: [lista de decisões tomadas, uma por linha]\n\n")
+	sb.WriteString("Ações: [lista de ações pendentes ou solicitadas, uma por linha]\n\n")
+	sb.WriteString("NÃO use markdown, asteriscos ou formatação especial.\n")
+	sb.WriteString("Retorne apenas texto simples.\n\n")
+	sb.WriteString(fmt.Sprintf("Conversa com %d mensagens:\n\n", len(emails)))
+
+	// Emails are DESC order, reverse for chronological reading
+	for i := len(emails) - 1; i >= 0; i-- {
+		var email = emails[i]
+		var body = email.BodyText
+		if body == "" {
+			body = email.Snippet
+		}
+		// Truncate very long emails
+		if len(body) > 500 {
+			body = body[:500] + "..."
+		}
+
+		sb.WriteString(fmt.Sprintf("--- Mensagem %d ---\n", len(emails)-i))
+		sb.WriteString(fmt.Sprintf("De: %s <%s>\n", email.FromName, email.FromEmail))
+		sb.WriteString(fmt.Sprintf("Data: %s\n", email.Date.Time.Format("02/01/2006 15:04")))
+		sb.WriteString(body)
+		sb.WriteString("\n\n")
+	}
+
+	return sb.String()
+}
+
+// parseKeyPoints extracts key points from detailed summary
+func (s *AIService) parseKeyPoints(response string) []string {
+	var lines = strings.Split(response, "\n")
+	var points []string
+	var inSection = false
+
+	for _, line := range lines {
+		var trimmed = strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Look for bullet points or numbered items
+		if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "•") {
+			inSection = true
+			var point = strings.TrimPrefix(trimmed, "-")
+			point = strings.TrimPrefix(point, "•")
+			point = strings.TrimSpace(point)
+			if point != "" {
+				points = append(points, point)
+			}
+		} else if inSection && len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' {
+			// Numbered items
+			if trimmed[1] == '.' || trimmed[1] == ')' {
+				var point = strings.TrimSpace(trimmed[2:])
+				if point != "" {
+					points = append(points, point)
+				}
+			}
+		}
+	}
+	return points
+}
+
+// parseSection extracts items from a specific section
+func (s *AIService) parseSection(response, sectionHeader string) []string {
+	var lines = strings.Split(response, "\n")
+	var items []string
+	var inSection = false
+
+	for _, line := range lines {
+		var trimmed = strings.TrimSpace(line)
+
+		// Check if we're entering the target section
+		if strings.Contains(strings.ToLower(trimmed), strings.ToLower(sectionHeader)) {
+			inSection = true
+			continue
+		}
+
+		// Check if we're leaving the section (new section header)
+		if inSection && (strings.HasSuffix(trimmed, ":") || trimmed == "") {
+			if strings.HasSuffix(trimmed, ":") && !strings.Contains(strings.ToLower(trimmed), strings.ToLower(sectionHeader)) {
+				inSection = false
+			}
+			continue
+		}
+
+		// Collect items in section
+		if inSection && trimmed != "" {
+			var item = strings.TrimPrefix(trimmed, "-")
+			item = strings.TrimPrefix(item, "•")
+			item = strings.TrimSpace(item)
+			if item != "" {
+				items = append(items, item)
+			}
+		}
+	}
+	return items
 }
 
 // buildThreadSummarizePrompt builds the prompt for thread summarization

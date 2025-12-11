@@ -71,9 +71,22 @@
   let showImages = false; // User must opt-in to load external images
   let hasExternalImages = false;
 
+  // AI Summary state
+  let summary = null;
+  let summaryLoading = false;
+  let summaryError = null;
+  let showSummary = false;
+  let summaryStyle = 'brief'; // 'tldr', 'brief', 'detailed'
+
   // Load full email when email changes
   $: if (email && email.id) {
     loadFullEmail(email.id);
+    // Reset summary state when email changes
+    summary = null;
+    summaryError = null;
+    showSummary = false;
+    // Try to load cached summary
+    loadCachedSummary(email.id);
   }
 
   async function loadFullEmail(id) {
@@ -100,6 +113,70 @@
     } finally {
       loading = false;
     }
+  }
+
+  // Load cached summary if exists
+  async function loadCachedSummary(id) {
+    try {
+      if (window.go?.desktop?.App) {
+        const cached = await window.go.desktop.App.GetCachedSummary(id);
+        if (cached) {
+          summary = cached;
+          showSummary = true;
+        }
+      }
+    } catch (err) {
+      // Ignore errors - cache miss is expected
+    }
+  }
+
+  // Generate AI summary
+  async function generateSummary() {
+    if (!email?.id) return;
+
+    summaryLoading = true;
+    summaryError = null;
+
+    try {
+      if (window.go?.desktop?.App) {
+        summary = await window.go.desktop.App.SummarizeEmailWithStyle(email.id, summaryStyle);
+        showSummary = true;
+      }
+    } catch (err) {
+      summaryError = err.message || 'Erro ao gerar resumo';
+      console.error('Failed to generate summary:', err);
+    } finally {
+      summaryLoading = false;
+    }
+  }
+
+  // Change summary style and regenerate
+  async function changeSummaryStyle(newStyle) {
+    summaryStyle = newStyle;
+    await generateSummary();
+  }
+
+  // Toggle summary visibility
+  function toggleSummary() {
+    if (!showSummary && !summary) {
+      generateSummary();
+    } else {
+      showSummary = !showSummary;
+    }
+  }
+
+  // Refresh summary (invalidate cache and regenerate)
+  async function refreshSummary() {
+    if (!email?.id) return;
+
+    try {
+      if (window.go?.desktop?.App) {
+        await window.go.desktop.App.InvalidateSummary(email.id);
+      }
+    } catch (err) {
+      // Ignore invalidation errors
+    }
+    await generateSummary();
   }
 
   // Process HTML for display - strip scripts, block external images
@@ -278,6 +355,23 @@
       </div>
       <div class="toolbar-divider"></div>
       <div class="toolbar-group">
+        <button
+          class="action"
+          class:active={showSummary}
+          title="Resumo IA (s)"
+          on:click={toggleSummary}
+          disabled={summaryLoading}
+        >
+          {#if summaryLoading}
+            <span class="spinner-small"></span>
+          {:else}
+            🤖
+          {/if}
+          Resumo
+        </button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
         <button class="action" title="Arquivar (e)" on:click={handleArchive}>
           📁
         </button>
@@ -328,6 +422,73 @@
       <div class="image-banner">
         <span>🖼️ Imagens externas bloqueadas por segurança</span>
         <button on:click={loadExternalImages}>Mostrar Imagens</button>
+      </div>
+    {/if}
+
+    <!-- AI Summary Section -->
+    {#if showSummary || summaryLoading || summaryError}
+      <div class="summary-section">
+        <div class="summary-header">
+          <span class="summary-title">
+            🤖 Resumo IA
+            {#if summary?.cached}
+              <span class="cached-badge" title="Carregado do cache">📦</span>
+            {/if}
+          </span>
+          <div class="summary-controls">
+            <select
+              class="style-select"
+              bind:value={summaryStyle}
+              on:change={() => changeSummaryStyle(summaryStyle)}
+              disabled={summaryLoading}
+            >
+              <option value="tldr">TL;DR (1-2 frases)</option>
+              <option value="brief">Breve (3-5 frases)</option>
+              <option value="detailed">Detalhado</option>
+            </select>
+            <button
+              class="summary-btn"
+              title="Atualizar resumo"
+              on:click={refreshSummary}
+              disabled={summaryLoading}
+            >
+              🔄
+            </button>
+            <button
+              class="summary-btn"
+              title="Fechar"
+              on:click={() => showSummary = false}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {#if summaryLoading}
+          <div class="summary-loading">
+            <span class="spinner-small"></span>
+            Gerando resumo...
+          </div>
+        {:else if summaryError}
+          <div class="summary-error">
+            ⚠️ {summaryError}
+            <button class="retry-btn" on:click={generateSummary}>Tentar novamente</button>
+          </div>
+        {:else if summary}
+          <div class="summary-content">
+            <p>{summary.content}</p>
+            {#if summary.keyPoints && summary.keyPoints.length > 0}
+              <div class="key-points">
+                <strong>Pontos-chave:</strong>
+                <ul>
+                  {#each summary.keyPoints as point}
+                    <li>{point}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -677,5 +838,158 @@
     background: var(--accent-primary);
     color: white;
     border-color: var(--accent-primary);
+  }
+
+  /* AI Summary Section */
+  .summary-section {
+    padding: var(--space-md);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.3);
+  }
+
+  .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-sm);
+  }
+
+  .summary-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+
+  .cached-badge {
+    font-size: var(--font-xs);
+    opacity: 0.7;
+  }
+
+  .summary-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+
+  .style-select {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-xs);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .style-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .summary-btn {
+    padding: var(--space-xs);
+    font-size: var(--font-sm);
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .summary-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .summary-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .summary-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+  }
+
+  .spinner-small {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .summary-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-sm);
+    color: #f87171;
+    font-size: var(--font-sm);
+  }
+
+  .retry-btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-xs);
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: var(--radius-sm);
+    color: #f87171;
+    cursor: pointer;
+    margin-left: auto;
+  }
+
+  .retry-btn:hover {
+    background: rgba(239, 68, 68, 0.3);
+  }
+
+  .summary-content {
+    font-size: var(--font-sm);
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+
+  .summary-content p {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .key-points {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid rgba(99, 102, 241, 0.2);
+  }
+
+  .key-points strong {
+    display: block;
+    margin-bottom: var(--space-xs);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+  }
+
+  .key-points ul {
+    margin: 0;
+    padding-left: var(--space-md);
+  }
+
+  .key-points li {
+    margin-bottom: var(--space-xs);
+    color: var(--text-secondary);
+  }
+
+  .action.active {
+    background: var(--accent-primary);
+    color: white;
   }
 </style>

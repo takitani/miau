@@ -40,7 +40,7 @@ func (s *AIService) SetAccount(account *ports.AccountInfo) {
 // Summarize summarizes a single email using AI (with cache, defaults to brief style)
 func (s *AIService) Summarize(ctx context.Context, emailID int64) (string, error) {
 	// Check cache first
-	var cached, cacheErr = storage.GetEmailSummary(emailID)
+	var cached, cacheErr = storage.GetCachedEmailSummary(emailID)
 	if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
 		return cached.Content, nil
 	}
@@ -61,7 +61,7 @@ func (s *AIService) Summarize(ctx context.Context, emailID int64) (string, error
 	}
 
 	// Save to cache (ignore errors, cache is optional)
-	storage.SaveEmailSummary(emailID, storage.SummaryStyleBrief, response, nil)
+	storage.SaveCachedEmailSummary(emailID, storage.SummaryStyleBrief, response, nil)
 
 	return response, nil
 }
@@ -69,7 +69,7 @@ func (s *AIService) Summarize(ctx context.Context, emailID int64) (string, error
 // SummarizeWithStyle summarizes an email with a specific style
 func (s *AIService) SummarizeWithStyle(ctx context.Context, emailID int64, style ports.SummaryStyle) (*ports.Summary, error) {
 	// Check cache first
-	var cached, cacheErr = storage.GetEmailSummary(emailID)
+	var cached, cacheErr = storage.GetCachedEmailSummary(emailID)
 	if cacheErr == nil && cached != nil && storage.IsSummaryCacheFresh(cached.CreatedAt) {
 		// If cached with same or more detailed style, use it
 		if cached.Style == storage.SummaryStyle(style) || isMoreDetailed(cached.Style, storage.SummaryStyle(style)) {
@@ -105,7 +105,7 @@ func (s *AIService) SummarizeWithStyle(ctx context.Context, emailID int64, style
 	}
 
 	// Save to cache
-	storage.SaveEmailSummary(emailID, storage.SummaryStyle(style), response, keyPoints)
+	storage.SaveCachedEmailSummary(emailID, storage.SummaryStyle(style), response, keyPoints)
 
 	return &ports.Summary{
 		EmailID:   emailID,
@@ -118,7 +118,7 @@ func (s *AIService) SummarizeWithStyle(ctx context.Context, emailID int64, style
 
 // GetCachedSummary retrieves a cached summary if exists
 func (s *AIService) GetCachedSummary(ctx context.Context, emailID int64) (*ports.Summary, error) {
-	var cached, err = storage.GetEmailSummary(emailID)
+	var cached, err = storage.GetCachedEmailSummary(emailID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *AIService) GetCachedSummary(ctx context.Context, emailID int64) (*ports
 
 // InvalidateSummary removes a cached summary
 func (s *AIService) InvalidateSummary(ctx context.Context, emailID int64) error {
-	return storage.DeleteEmailSummary(emailID)
+	return storage.DeleteCachedEmailSummary(emailID)
 }
 
 // isMoreDetailed checks if style1 is more detailed than style2
@@ -170,8 +170,8 @@ func (s *AIService) SummarizeThread(ctx context.Context, emailID int64) (string,
 	// Get thread ID for caching
 	var threadID string
 	for _, e := range emails {
-		if e.ThreadID != "" {
-			threadID = e.ThreadID
+		if e.ThreadID.Valid && e.ThreadID.String != "" {
+			threadID = e.ThreadID.String
 			break
 		}
 	}
@@ -217,8 +217,8 @@ func (s *AIService) SummarizeThreadDetailed(ctx context.Context, emailID int64) 
 	// Get thread ID for caching
 	var threadID string
 	for _, e := range emails {
-		if e.ThreadID != "" {
-			threadID = e.ThreadID
+		if e.ThreadID.Valid && e.ThreadID.String != "" {
+			threadID = e.ThreadID.String
 			break
 		}
 	}

@@ -15,8 +15,8 @@ const (
 	SummaryStyleDetailed SummaryStyle = "detailed" // Full summary with sections
 )
 
-// EmailSummary represents a cached email summary
-type EmailSummary struct {
+// CachedEmailSummary represents a cached AI-generated email summary
+type CachedEmailSummary struct {
 	ID        int64        `db:"id"`
 	EmailID   int64        `db:"email_id"`
 	Style     SummaryStyle `db:"style"`
@@ -36,9 +36,9 @@ type ThreadSummary struct {
 	CreatedAt    time.Time `db:"created_at"`
 }
 
-// GetEmailSummary retrieves a cached email summary
-func GetEmailSummary(emailID int64) (*EmailSummary, error) {
-	var summary EmailSummary
+// GetCachedEmailSummary retrieves a cached email summary
+func GetCachedEmailSummary(emailID int64) (*CachedEmailSummary, error) {
+	var summary CachedEmailSummary
 	var err = db.Get(&summary, `
 		SELECT id, email_id, style, content, key_points, created_at
 		FROM email_summaries
@@ -53,8 +53,8 @@ func GetEmailSummary(emailID int64) (*EmailSummary, error) {
 	return &summary, nil
 }
 
-// SaveEmailSummary saves an email summary to cache
-func SaveEmailSummary(emailID int64, style SummaryStyle, content string, keyPoints []string) error {
+// SaveCachedEmailSummary saves an email summary to cache
+func SaveCachedEmailSummary(emailID int64, style SummaryStyle, content string, keyPoints []string) error {
 	var keyPointsJSON string
 	if len(keyPoints) > 0 {
 		var data, err = json.Marshal(keyPoints)
@@ -75,8 +75,8 @@ func SaveEmailSummary(emailID int64, style SummaryStyle, content string, keyPoin
 	return err
 }
 
-// DeleteEmailSummary removes a cached email summary
-func DeleteEmailSummary(emailID int64) error {
+// DeleteCachedEmailSummary removes a cached email summary
+func DeleteCachedEmailSummary(emailID int64) error {
 	var _, err = db.Exec("DELETE FROM email_summaries WHERE email_id = ?", emailID)
 	return err
 }
@@ -135,7 +135,7 @@ func DeleteThreadSummary(threadID string) error {
 }
 
 // GetKeyPointsFromSummary parses the key_points JSON array
-func GetKeyPointsFromSummary(summary *EmailSummary) []string {
+func GetKeyPointsFromSummary(summary *CachedEmailSummary) []string {
 	if summary == nil || summary.KeyPoints == "" {
 		return nil
 	}

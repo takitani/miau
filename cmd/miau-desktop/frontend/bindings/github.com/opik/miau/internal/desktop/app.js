@@ -21,6 +21,15 @@ import * as application$0 from "../../../../wailsapp/wails/v3/pkg/application/mo
 import * as $models from "./models.js";
 
 /**
+ * AddAccount adds a new email account to the configuration
+ * @param {$models.NewAccountConfigDTO} newAccount
+ * @returns {$CancellablePromise<void>}
+ */
+export function AddAccount(newAccount) {
+    return $Call.ByID(1082219964, newAccount);
+}
+
+/**
  * Archive archives an email
  * @param {number} id
  * @returns {$CancellablePromise<void>}
@@ -585,6 +594,17 @@ export function GetGoogleCalendarEvents(calendarID, weekStartDate) {
 }
 
 /**
+ * GetKnownImapHost returns the known IMAP host for a domain
+ * @param {string} email
+ * @returns {$CancellablePromise<{ [_: string]: any }>}
+ */
+export function GetKnownImapHost(email) {
+    return $Call.ByID(2019313176, email).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType9($result);
+    }));
+}
+
+/**
  * GetPendingTasks returns only incomplete tasks
  * @returns {$CancellablePromise<$models.TaskDTO[]>}
  */
@@ -595,12 +615,40 @@ export function GetPendingTasks() {
 }
 
 /**
+ * GetSchedulePresets returns available schedule send presets
+ * @returns {$CancellablePromise<$models.SchedulePresetDTO[]>}
+ */
+export function GetSchedulePresets() {
+    return $Call.ByID(579019401).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType55($result);
+    }));
+}
+
+/**
+ * GetScheduledDrafts returns all scheduled drafts
+ * @returns {$CancellablePromise<$models.ScheduledDraftDTO[]>}
+ */
+export function GetScheduledDrafts() {
+    return $Call.ByID(3222455881).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType57($result);
+    }));
+}
+
+/**
+ * GetScheduledDraftsCount returns the count of scheduled drafts
+ * @returns {$CancellablePromise<number>}
+ */
+export function GetScheduledDraftsCount() {
+    return $Call.ByID(1282683920);
+}
+
+/**
  * GetSettings returns all application settings
  * @returns {$CancellablePromise<$models.SettingsDTO | null>}
  */
 export function GetSettings() {
     return $Call.ByID(1747876599).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType55($result);
+        return $$createType59($result);
     }));
 }
 
@@ -613,12 +661,40 @@ export function GetSignature() {
 }
 
 /**
+ * GetSnoozePresets returns available snooze presets
+ * @returns {$CancellablePromise<$models.SnoozePresetDTO[]>}
+ */
+export function GetSnoozePresets() {
+    return $Call.ByID(3575513484).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType61($result);
+    }));
+}
+
+/**
+ * GetSnoozedEmails returns all snoozed emails
+ * @returns {$CancellablePromise<$models.SnoozedEmailDTO[]>}
+ */
+export function GetSnoozedEmails() {
+    return $Call.ByID(1110492733).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType63($result);
+    }));
+}
+
+/**
+ * GetSnoozedEmailsCount returns the count of snoozed emails
+ * @returns {$CancellablePromise<number>}
+ */
+export function GetSnoozedEmailsCount() {
+    return $Call.ByID(2287442972);
+}
+
+/**
  * GetTaskCounts returns task count statistics
  * @returns {$CancellablePromise<$models.TaskCountsDTO | null>}
  */
 export function GetTaskCounts() {
     return $Call.ByID(1288856655).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType57($result);
+        return $$createType65($result);
     }));
 }
 
@@ -639,7 +715,7 @@ export function GetTasks() {
  */
 export function GetThread(emailID) {
     return $Call.ByID(581564166, emailID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType59($result);
+        return $$createType67($result);
     }));
 }
 
@@ -650,7 +726,7 @@ export function GetThread(emailID) {
  */
 export function GetThreadByID(threadID) {
     return $Call.ByID(469461218, threadID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType59($result);
+        return $$createType67($result);
     }));
 }
 
@@ -670,7 +746,7 @@ export function GetThreadMessageCount(emailID) {
  */
 export function GetThreadSummary(threadID) {
     return $Call.ByID(865196578, threadID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType61($result);
+        return $$createType69($result);
     }));
 }
 
@@ -681,7 +757,7 @@ export function GetThreadSummary(threadID) {
  */
 export function GetTopContacts(limit) {
     return $Call.ByID(3356455424, limit).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType63($result);
+        return $$createType71($result);
     }));
 }
 
@@ -693,7 +769,7 @@ export function GetTopContacts(limit) {
  */
 export function GetTopSenders(limit, period) {
     return $Call.ByID(2389341989, limit, period).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType65($result);
+        return $$createType73($result);
     }));
 }
 
@@ -734,6 +810,15 @@ export function IsConnected() {
 }
 
 /**
+ * IsEmailSnoozed checks if an email is currently snoozed
+ * @param {number} emailID
+ * @returns {$CancellablePromise<boolean>}
+ */
+export function IsEmailSnoozed(emailID) {
+    return $Call.ByID(3835316536, emailID);
+}
+
+/**
  * IsGoogleCalendarConnected returns true if Google Calendar is connected
  * @returns {$CancellablePromise<boolean>}
  */
@@ -755,7 +840,7 @@ export function IsReady() {
  */
 export function ListDrafts() {
     return $Call.ByID(3792831158).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType66($result);
+        return $$createType74($result);
     }));
 }
 
@@ -765,7 +850,7 @@ export function ListDrafts() {
  */
 export function ListGoogleCalendars() {
     return $Call.ByID(3757057984).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType68($result);
+        return $$createType76($result);
     }));
 }
 
@@ -872,7 +957,7 @@ export function OpenURL(url) {
  */
 export function PostBasecampMessage(projectID, subject, content) {
     return $Call.ByID(3842834971, projectID, subject, content).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType69($result);
+        return $$createType77($result);
     }));
 }
 
@@ -882,7 +967,7 @@ export function PostBasecampMessage(projectID, subject, content) {
  */
 export function Redo() {
     return $Call.ByID(3180465014).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType70($result);
+        return $$createType78($result);
     }));
 }
 
@@ -952,7 +1037,7 @@ export function SaveSettings(settings) {
  */
 export function Search(query, limit) {
     return $Call.ByID(1458707606, query, limit).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType72($result);
+        return $$createType80($result);
     }));
 }
 
@@ -964,7 +1049,7 @@ export function Search(query, limit) {
  */
 export function SearchContacts(query, limit) {
     return $Call.ByID(3131711871, query, limit).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType63($result);
+        return $$createType71($result);
     }));
 }
 
@@ -977,7 +1062,7 @@ export function SearchContacts(query, limit) {
  */
 export function SearchInFolder(folder, query, limit) {
     return $Call.ByID(3842393593, folder, query, limit).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType72($result);
+        return $$createType80($result);
     }));
 }
 
@@ -997,7 +1082,7 @@ export function SelectBasecampAccount(accountID) {
  */
 export function SelectFolder(name) {
     return $Call.ByID(2451764766, name).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType73($result);
+        return $$createType81($result);
     }));
 }
 
@@ -1008,7 +1093,7 @@ export function SelectFolder(name) {
  */
 export function SendDraft(id) {
     return $Call.ByID(151555103, id).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType75($result);
+        return $$createType83($result);
     }));
 }
 
@@ -1019,7 +1104,7 @@ export function SendDraft(id) {
  */
 export function SendEmail(req) {
     return $Call.ByID(1573461348, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType75($result);
+        return $$createType83($result);
     }));
 }
 
@@ -1070,12 +1155,44 @@ export function Shutdown() {
 }
 
 /**
+ * SnoozeEmail snoozes an email with a preset
+ * @param {number} emailID
+ * @param {string} preset
+ * @returns {$CancellablePromise<void>}
+ */
+export function SnoozeEmail(emailID, preset) {
+    return $Call.ByID(239503284, emailID, preset);
+}
+
+/**
+ * SnoozeEmailCustom snoozes an email until a custom time
+ * @param {number} emailID
+ * @param {string} untilTimeStr
+ * @returns {$CancellablePromise<void>}
+ */
+export function SnoozeEmailCustom(emailID, untilTimeStr) {
+    return $Call.ByID(2444235503, emailID, untilTimeStr);
+}
+
+/**
  * StartOAuth2Auth initiates the OAuth2 authentication flow
  * Opens browser for user to authenticate and waits for callback
  * @returns {$CancellablePromise<void>}
  */
 export function StartOAuth2Auth() {
     return $Call.ByID(3874937183);
+}
+
+/**
+ * StartOAuth2AuthForNewAccount initiates OAuth2 authentication for a new account
+ * This should be called after AddAccount for OAuth2 accounts
+ * @param {string} email
+ * @param {string} clientID
+ * @param {string} clientSecret
+ * @returns {$CancellablePromise<void>}
+ */
+export function StartOAuth2AuthForNewAccount(email, clientID, clientSecret) {
+    return $Call.ByID(3636477531, email, clientID, clientSecret);
 }
 
 /**
@@ -1115,7 +1232,7 @@ export function SummarizeThread(emailID) {
  */
 export function SummarizeThreadDetailed(emailID) {
     return $Call.ByID(1441776279, emailID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType77($result);
+        return $$createType85($result);
     }));
 }
 
@@ -1142,7 +1259,7 @@ export function SyncContacts(fullSync) {
  */
 export function SyncCurrentFolder() {
     return $Call.ByID(1068637202).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType79($result);
+        return $$createType87($result);
     }));
 }
 
@@ -1152,7 +1269,7 @@ export function SyncCurrentFolder() {
  */
 export function SyncEssentialFolders() {
     return $Call.ByID(2942315924).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType80($result);
+        return $$createType88($result);
     }));
 }
 
@@ -1163,7 +1280,7 @@ export function SyncEssentialFolders() {
  */
 export function SyncFolder(folder) {
     return $Call.ByID(2354677997, folder).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType79($result);
+        return $$createType87($result);
     }));
 }
 
@@ -1227,8 +1344,17 @@ export function UncompleteBasecampTodo(projectID, todoID) {
  */
 export function Undo() {
     return $Call.ByID(2323895332).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType70($result);
+        return $$createType78($result);
     }));
+}
+
+/**
+ * UnsnoozeEmail removes snooze from an email
+ * @param {number} emailID
+ * @returns {$CancellablePromise<void>}
+ */
+export function UnsnoozeEmail(emailID) {
+    return $Call.ByID(186873117, emailID);
 }
 
 /**
@@ -1319,30 +1445,38 @@ const $$createType50 = $Create.Array($$createType49);
 const $$createType51 = $models.GoogleEventDTO.createFrom;
 const $$createType52 = $Create.Array($$createType51);
 const $$createType53 = $Create.Array($$createType6);
-const $$createType54 = $models.SettingsDTO.createFrom;
-const $$createType55 = $Create.Nullable($$createType54);
-const $$createType56 = $models.TaskCountsDTO.createFrom;
-const $$createType57 = $Create.Nullable($$createType56);
-const $$createType58 = $models.ThreadDTO.createFrom;
+const $$createType54 = $models.SchedulePresetDTO.createFrom;
+const $$createType55 = $Create.Array($$createType54);
+const $$createType56 = $models.ScheduledDraftDTO.createFrom;
+const $$createType57 = $Create.Array($$createType56);
+const $$createType58 = $models.SettingsDTO.createFrom;
 const $$createType59 = $Create.Nullable($$createType58);
-const $$createType60 = $models.ThreadSummaryDTO.createFrom;
-const $$createType61 = $Create.Nullable($$createType60);
-const $$createType62 = $models.ContactDTO.createFrom;
+const $$createType60 = $models.SnoozePresetDTO.createFrom;
+const $$createType61 = $Create.Array($$createType60);
+const $$createType62 = $models.SnoozedEmailDTO.createFrom;
 const $$createType63 = $Create.Array($$createType62);
-const $$createType64 = $models.SenderStatsDTO.createFrom;
-const $$createType65 = $Create.Array($$createType64);
-const $$createType66 = $Create.Array($$createType42);
-const $$createType67 = $models.GoogleCalendarDTO.createFrom;
-const $$createType68 = $Create.Array($$createType67);
-const $$createType69 = $Create.Nullable($$createType24);
-const $$createType70 = $models.UndoResult.createFrom;
-const $$createType71 = $models.SearchResultDTO.createFrom;
-const $$createType72 = $Create.Nullable($$createType71);
-const $$createType73 = $Create.Nullable($$createType49);
-const $$createType74 = $models.SendResult.createFrom;
-const $$createType75 = $Create.Nullable($$createType74);
-const $$createType76 = $models.ThreadSummaryResult.createFrom;
-const $$createType77 = $Create.Nullable($$createType76);
-const $$createType78 = $models.SyncResultDTO.createFrom;
-const $$createType79 = $Create.Nullable($$createType78);
-const $$createType80 = $Create.Array($$createType78);
+const $$createType64 = $models.TaskCountsDTO.createFrom;
+const $$createType65 = $Create.Nullable($$createType64);
+const $$createType66 = $models.ThreadDTO.createFrom;
+const $$createType67 = $Create.Nullable($$createType66);
+const $$createType68 = $models.ThreadSummaryDTO.createFrom;
+const $$createType69 = $Create.Nullable($$createType68);
+const $$createType70 = $models.ContactDTO.createFrom;
+const $$createType71 = $Create.Array($$createType70);
+const $$createType72 = $models.SenderStatsDTO.createFrom;
+const $$createType73 = $Create.Array($$createType72);
+const $$createType74 = $Create.Array($$createType42);
+const $$createType75 = $models.GoogleCalendarDTO.createFrom;
+const $$createType76 = $Create.Array($$createType75);
+const $$createType77 = $Create.Nullable($$createType24);
+const $$createType78 = $models.UndoResult.createFrom;
+const $$createType79 = $models.SearchResultDTO.createFrom;
+const $$createType80 = $Create.Nullable($$createType79);
+const $$createType81 = $Create.Nullable($$createType49);
+const $$createType82 = $models.SendResult.createFrom;
+const $$createType83 = $Create.Nullable($$createType82);
+const $$createType84 = $models.ThreadSummaryResult.createFrom;
+const $$createType85 = $Create.Nullable($$createType84);
+const $$createType86 = $models.SyncResultDTO.createFrom;
+const $$createType87 = $Create.Nullable($$createType86);
+const $$createType88 = $Create.Array($$createType86);

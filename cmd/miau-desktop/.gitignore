@@ -1,1 +1,12 @@
-build/
+# Ignore build outputs but keep config
+build/bin/
+build/*.exe
+build/*.app
+build/*.dmg
+
+# Keep config files
+!build/config.yml
+!build/appicon.png
+
+# Binaries
+bin/

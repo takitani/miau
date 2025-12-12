@@ -2243,6 +2243,109 @@ export class HourlyStatsDTO {
 }
 
 /**
+ * NewAccountConfigDTO represents the configuration for a new account
+ */
+export class NewAccountConfigDTO {
+    /**
+     * Creates a new NewAccountConfigDTO instance.
+     * @param {Partial<NewAccountConfigDTO>} [$$source = {}] - The source object to create the NewAccountConfigDTO.
+     */
+    constructor($$source = {}) {
+        if (!("email" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["email"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("authType" in $$source)) {
+            /**
+             * "password" or "oauth2"
+             * @member
+             * @type {string}
+             */
+            this["authType"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["password"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["clientId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["clientSecret"] = undefined;
+        }
+        if (!("imapHost" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["imapHost"] = "";
+        }
+        if (!("imapPort" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["imapPort"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["smtpHost"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["smtpPort"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * "smtp" or "gmail_api"
+             * @member
+             * @type {string | undefined}
+             */
+            this["sendMethod"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new NewAccountConfigDTO instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {NewAccountConfigDTO}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new NewAccountConfigDTO(/** @type {Partial<NewAccountConfigDTO>} */($$parsedSource));
+    }
+}
+
+/**
  * ResponseTimeStatsDTO contains response time statistics
  */
 export class ResponseTimeStatsDTO {
@@ -2284,6 +2387,124 @@ export class ResponseTimeStatsDTO {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ResponseTimeStatsDTO(/** @type {Partial<ResponseTimeStatsDTO>} */($$parsedSource));
+    }
+}
+
+/**
+ * SchedulePresetDTO represents a schedule send preset option
+ */
+export class SchedulePresetDTO {
+    /**
+     * Creates a new SchedulePresetDTO instance.
+     * @param {Partial<SchedulePresetDTO>} [$$source = {}] - The source object to create the SchedulePresetDTO.
+     */
+    constructor($$source = {}) {
+        if (!("preset" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["preset"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("description" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description"] = "";
+        }
+        if (!("time" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["time"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SchedulePresetDTO instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SchedulePresetDTO}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SchedulePresetDTO(/** @type {Partial<SchedulePresetDTO>} */($$parsedSource));
+    }
+}
+
+/**
+ * ScheduledDraftDTO represents a scheduled draft
+ */
+export class ScheduledDraftDTO {
+    /**
+     * Creates a new ScheduledDraftDTO instance.
+     * @param {Partial<ScheduledDraftDTO>} [$$source = {}] - The source object to create the ScheduledDraftDTO.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["id"] = 0;
+        }
+        if (!("to" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["to"] = "";
+        }
+        if (!("subject" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["subject"] = "";
+        }
+        if (!("scheduledSendAt" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time | null}
+             */
+            this["scheduledSendAt"] = null;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["createdAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ScheduledDraftDTO instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ScheduledDraftDTO}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ScheduledDraftDTO(/** @type {Partial<ScheduledDraftDTO>} */($$parsedSource));
     }
 }
 
@@ -2599,6 +2820,117 @@ export class SettingsDTO {
             $$parsedSource["syncFolders"] = $$createField0_0($$parsedSource["syncFolders"]);
         }
         return new SettingsDTO(/** @type {Partial<SettingsDTO>} */($$parsedSource));
+    }
+}
+
+/**
+ * SnoozePresetDTO represents a snooze preset option
+ */
+export class SnoozePresetDTO {
+    /**
+     * Creates a new SnoozePresetDTO instance.
+     * @param {Partial<SnoozePresetDTO>} [$$source = {}] - The source object to create the SnoozePresetDTO.
+     */
+    constructor($$source = {}) {
+        if (!("preset" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["preset"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("description" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description"] = "";
+        }
+        if (!("time" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["time"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SnoozePresetDTO instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SnoozePresetDTO}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SnoozePresetDTO(/** @type {Partial<SnoozePresetDTO>} */($$parsedSource));
+    }
+}
+
+/**
+ * SnoozedEmailDTO represents a snoozed email
+ */
+export class SnoozedEmailDTO {
+    /**
+     * Creates a new SnoozedEmailDTO instance.
+     * @param {Partial<SnoozedEmailDTO>} [$$source = {}] - The source object to create the SnoozedEmailDTO.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["id"] = 0;
+        }
+        if (!("emailId" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["emailId"] = 0;
+        }
+        if (!("snoozedAt" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["snoozedAt"] = null;
+        }
+        if (!("snoozeUntil" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["snoozeUntil"] = null;
+        }
+        if (!("preset" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["preset"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SnoozedEmailDTO instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SnoozedEmailDTO}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SnoozedEmailDTO(/** @type {Partial<SnoozedEmailDTO>} */($$parsedSource));
     }
 }
 

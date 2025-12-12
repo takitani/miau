@@ -1,0 +1,23 @@
+# Wails v3 Application Configuration
+version: "3"
+
+# Application info
+name: "miau"
+outputfilename: "miau-desktop"
+
+# Build settings
+rootPath: "."
+
+# Frontend configuration
+frontend:
+  dir: "frontend"
+  install: "npm install"
+  build: "npm run build"
+  dev:
+    url: "http://localhost:9245"
+    cmd: "npm run dev -- --port 9245"
+
+# Author info
+author:
+  name: "miau"
+  email: "miau@example.com"

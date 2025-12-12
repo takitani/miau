@@ -657,6 +657,27 @@ func GetScheduledDraftsReady() ([]Draft, error) {
 	return drafts, err
 }
 
+// GetScheduledDrafts busca todos drafts agendados de uma conta
+func GetScheduledDrafts(accountID int64) ([]Draft, error) {
+	var drafts []Draft
+	err := db.Select(&drafts, `
+		SELECT * FROM drafts
+		WHERE account_id = ? AND status = 'scheduled'
+		ORDER BY scheduled_send_at ASC`,
+		accountID)
+	return drafts, err
+}
+
+// CountScheduledDrafts conta drafts agendados de uma conta
+func CountScheduledDrafts(accountID int64) (int, error) {
+	var count int
+	err := db.Get(&count, `
+		SELECT COUNT(*) FROM drafts
+		WHERE account_id = ? AND status = 'scheduled'`,
+		accountID)
+	return count, err
+}
+
 // ScheduleDraft agenda um draft para envio
 func ScheduleDraft(id int64, sendAt time.Time) error {
 	_, err := db.Exec(`

@@ -387,3 +387,61 @@ type QuickCommandInfo struct {
 	Args        []string // Possible arguments
 	NeedsEmail  bool     // Requires email context
 }
+
+// ============================================================================
+// SNOOZE TYPES
+// ============================================================================
+
+// SnoozePreset represents a predefined snooze duration
+type SnoozePreset string
+
+const (
+	SnoozeLaterToday  SnoozePreset = "later_today"  // +4 hours
+	SnoozeTomorrow    SnoozePreset = "tomorrow"     // Tomorrow 9 AM
+	SnoozeThisWeekend SnoozePreset = "this_weekend" // Saturday 9 AM
+	SnoozeNextWeek    SnoozePreset = "next_week"    // Next Monday 9 AM
+	SnoozeNextMonth   SnoozePreset = "next_month"   // 1st of next month 9 AM
+	SnoozeCustom      SnoozePreset = "custom"       // Custom time
+)
+
+// SnoozedEmail represents an email that has been snoozed
+type SnoozedEmail struct {
+	ID          int64
+	EmailID     int64
+	AccountID   int64
+	SnoozedAt   time.Time
+	SnoozeUntil time.Time
+	Preset      SnoozePreset
+	Processed   bool
+	Email       *EmailMetadata // Populated when listing snoozed emails
+}
+
+// SnoozePresetInfo provides display information for snooze presets
+type SnoozePresetInfo struct {
+	Preset      SnoozePreset
+	Label       string    // e.g., "Later today"
+	Description string    // e.g., "4:00 PM"
+	Time        time.Time // Calculated target time
+}
+
+// ============================================================================
+// SCHEDULE SEND TYPES
+// ============================================================================
+
+// SchedulePreset represents a predefined schedule time
+type SchedulePreset string
+
+const (
+	ScheduleTomorrowMorning   SchedulePreset = "tomorrow_morning"   // Tomorrow 9 AM
+	ScheduleTomorrowAfternoon SchedulePreset = "tomorrow_afternoon" // Tomorrow 2 PM
+	ScheduleMondayMorning     SchedulePreset = "monday_morning"     // Next Monday 9 AM
+	ScheduleCustom            SchedulePreset = "custom"             // Custom time
+)
+
+// SchedulePresetInfo provides display information for schedule presets
+type SchedulePresetInfo struct {
+	Preset      SchedulePreset
+	Label       string    // e.g., "Tomorrow morning"
+	Description string    // e.g., "9:00 AM"
+	Time        time.Time // Calculated target time
+}

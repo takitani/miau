@@ -1080,6 +1080,13 @@ func scheduleDraftSend() tea.Cmd {
 	})
 }
 
+// scheduleSnoozeCheck agenda verificação de snoozes prontos
+func scheduleSnoozeCheck() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return snoozeTickMsg{}
+	})
+}
+
 // scheduleAutoRefresh agenda o próximo auto-refresh
 func scheduleAutoRefresh() tea.Cmd {
 	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
@@ -1310,6 +1317,75 @@ func (m Model) createScheduledDraft() tea.Cmd {
 		var delay = time.Duration(cfg.Compose.SendDelaySeconds) * time.Second
 		var sendAt = time.Now().Add(delay)
 		draft.ScheduledSendAt = sql.NullTime{Time: sendAt, Valid: true}
+
+		var draftID, err2 = storage.CreateDraft(draft)
+		if err2 != nil {
+			return draftCreatedMsg{err: err2}
+		}
+
+		draft.ID = draftID
+		return draftScheduledMsg{draft: draft, sendAt: sendAt, err: nil}
+	}
+}
+
+// createScheduledDraftWithTime cria um draft agendado para uma hora específica
+func (m Model) createScheduledDraftWithTime(sendAt time.Time) tea.Cmd {
+	return func() tea.Msg {
+		var cfg, err = config.Load()
+		if err != nil {
+			return draftCreatedMsg{err: err}
+		}
+
+		var to = m.composeTo.Value()
+		var subject = m.composeSubject.Value()
+		var bodyText = m.composeBodyText
+
+		// Determina formato e prepara corpo
+		var isHTML = cfg.Compose.Format != "plain"
+		var bodyHTML string
+
+		if isHTML {
+			bodyHTML = "<html><body>" + strings.ReplaceAll(bodyText, "\n", "<br>") + "</body></html>"
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.HTML != "" {
+				bodyHTML = strings.Replace(bodyHTML, "</body></html>",
+					"<br><br>"+m.account.Signature.HTML+"</body></html>", 1)
+			}
+		} else {
+			if m.account.Signature != nil && m.account.Signature.Enabled && m.account.Signature.Text != "" {
+				bodyText = bodyText + "\n\n--\n" + m.account.Signature.Text
+			}
+		}
+
+		// Threading headers
+		var inReplyTo, references string
+		var replyToEmailID sql.NullInt64
+		if m.composeReplyTo != nil && m.composeReplyTo.MessageID.Valid {
+			inReplyTo = m.composeReplyTo.MessageID.String
+			references = m.composeReplyTo.MessageID.String
+			replyToEmailID = sql.NullInt64{Int64: m.composeReplyTo.ID, Valid: true}
+		}
+
+		// Classificação
+		var classification string
+		if m.composeClassification > 0 && m.composeClassification < len(smtp.Classifications) {
+			classification = smtp.Classifications[m.composeClassification]
+		}
+
+		// Cria draft agendado
+		var draft = &storage.Draft{
+			AccountID:        m.dbAccount.ID,
+			ToAddresses:      to,
+			Subject:          subject,
+			BodyHTML:         sql.NullString{String: bodyHTML, Valid: bodyHTML != ""},
+			BodyText:         sql.NullString{String: bodyText, Valid: bodyText != ""},
+			Classification:   sql.NullString{String: classification, Valid: classification != ""},
+			InReplyTo:        sql.NullString{String: inReplyTo, Valid: inReplyTo != ""},
+			ReferenceIDs:     sql.NullString{String: references, Valid: references != ""},
+			ReplyToEmailID:   replyToEmailID,
+			Status:           storage.DraftStatusScheduled,
+			GenerationSource: "manual",
+			ScheduledSendAt:  sql.NullTime{Time: sendAt, Valid: true},
+		}
 
 		var draftID, err2 = storage.CreateDraft(draft)
 		if err2 != nil {
@@ -2320,6 +2396,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Compose mode
 		if m.showCompose {
+			// Handle schedule preset picker first
+			if m.showSchedulePresets {
+				switch msg.String() {
+				case "esc":
+					m.showSchedulePresets = false
+					return m, nil
+				case "up", "k":
+					if m.selectedSchedulePreset > 0 {
+						m.selectedSchedulePreset--
+					}
+					return m, nil
+				case "down", "j":
+					if m.selectedSchedulePreset < len(m.schedulePresets)-1 {
+						m.selectedSchedulePreset++
+					}
+					return m, nil
+				case "enter":
+					// Schedule with selected preset
+					if m.selectedSchedulePreset >= 0 && m.selectedSchedulePreset < len(m.schedulePresets) {
+						var preset = m.schedulePresets[m.selectedSchedulePreset]
+						m.showSchedulePresets = false
+						m.composeSending = true
+						return m, m.createScheduledDraftWithTime(preset.Time)
+					}
+					return m, nil
+				}
+				return m, nil
+			}
+
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -2367,6 +2472,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.composeSending = true
 				return m, m.createScheduledDraft()
+			case "ctrl+l":
+				// Mostra/oculta picker de schedule presets
+				if m.composeSending {
+					return m, nil
+				}
+				var to = strings.TrimSpace(m.composeTo.Value())
+				var subject = strings.TrimSpace(m.composeSubject.Value())
+				if to == "" || subject == "" {
+					return m, nil
+				}
+				if !m.showSchedulePresets {
+					// Carrega presets do serviço
+					if m.app != nil {
+						m.schedulePresets = m.app.Schedule().GetSchedulePresets()
+					}
+					m.showSchedulePresets = true
+					m.selectedSchedulePreset = 0
+				} else {
+					m.showSchedulePresets = false
+				}
+				return m, nil
 			}
 			// Atualiza input focado
 			var cmd tea.Cmd
@@ -2891,6 +3017,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Sempre vai para ready quando temos emails do cache
 		m.state = stateReady
+		// Inicia verificação de snoozes
+		return m, scheduleSnoozeCheck()
 
 	case configSavedMsg:
 		return m, nil
@@ -3317,6 +3445,32 @@ Se houver rejeição, você será alertado.`, msg.to, msg.host, msg.port)
 			var pending, _ = storage.CountPendingDrafts(m.dbAccount.ID)
 			if pending > 0 {
 				return m, scheduleDraftSend()
+			}
+		}
+		return m, nil
+
+	// === SNOOZE HANDLER ===
+
+	case snoozeTickMsg:
+		// Verifica se há snoozes prontos para despertar
+		if m.app == nil {
+			return m, scheduleSnoozeCheck()
+		}
+		var processed, err = m.app.Snooze().ProcessDueSnoozes(context.Background())
+		if err != nil {
+			m.log("❌ Erro ao processar snoozes: %v", err)
+			return m, scheduleSnoozeCheck()
+		}
+		if processed > 0 {
+			m.log("⏰ %d email(s) despertado(s) do snooze", processed)
+			// Recarrega emails para mostrar os despertados
+			return m, tea.Batch(m.loadEmailsFromDB(), scheduleSnoozeCheck())
+		}
+		// Verifica se ainda há snoozes pendentes
+		if m.dbAccount != nil {
+			var count, _ = m.app.Snooze().GetSnoozedEmailsCount(context.Background())
+			if count > 0 {
+				return m, scheduleSnoozeCheck()
 			}
 		}
 		return m, nil
@@ -4960,8 +5114,10 @@ func (m Model) viewCompose() string {
 	var footer string
 	if m.composeSending {
 		footer = statusStyle.Render(" Enviando... ")
+	} else if m.showSchedulePresets {
+		footer = subtitleStyle.Render(" ↑↓:selecionar  Enter:agendar  Esc:cancelar ")
 	} else {
-		footer = subtitleStyle.Render(" Tab:próximo campo  ←→:classificação  Ctrl+S:enviar  Esc:cancelar ")
+		footer = subtitleStyle.Render(" Tab:próximo campo  ←→:classificação  Ctrl+S:enviar  Ctrl+L:agendar  Esc:cancelar ")
 	}
 
 	var content = lipgloss.JoinVertical(lipgloss.Left,
@@ -4969,7 +5125,41 @@ func (m Model) viewCompose() string {
 		bodyBox,
 	)
 
+	// Schedule presets picker
+	var scheduleSection string
+	if m.showSchedulePresets && len(m.schedulePresets) > 0 {
+		var presetStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FFA500")).
+			Padding(0, 1)
+
+		var presetTitle = infoStyle.Render("Agendar envio para:")
+		var presetItems string
+		for i, preset := range m.schedulePresets {
+			var item string
+			if i == m.selectedSchedulePreset {
+				item = selectedStyle.Render(" → " + preset.Label + " (" + preset.Description + ") ")
+			} else {
+				item = subtitleStyle.Render("   " + preset.Label + " (" + preset.Description + ")")
+			}
+			presetItems += item + "\n"
+		}
+		scheduleSection = presetStyle.Render(presetTitle + "\n" + strings.TrimSuffix(presetItems, "\n"))
+	}
+
 	var box = composeBoxStyle.Width(m.width - 6).Render(content)
+
+	if scheduleSection != "" {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"",
+			box,
+			"",
+			scheduleSection,
+			"",
+			footer,
+		)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

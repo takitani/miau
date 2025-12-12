@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/opik/miau/internal/app"
 	"github.com/opik/miau/internal/auth"
@@ -55,7 +56,17 @@ func (a *App) startup() {
 		return
 	}
 
-	a.account = &a.cfg.Accounts[0]
+	// Find the current account (saved preference or first account)
+	a.account = &a.cfg.Accounts[0] // default to first
+	if a.cfg.CurrentAccount != "" {
+		for i := range a.cfg.Accounts {
+			if a.cfg.Accounts[i].Email == a.cfg.CurrentAccount {
+				a.account = &a.cfg.Accounts[i]
+				slog.Info("Using saved current account", "email", a.account.Email)
+				break
+			}
+		}
+	}
 
 	// Create application instance
 	a.application, err = app.New(a.cfg, a.account, false)
@@ -467,8 +478,399 @@ func (a *App) SetCurrentAccount(email string) error {
 			break
 		}
 	}
+	// Save current account preference to config
+	a.cfg.CurrentAccount = email
 	a.mu.Unlock()
+
+	// Persist to config file
+	if err := config.Save(a.cfg); err != nil {
+		slog.Error("Failed to save current account preference", "error", err)
+		// Don't return error - account switch worked, just preference not saved
+	}
 
 	slog.Info("Account switched successfully", "email", email)
 	return nil
+}
+
+// AddAccount adds a new email account to the configuration
+func (a *App) AddAccount(newAccount NewAccountConfigDTO) error {
+	slog.Info("Adding new account", "email", newAccount.Email)
+
+	// Validate required fields
+	if newAccount.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if newAccount.ImapHost == "" {
+		return fmt.Errorf("IMAP host is required")
+	}
+	if newAccount.ImapPort <= 0 {
+		newAccount.ImapPort = 993
+	}
+
+	// Load current config or create new
+	var cfg *config.Config
+	var err error
+	if a.cfg != nil {
+		cfg = a.cfg
+	} else {
+		cfg, err = config.Load()
+		if err != nil || cfg == nil {
+			cfg = config.DefaultConfig()
+		}
+	}
+
+	// Check if account already exists
+	for _, acc := range cfg.Accounts {
+		if acc.Email == newAccount.Email {
+			return fmt.Errorf("account %s already exists", newAccount.Email)
+		}
+	}
+
+	// Create the new account
+	var account = config.Account{
+		Name:  newAccount.Name,
+		Email: newAccount.Email,
+		IMAP: config.ImapConfig{
+			Host: newAccount.ImapHost,
+			Port: newAccount.ImapPort,
+			TLS:  newAccount.ImapPort == 993,
+		},
+	}
+
+	// Set auth type and credentials
+	if newAccount.AuthType == "oauth2" {
+		account.AuthType = config.AuthTypeOAuth2
+		account.OAuth2 = &config.OAuth2Config{
+			ClientID:     newAccount.ClientID,
+			ClientSecret: newAccount.ClientSecret,
+		}
+		// Default to Gmail API for OAuth2 accounts
+		if newAccount.SendMethod == "" {
+			account.SendMethod = config.SendMethodGmailAPI
+		} else {
+			account.SendMethod = config.SendMethod(newAccount.SendMethod)
+		}
+	} else {
+		account.AuthType = config.AuthTypePassword
+		account.Password = newAccount.Password
+		account.SendMethod = config.SendMethodSMTP
+		// Set SMTP config for password auth
+		if newAccount.SmtpHost != "" {
+			account.SMTP = config.SMTPConfig{
+				Host: newAccount.SmtpHost,
+				Port: newAccount.SmtpPort,
+			}
+		}
+	}
+
+	// Add account to config
+	cfg.Accounts = append(cfg.Accounts, account)
+
+	// Save config
+	if err := config.Save(cfg); err != nil {
+		slog.Error("Failed to save config", "error", err)
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Update local reference
+	a.cfg = cfg
+
+	slog.Info("Account added successfully", "email", newAccount.Email)
+	return nil
+}
+
+// StartOAuth2AuthForNewAccount initiates OAuth2 authentication for a new account
+// This should be called after AddAccount for OAuth2 accounts
+func (a *App) StartOAuth2AuthForNewAccount(email, clientID, clientSecret string) error {
+	slog.Info("Starting OAuth2 authentication for new account", "email", email)
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("OAuth2 credentials required")
+	}
+
+	var oauth2Cfg = auth.GetOAuth2Config(clientID, clientSecret)
+
+	// This will open browser and wait for callback
+	token, err := auth.AuthenticateWithBrowser(oauth2Cfg)
+	if err != nil {
+		slog.Error("OAuth2 authentication failed", "error", err)
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// Save token
+	var tokenPath = auth.GetTokenPath(config.GetConfigPath(), email)
+	if err := auth.SaveToken(tokenPath, token); err != nil {
+		slog.Error("Failed to save token", "error", err)
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	slog.Info("OAuth2 token saved successfully for new account", "email", email)
+	return nil
+}
+
+// GetKnownImapHost returns the known IMAP host for a domain
+func (a *App) GetKnownImapHost(email string) map[string]interface{} {
+	var result = map[string]interface{}{
+		"imapHost":   "imap.gmail.com",
+		"imapPort":   993,
+		"smtpHost":   "smtp.gmail.com",
+		"smtpPort":   587,
+		"isGoogle":   false,
+		"sendMethod": "smtp",
+	}
+
+	if email == "" {
+		return result
+	}
+
+	var parts = make([]string, 0)
+	for _, ch := range email {
+		if ch == '@' {
+			parts = append(parts, "")
+		} else if len(parts) > 0 {
+			parts[len(parts)-1] += string(ch)
+		}
+	}
+
+	if len(parts) == 0 {
+		return result
+	}
+
+	var domain = parts[0]
+
+	// Known hosts mapping
+	var knownHosts = map[string]map[string]interface{}{
+		"gmail.com": {
+			"imapHost":   "imap.gmail.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.gmail.com",
+			"smtpPort":   587,
+			"isGoogle":   true,
+			"sendMethod": "gmail_api",
+		},
+		"googlemail.com": {
+			"imapHost":   "imap.gmail.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.gmail.com",
+			"smtpPort":   587,
+			"isGoogle":   true,
+			"sendMethod": "gmail_api",
+		},
+		"outlook.com": {
+			"imapHost":   "outlook.office365.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.office365.com",
+			"smtpPort":   587,
+			"isGoogle":   false,
+			"sendMethod": "smtp",
+		},
+		"hotmail.com": {
+			"imapHost":   "outlook.office365.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.office365.com",
+			"smtpPort":   587,
+			"isGoogle":   false,
+			"sendMethod": "smtp",
+		},
+		"yahoo.com": {
+			"imapHost":   "imap.mail.yahoo.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.mail.yahoo.com",
+			"smtpPort":   587,
+			"isGoogle":   false,
+			"sendMethod": "smtp",
+		},
+		"icloud.com": {
+			"imapHost":   "imap.mail.me.com",
+			"imapPort":   993,
+			"smtpHost":   "smtp.mail.me.com",
+			"smtpPort":   587,
+			"isGoogle":   false,
+			"sendMethod": "smtp",
+		},
+	}
+
+	if hostConfig, ok := knownHosts[domain]; ok {
+		return hostConfig
+	}
+
+	// Default assumes Google Workspace for unknown domains
+	result["isGoogle"] = true
+	result["sendMethod"] = "gmail_api"
+	return result
+}
+
+// ============================================================================
+// SNOOZE OPERATIONS
+// ============================================================================
+
+// GetSnoozePresets returns available snooze presets
+func (a *App) GetSnoozePresets() []SnoozePresetDTO {
+	if a.application == nil {
+		return nil
+	}
+
+	var presets = a.application.Snooze().GetSnoozePresets()
+	var result []SnoozePresetDTO
+	for _, p := range presets {
+		result = append(result, SnoozePresetDTO{
+			Preset:      string(p.Preset),
+			Label:       p.Label,
+			Description: p.Description,
+			Time:        p.Time,
+		})
+	}
+	return result
+}
+
+// SnoozeEmail snoozes an email with a preset
+func (a *App) SnoozeEmail(emailID int64, preset string) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var snoozePreset = ports.SnoozePreset(preset)
+	return a.application.Snooze().SnoozeEmailPreset(context.Background(), emailID, snoozePreset)
+}
+
+// SnoozeEmailCustom snoozes an email until a custom time
+func (a *App) SnoozeEmailCustom(emailID int64, untilTimeStr string) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	var until, err = parseTime(untilTimeStr)
+	if err != nil {
+		return fmt.Errorf("invalid time format: %w", err)
+	}
+
+	return a.application.Snooze().SnoozeEmail(context.Background(), emailID, until)
+}
+
+// UnsnoozeEmail removes snooze from an email
+func (a *App) UnsnoozeEmail(emailID int64) error {
+	if a.application == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	return a.application.Snooze().UnsnoozeEmail(context.Background(), emailID)
+}
+
+// GetSnoozedEmails returns all snoozed emails
+func (a *App) GetSnoozedEmails() ([]SnoozedEmailDTO, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var snoozes, err = a.application.Snooze().GetSnoozedEmails(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	var result []SnoozedEmailDTO
+	for _, s := range snoozes {
+		result = append(result, SnoozedEmailDTO{
+			ID:          s.ID,
+			EmailID:     s.EmailID,
+			SnoozedAt:   s.SnoozedAt,
+			SnoozeUntil: s.SnoozeUntil,
+			Preset:      string(s.Preset),
+		})
+	}
+	return result, nil
+}
+
+// GetSnoozedEmailsCount returns the count of snoozed emails
+func (a *App) GetSnoozedEmailsCount() (int, error) {
+	if a.application == nil {
+		return 0, fmt.Errorf("application not initialized")
+	}
+
+	return a.application.Snooze().GetSnoozedEmailsCount(context.Background())
+}
+
+// IsEmailSnoozed checks if an email is currently snoozed
+func (a *App) IsEmailSnoozed(emailID int64) (bool, error) {
+	if a.application == nil {
+		return false, fmt.Errorf("application not initialized")
+	}
+
+	return a.application.Snooze().IsEmailSnoozed(context.Background(), emailID)
+}
+
+// ============================================================================
+// SCHEDULE SEND OPERATIONS
+// ============================================================================
+
+// GetSchedulePresets returns available schedule send presets
+func (a *App) GetSchedulePresets() []SchedulePresetDTO {
+	if a.application == nil {
+		return nil
+	}
+
+	var presets = a.application.Schedule().GetSchedulePresets()
+	var result []SchedulePresetDTO
+	for _, p := range presets {
+		result = append(result, SchedulePresetDTO{
+			Preset:      string(p.Preset),
+			Label:       p.Label,
+			Description: p.Description,
+			Time:        p.Time,
+		})
+	}
+	return result
+}
+
+// GetScheduledDrafts returns all scheduled drafts
+func (a *App) GetScheduledDrafts() ([]ScheduledDraftDTO, error) {
+	if a.application == nil {
+		return nil, fmt.Errorf("application not initialized")
+	}
+
+	var drafts, err = a.application.Schedule().GetScheduledDrafts(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ScheduledDraftDTO
+	for _, d := range drafts {
+		result = append(result, ScheduledDraftDTO{
+			ID:              d.ID,
+			To:              d.ToAddresses,
+			Subject:         d.Subject,
+			ScheduledSendAt: d.ScheduledSendAt,
+			Status:          string(d.Status),
+			CreatedAt:       d.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
+// GetScheduledDraftsCount returns the count of scheduled drafts
+func (a *App) GetScheduledDraftsCount() (int, error) {
+	if a.application == nil {
+		return 0, fmt.Errorf("application not initialized")
+	}
+
+	return a.application.Schedule().GetScheduledDraftsCount(context.Background())
+}
+
+// Helper to parse time from frontend format
+func parseTime(timeStr string) (time.Time, error) {
+	// Try multiple formats
+	var formats = []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04",
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse time: %s", timeStr)
 }

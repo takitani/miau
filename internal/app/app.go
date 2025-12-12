@@ -51,6 +51,8 @@ type Application struct {
 	calendarService   *services.CalendarService
 	aiService         *services.AIService
 	basecampService   *services.BasecampService
+	snoozeService     *services.SnoozeService
+	scheduleService   *services.ScheduleService
 
 	// Plugin system
 	pluginStorage  *storage.PluginStorage
@@ -201,6 +203,14 @@ func (a *Application) Start() error {
 	// Create Basecamp service
 	a.basecampService = services.NewBasecampService(a.eventBus)
 
+	// Create snooze service
+	a.snoozeService = services.NewSnoozeService(a.storageAdapter, a.eventBus)
+	a.snoozeService.SetAccount(accountInfo)
+
+	// Create schedule service
+	a.scheduleService = services.NewScheduleService(a.storageAdapter, a.sendService, a.eventBus)
+	a.scheduleService.SetAccount(accountInfo)
+
 	// Wire up bidirectional Task ↔ Calendar sync
 	a.taskService.SetCalendarSync(a.calendarService)
 
@@ -319,6 +329,16 @@ func (a *Application) Calendar() ports.CalendarService {
 // Basecamp returns the Basecamp service
 func (a *Application) Basecamp() ports.BasecampService {
 	return a.basecampService
+}
+
+// Snooze returns the snooze service
+func (a *Application) Snooze() ports.SnoozeService {
+	return a.snoozeService
+}
+
+// Schedule returns the schedule service
+func (a *Application) Schedule() ports.ScheduleService {
+	return a.scheduleService
 }
 
 // Plugins returns the plugin service
@@ -442,6 +462,8 @@ func (a *Application) SetCurrentAccount(email string) error {
 	a.threadService.SetAccount(accountInfo)
 	a.aiService.SetAccount(accountInfo)
 	a.pluginService.SetAccount(accountInfo)
+	a.snoozeService.SetAccount(accountInfo)
+	a.scheduleService.SetAccount(accountInfo)
 
 	// Step 7: Update IMAP and Gmail in services that need them
 	a.syncService.SetIMAPAdapter(a.imapAdapter)

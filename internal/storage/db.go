@@ -570,6 +570,11 @@ func Init(dbPath string) error {
 		return fmt.Errorf("erro na migração AI summaries: %w", err)
 	}
 
+	// Migração: tabela de snooze
+	if err := migrateSnoozedEmails(); err != nil {
+		return fmt.Errorf("erro na migração snoozed_emails: %w", err)
+	}
+
 	return nil
 }
 
@@ -755,6 +760,30 @@ func migrateAISummaries() error {
 	}
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_thread_summaries_thread ON thread_summaries(thread_id)")
 
+	return nil
+}
+
+// migrateSnoozedEmails cria tabela de emails snoozeados
+func migrateSnoozedEmails() error {
+	var _, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS snoozed_emails (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_id INTEGER NOT NULL UNIQUE,
+			account_id INTEGER NOT NULL,
+			snoozed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			snooze_until DATETIME NOT NULL,
+			preset TEXT,
+			processed BOOLEAN DEFAULT 0,
+			FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
+			FOREIGN KEY (account_id) REFERENCES accounts(id)
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_snoozed_emails_until ON snoozed_emails(snooze_until)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_snoozed_emails_account ON snoozed_emails(account_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_snoozed_emails_processed ON snoozed_emails(processed)")
 	return nil
 }
 

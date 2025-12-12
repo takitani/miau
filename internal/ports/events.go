@@ -62,6 +62,10 @@ const (
 
 	// Account events
 	EventTypeAccountSwitched EventType = "account_switched"
+
+	// Snooze events
+	EventTypeEmailSnoozed   EventType = "email_snoozed"
+	EventTypeEmailUnsnoozed EventType = "email_unsnoozed"
 )
 
 // BaseEvent provides common event fields

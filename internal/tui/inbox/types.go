@@ -78,6 +78,10 @@ type Model struct {
 	composeSending        bool
 	composeReplyTo        *storage.EmailSummary
 	composeClassification int // índice em smtp.Classifications
+	// Schedule send
+	showSchedulePresets    bool
+	selectedSchedulePreset int
+	schedulePresets        []ports.SchedulePresetInfo
 	// Debug
 	debugMode   bool
 	debugLogs   []string

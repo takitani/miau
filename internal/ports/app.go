@@ -27,6 +27,8 @@ type App interface {
 	Calendar() CalendarService
 	Basecamp() BasecampService
 	Plugins() PluginService
+	Snooze() SnoozeService
+	Schedule() ScheduleService
 
 	// Events
 	Events() EventBus

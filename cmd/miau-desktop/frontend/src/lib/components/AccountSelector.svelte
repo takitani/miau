@@ -2,18 +2,20 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { GetCurrentAccount, GetAllAccounts, SetCurrentAccount } from '../../../bindings/github.com/opik/miau/internal/desktop/app.js';
   import { info } from '../stores/debug.js';
+  import AddAccountModal from './AddAccountModal.svelte';
 
   const dispatch = createEventDispatcher();
 
-  var currentAccount = null;
-  var accounts = [];
-  var isOpen = false;
-  var isLoading = false;
+  let currentAccount = null;
+  let accounts = [];
+  let isOpen = false;
+  let isLoading = false;
+  let showAddAccountModal = false;
 
   // Get initials from email or name
   function getInitials(account) {
     if (account.name) {
-      var parts = account.name.split(' ');
+      const parts = account.name.split(' ');
       if (parts.length >= 2) {
         return (parts[0][0] + parts[1][0]).toUpperCase();
       }
@@ -60,9 +62,20 @@
 
   // Toggle dropdown
   function toggleDropdown() {
-    if (accounts.length > 1) {
-      isOpen = !isOpen;
-    }
+    isOpen = !isOpen;
+  }
+
+  // Open add account modal
+  function openAddAccount() {
+    isOpen = false;
+    showAddAccountModal = true;
+  }
+
+  // Handle account added
+  function handleAccountAdded(event) {
+    showAddAccountModal = false;
+    loadAccounts();
+    dispatch('switched', { email: event.detail.email });
   }
 
   // Close on click outside
@@ -79,12 +92,12 @@
   });
 </script>
 
-<div class="account-selector" class:has-multiple={accounts.length > 1}>
+<div class="account-selector" class:has-multiple={true}>
   <button
     class="current-account"
     on:click={toggleDropdown}
-    disabled={isLoading || accounts.length <= 1}
-    title={currentAccount ? `${currentAccount.email}${accounts.length > 1 ? ' (click to switch)' : ''}` : 'Loading...'}
+    disabled={isLoading}
+    title={currentAccount ? `${currentAccount.email} (click to manage accounts)` : 'Loading...'}
   >
     {#if currentAccount}
       <div class="avatar">
@@ -94,11 +107,9 @@
         <span class="account-name">{getDisplayName(currentAccount)}</span>
         <span class="account-email">{currentAccount.email}</span>
       </div>
-      {#if accounts.length > 1}
-        <svg class="chevron" class:open={isOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 9l6 6 6-6"/>
-        </svg>
-      {/if}
+      <svg class="chevron" class:open={isOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 9l6 6 6-6"/>
+      </svg>
     {:else}
       <div class="avatar loading">...</div>
       <div class="account-info">
@@ -107,7 +118,7 @@
     {/if}
   </button>
 
-  {#if isOpen && accounts.length > 1}
+  {#if isOpen}
     <div class="dropdown">
       {#each accounts as account}
         <button
@@ -130,9 +141,27 @@
           {/if}
         </button>
       {/each}
+      <div class="dropdown-divider"></div>
+      <button class="account-option add-account" on:click={openAddAccount}>
+        <div class="avatar add">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </div>
+        <div class="account-info">
+          <span class="account-name">Adicionar conta</span>
+          <span class="account-email">Configurar nova conta de email</span>
+        </div>
+      </button>
     </div>
   {/if}
 </div>
+
+<AddAccountModal
+  isOpen={showAddAccountModal}
+  on:close={() => showAddAccountModal = false}
+  on:added={handleAccountAdded}
+/>
 
 <style>
   .account-selector {
@@ -295,5 +324,29 @@
   .check-icon {
     color: var(--accent-primary);
     flex-shrink: 0;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: var(--space-xs) 0;
+  }
+
+  .account-option.add-account {
+    color: var(--accent-primary);
+  }
+
+  .account-option.add-account .avatar.add {
+    background: transparent;
+    border: 2px dashed var(--accent-primary);
+    color: var(--accent-primary);
+  }
+
+  .account-option.add-account:hover .avatar.add {
+    background: rgba(255, 107, 107, 0.1);
+  }
+
+  .account-option.add-account .account-name {
+    color: var(--accent-primary);
   }
 </style>

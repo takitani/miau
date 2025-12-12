@@ -56,6 +56,21 @@ type AccountDTO struct {
 	Name  string `json:"name"`
 }
 
+// NewAccountConfigDTO represents the configuration for a new account
+type NewAccountConfigDTO struct {
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	AuthType     string `json:"authType"` // "password" or "oauth2"
+	Password     string `json:"password,omitempty"`
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+	ImapHost     string `json:"imapHost"`
+	ImapPort     int    `json:"imapPort"`
+	SmtpHost     string `json:"smtpHost,omitempty"`
+	SmtpPort     int    `json:"smtpPort,omitempty"`
+	SendMethod   string `json:"sendMethod,omitempty"` // "smtp" or "gmail_api"
+}
+
 // SendRequest represents an email to send
 type SendRequest struct {
 	To      []string `json:"to"`
@@ -491,4 +506,43 @@ type BasecampAccountDTO struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	Href string `json:"href"`
+}
+
+// ============================================================================
+// SNOOZE & SCHEDULE DTOs
+// ============================================================================
+
+// SnoozePresetDTO represents a snooze preset option
+type SnoozePresetDTO struct {
+	Preset      string    `json:"preset"`
+	Label       string    `json:"label"`
+	Description string    `json:"description"`
+	Time        time.Time `json:"time"`
+}
+
+// SnoozedEmailDTO represents a snoozed email
+type SnoozedEmailDTO struct {
+	ID          int64     `json:"id"`
+	EmailID     int64     `json:"emailId"`
+	SnoozedAt   time.Time `json:"snoozedAt"`
+	SnoozeUntil time.Time `json:"snoozeUntil"`
+	Preset      string    `json:"preset"`
+}
+
+// SchedulePresetDTO represents a schedule send preset option
+type SchedulePresetDTO struct {
+	Preset      string    `json:"preset"`
+	Label       string    `json:"label"`
+	Description string    `json:"description"`
+	Time        time.Time `json:"time"`
+}
+
+// ScheduledDraftDTO represents a scheduled draft
+type ScheduledDraftDTO struct {
+	ID              int64      `json:"id"`
+	To              string     `json:"to"`
+	Subject         string     `json:"subject"`
+	ScheduledSendAt *time.Time `json:"scheduledSendAt"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"createdAt"`
 }

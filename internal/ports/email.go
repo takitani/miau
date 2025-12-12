@@ -1,6 +1,9 @@
 package ports
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // EmailService defines operations for email management.
 // This is the main interface that UI layers use to interact with emails.
@@ -316,4 +319,46 @@ type AttachmentService interface {
 
 	// SaveToFileByPart downloads by part number and saves to a file
 	SaveToFileByPart(ctx context.Context, emailID int64, partNumber, path string) error
+}
+
+// SnoozeService defines operations for email snooze functionality.
+type SnoozeService interface {
+	// SnoozeEmail snoozes an email until specified time
+	SnoozeEmail(ctx context.Context, emailID int64, until time.Time) error
+
+	// SnoozeEmailPreset snoozes using a preset duration
+	SnoozeEmailPreset(ctx context.Context, emailID int64, preset SnoozePreset) error
+
+	// UnsnoozeEmail removes snooze before it triggers
+	UnsnoozeEmail(ctx context.Context, emailID int64) error
+
+	// GetSnoozedEmails returns all currently snoozed emails
+	GetSnoozedEmails(ctx context.Context) ([]SnoozedEmail, error)
+
+	// GetSnoozedEmailsCount returns the count of snoozed emails
+	GetSnoozedEmailsCount(ctx context.Context) (int, error)
+
+	// ProcessDueSnoozes processes snoozes that are due (background job)
+	ProcessDueSnoozes(ctx context.Context) (int, error)
+
+	// GetSnoozePresets returns all available presets with calculated times
+	GetSnoozePresets() []SnoozePresetInfo
+
+	// IsEmailSnoozed checks if an email is currently snoozed
+	IsEmailSnoozed(ctx context.Context, emailID int64) (bool, error)
+}
+
+// ScheduleService defines operations for scheduled email sending.
+type ScheduleService interface {
+	// GetSchedulePresets returns all available schedule presets with calculated times
+	GetSchedulePresets() []SchedulePresetInfo
+
+	// GetScheduledDrafts returns all scheduled drafts
+	GetScheduledDrafts(ctx context.Context) ([]Draft, error)
+
+	// GetScheduledDraftsCount returns the count of scheduled drafts
+	GetScheduledDraftsCount(ctx context.Context) (int, error)
+
+	// ProcessDueSchedules sends emails that are due (background job)
+	ProcessDueSchedules(ctx context.Context) (int, error)
 }

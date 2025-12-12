@@ -87,12 +87,13 @@ type BasecampConfig struct {
 }
 
 type Config struct {
-	Accounts []Account       `yaml:"accounts" mapstructure:"accounts"`
-	Storage  StorageConfig   `yaml:"storage" mapstructure:"storage"`
-	Sync     SyncConfig      `yaml:"sync" mapstructure:"sync"`
-	UI       UIConfig        `yaml:"ui" mapstructure:"ui"`
-	Compose  ComposeConfig   `yaml:"compose" mapstructure:"compose"`
-	Basecamp *BasecampConfig `yaml:"basecamp,omitempty" mapstructure:"basecamp"`
+	Accounts       []Account       `yaml:"accounts" mapstructure:"accounts"`
+	CurrentAccount string          `yaml:"current_account,omitempty" mapstructure:"current_account"` // Email of current account
+	Storage        StorageConfig   `yaml:"storage" mapstructure:"storage"`
+	Sync           SyncConfig      `yaml:"sync" mapstructure:"sync"`
+	UI             UIConfig        `yaml:"ui" mapstructure:"ui"`
+	Compose        ComposeConfig   `yaml:"compose" mapstructure:"compose"`
+	Basecamp       *BasecampConfig `yaml:"basecamp,omitempty" mapstructure:"basecamp"`
 }
 
 var cfg *Config

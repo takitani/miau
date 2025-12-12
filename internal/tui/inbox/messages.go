@@ -111,6 +111,9 @@ type draftSentMsg struct {
 
 type draftSendTickMsg struct{}
 
+// Snooze tick
+type snoozeTickMsg struct{}
+
 // Auto-refresh messages
 type autoRefreshTickMsg struct{}
 

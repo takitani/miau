@@ -27,6 +27,7 @@
   import ThreadView from './lib/components/ThreadView.svelte';
   import { debugEnabled, info, setupDebugEvents } from './lib/stores/debug.js';
   import { layoutMode, initLayoutPreferences } from './lib/stores/layout.js';
+  import { theme } from './lib/stores/theme.js';
   import { NeedsOAuth2Auth, StartOAuth2Auth } from '../bindings/github.com/opik/miau/internal/desktop/app.js';
 
   // Auth state
@@ -150,6 +151,7 @@
   onMount(async () => {
     loadPanelSizes();
     initLayoutPreferences();
+    theme.init();
 
     info('App initializing...');
     setupKeyboardShortcuts();

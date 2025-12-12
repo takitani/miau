@@ -2,6 +2,7 @@
   import { connected, syncing, lastSync, syncEmails, switchToTerminal, autoRefreshInterval, autoRefreshStart, autoRefreshEnabled, newEmailCount, newEmailShowUntil } from '../stores/ui.js';
   import { toggleDebug } from '../stores/debug.js';
   import { onMount, onDestroy } from 'svelte';
+  import ThemeToggle from './ThemeToggle.svelte';
 
   // Timer progress state
   let timerProgress = 0;
@@ -87,6 +88,8 @@
   </div>
 
   <div class="right">
+    <ThemeToggle />
+    <div class="divider"></div>
     <button class="icon-btn" on:click={switchToTerminal} title="Abrir Terminal (T)">
       <span class="icon">⌨</span>
     </button>
@@ -232,5 +235,11 @@
 
   .icon-btn .icon {
     display: block;
+  }
+
+  .divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border-color);
   }
 </style>

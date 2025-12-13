@@ -973,13 +973,14 @@
 
   .html-content {
     background: transparent;
-    padding: 0;
+    padding: var(--space-md);
     color: var(--text-primary);
     font-size: 15px;
     line-height: 1.6;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    border: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
   }
 
   /* AGGRESSIVE reset - remove ALL borders and force text color for dark theme */

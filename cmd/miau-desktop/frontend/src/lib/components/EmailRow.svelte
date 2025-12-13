@@ -182,7 +182,7 @@
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-subtle);
     cursor: pointer;
     transition: background var(--transition-fast);
     position: relative;
@@ -197,11 +197,11 @@
   }
 
   .email-row.checked {
-    background: rgba(102, 126, 234, 0.1);
+    background: var(--bg-selected);
   }
 
   .email-row.checked.selected {
-    background: rgba(102, 126, 234, 0.2);
+    background: var(--bg-selected);
   }
 
   .email-row.drag-selecting {
@@ -225,7 +225,7 @@
     top: 0;
     bottom: 0;
     width: 3px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--accent-primary);
     border-radius: 0 2px 2px 0;
   }
 
@@ -242,7 +242,7 @@
   .checkbox {
     width: 18px;
     height: 18px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 2px solid var(--border-color);
     border-radius: 4px;
     background: transparent;
     cursor: pointer;
@@ -254,13 +254,13 @@
   }
 
   .checkbox:hover {
-    border-color: rgba(102, 126, 234, 0.6);
-    background: rgba(102, 126, 234, 0.1);
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
   }
 
   .checkbox.checked {
-    border-color: #667eea;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
   }
 
   .checkbox svg {

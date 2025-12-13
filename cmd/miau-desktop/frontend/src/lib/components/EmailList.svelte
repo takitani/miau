@@ -127,12 +127,11 @@
     min-width: 22px;
     height: 22px;
     padding: 0 6px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--accent-primary);
     border-radius: 11px;
     font-size: 11px;
     font-weight: 700;
-    color: white;
-    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4);
+    color: var(--btn-primary-text);
   }
 
   .header-right {

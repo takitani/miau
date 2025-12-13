@@ -186,7 +186,7 @@
     if (!showImages && hasExternalImages) {
       processed = processed.replace(
         /<img([^>]*)src=["'](https?:\/\/[^"']+)["']([^>]*)>/gi,
-        '<img$1src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'60\'%3E%3Crect fill=\'%23f1f3f4\' width=\'120\' height=\'60\' rx=\'4\'/%3E%3Ctext x=\'60\' y=\'35\' fill=\'%235f6368\' text-anchor=\'middle\' font-size=\'11\'%3EImage blocked%3C/text%3E%3C/svg%3E" data-blocked-src="$2"$3 style="cursor:pointer;border:1px dashed %23dadce0;" title="External image blocked">'
+        '<img$1src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'60\'%3E%3Crect fill=\'%233c3c3c\' width=\'120\' height=\'60\' rx=\'4\'/%3E%3Ctext x=\'60\' y=\'35\' fill=\'%239aa0a6\' text-anchor=\'middle\' font-size=\'11\'%3EImage blocked%3C/text%3E%3C/svg%3E" data-blocked-src="$2"$3 class="blocked-image" title="External image blocked">'
       );
     }
 
@@ -968,39 +968,56 @@
   /* Email Body */
   .email-body {
     margin-bottom: var(--space-lg);
+    border: none;
   }
 
   .html-content {
-    background: var(--bg-email-content);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
+    background: transparent;
+    padding: 0;
     color: var(--text-primary);
     font-size: 15px;
     line-height: 1.6;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    border: none;
+  }
+
+  /* AGGRESSIVE reset - remove ALL borders and force text color for dark theme */
+  .html-content :global(*) {
+    border: 0 none transparent !important;
+    border-width: 0 !important;
+    border-style: none !important;
+    border-color: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    color: var(--text-primary) !important;
+    background-color: transparent !important;
   }
 
   .html-content :global(a) {
-    color: var(--email-link-color);
+    color: var(--email-link-color) !important;
   }
 
   .html-content :global(img) {
     max-width: 100%;
     height: auto;
-    border-radius: var(--radius-sm);
   }
 
+  .html-content :global(img.blocked-image) {
+    cursor: pointer;
+  }
+
+  /* Only blockquote keeps left border for visual hierarchy */
   .html-content :global(blockquote) {
     margin: var(--space-sm) 0;
     padding-left: var(--space-md);
-    border-left: 3px solid var(--email-quote-border);
-    color: var(--email-quote-text);
+    border-left: 3px solid var(--email-quote-border) !important;
+    color: var(--email-quote-text) !important;
   }
 
   .html-content :global(pre),
   .html-content :global(code) {
-    background: var(--email-code-bg);
+    background: var(--email-code-bg) !important;
     padding: 2px 6px;
     border-radius: var(--radius-sm);
     font-family: 'Roboto Mono', monospace;
@@ -1017,15 +1034,9 @@
     max-width: 100%;
   }
 
-  .html-content :global(td),
-  .html-content :global(th) {
-    border: 1px solid var(--email-table-border);
-    padding: var(--space-sm);
-  }
-
   .html-content :global(hr) {
-    border: none;
-    border-top: 1px solid var(--border-subtle);
+    border: none !important;
+    border-top: 1px solid var(--border-subtle) !important;
     margin: var(--space-md) 0;
   }
 
@@ -1091,8 +1102,8 @@
   }
 
   .attachment-icon.image {
-    background: #e8f5e9;
-    color: #2e7d32;
+    background: rgba(52, 168, 83, 0.15);
+    color: var(--accent-success);
   }
 
   .attachment-info {
@@ -1124,7 +1135,6 @@
     display: flex;
     gap: var(--space-sm);
     padding-top: var(--space-lg);
-    border-top: 1px solid var(--border-subtle);
   }
 
   .reply-action {
@@ -1132,9 +1142,9 @@
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
     font-size: var(--font-sm);
     color: var(--text-secondary);
     transition: all var(--transition-fast);
@@ -1143,7 +1153,7 @@
   .reply-action:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
-    border-color: var(--border-color);
+    border-color: var(--text-muted);
   }
 
   /* Empty State */

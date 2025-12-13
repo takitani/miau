@@ -185,8 +185,8 @@
   }
 
   .new-email-badge {
-    background: #666;
-    color: #fff;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: bold;
@@ -194,8 +194,8 @@
   }
 
   .new-email-badge.has-new {
-    background: #00FF00;
-    color: #000;
+    background: var(--accent-success);
+    color: var(--bg-primary);
     animation: pulse 0.5s ease-in-out infinite alternate;
   }
 

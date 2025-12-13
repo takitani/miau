@@ -983,16 +983,28 @@
     border-radius: var(--radius-md);
   }
 
-  /* AGGRESSIVE reset - remove ALL borders and force text color for dark theme */
+  /* Force text color for dark theme */
   .html-content :global(*) {
-    border: 0 none transparent !important;
-    border-width: 0 !important;
-    border-style: none !important;
-    border-color: transparent !important;
+    color: var(--text-primary) !important;
     outline: none !important;
     box-shadow: none !important;
-    color: var(--text-primary) !important;
-    background-color: transparent !important;
+  }
+
+  /* Remove borders only from table layout elements (the main cause of extra lines) */
+  .html-content :global(table),
+  .html-content :global(td),
+  .html-content :global(th),
+  .html-content :global(tr),
+  .html-content :global(tbody),
+  .html-content :global(thead) {
+    border: none !important;
+    border-width: 0 !important;
+    border-collapse: collapse !important;
+  }
+
+  /* Keep subtle borders on div containers (email cards) */
+  .html-content :global(div) {
+    border-color: var(--border-subtle) !important;
   }
 
   .html-content :global(a) {
